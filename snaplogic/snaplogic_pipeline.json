@@ -1,0 +1,157 @@
+{
+  "snaplogic_pipeline_version": "2.0.0",
+  "pipeline_name": "Autonomous Multi-Agent Enterprise ETL Pipeline",
+  "description": "SnapLogic (Commercial Intelligent Integration Platform - SnapLogic IIP) enterprise pipeline orchestrating File Reader Snap, Iris AI Intake Snap, Data Cleanser & Transformation Snap, SQL Staging & Format Writer Snap, Word Docx Exporter & AI Report Snap, and Power BI Gateway Sync Snap sequentially.",
+  "ai_assistant": {
+    "engine": "SnapLogic Iris AI Integration Assistant",
+    "recommendations_enabled": true,
+    "confidence_threshold": 95.0
+  },
+  "snaps": [
+    {
+      "id": "snap-001-filereader",
+      "type": "com.snaplogic.snaps.binary.FileReader",
+      "name": "File Reader Snap (Raw Intake)",
+      "properties": {
+        "Directory": "/data/raw",
+        "KeepSourceFile": true,
+        "FileFilter": "[^.].*",
+        "PollingInterval": "5 sec"
+      },
+      "routing": {
+        "success": "snap-002-init-pipeline"
+      }
+    },
+    {
+      "id": "snap-002-init-pipeline",
+      "type": "com.snaplogic.snaps.rest.RESTPost",
+      "name": "Trigger Pipeline Start",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/pipeline/start",
+        "ContentType": "application/json",
+        "HTTPRequestHeader": {
+          "Content-Type": "application/json"
+        },
+        "HTTPRequestBody": "{\n  \"file_path\": \"${absolute.path}/${filename}\",\n  \"batch_id\": \"batch_${filename.uuid}\"\n}"
+      },
+      "routing": {
+        "Response": "snap-003-agent1-intake"
+      }
+    },
+    {
+      "id": "snap-003-agent1-intake",
+      "type": "com.snaplogic.snaps.ai.IrisIntakeSnap",
+      "name": "Iris AI Intake Snap (Profiling)",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/pipeline/intake",
+        "ContentType": "application/json",
+        "HTTPRequestBody": "{\n  \"file_path\": \"${file_path}\",\n  \"batch_id\": \"${batch_id}\"\n}"
+      },
+      "routing": {
+        "Response": "snap-004-agent2-clean"
+      }
+    },
+    {
+      "id": "snap-004-agent2-clean",
+      "type": "com.snaplogic.snaps.transform.DataCleanserSnap",
+      "name": "Transformation Snap (Data Clean)",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/pipeline/transform",
+        "ContentType": "application/json",
+        "HTTPRequestBody": "{\n  \"file_path\": \"${file_path}\",\n  \"batch_id\": \"${batch_id}\",\n  \"metadata\": ${metadata}\n}"
+      },
+      "routing": {
+        "Response": "snap-005-agent3-store"
+      }
+    },
+    {
+      "id": "snap-005-agent3-store",
+      "type": "com.snaplogic.snaps.database.MySQLStagingSnap",
+      "name": "Storage Snap (SQL Staging)",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/pipeline/store",
+        "ContentType": "application/json",
+        "HTTPRequestBody": "{\n  \"clean_file_path\": \"${clean_file_path}\",\n  \"batch_id\": \"${batch_id}\",\n  \"metadata\": ${metadata}\n}"
+      },
+      "routing": {
+        "Response": "snap-006-agent4-report"
+      }
+    },
+    {
+      "id": "snap-006-agent4-report",
+      "type": "com.snaplogic.snaps.docx.DocxReportSnap",
+      "name": "Docx & Report Snap (AI Analysis)",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/pipeline/report",
+        "ContentType": "application/json",
+        "HTTPRequestBody": "{\n  \"batch_id\": \"${batch_id}\",\n  \"dataset_name\": \"${dataset_name}\",\n  \"quality_score\": ${quality_score},\n  \"metadata\": ${metadata}\n}"
+      },
+      "routing": {
+        "Response": "snap-007-pbi-sync"
+      }
+    },
+    {
+      "id": "snap-007-pbi-sync",
+      "type": "com.snaplogic.snaps.powerbi.PowerBIGatewaySnap",
+      "name": "Power BI Gateway Snap (Sync)",
+      "properties": {
+        "HTTPMethod": "POST",
+        "RemoteURL": "http://backend:8000/api/v1/powerbi/refresh",
+        "ContentType": "application/json"
+      },
+      "routing": {
+        "Response": "snap-008-archive-raw"
+      }
+    },
+    {
+      "id": "snap-008-archive-raw",
+      "type": "com.snaplogic.snaps.binary.FileWriter",
+      "name": "Archive Processed Raw Input",
+      "properties": {
+        "Directory": "/data/archive"
+      }
+    }
+  ],
+  "pipelines_connections": [
+    {
+      "name": "Raw File Ingest Pipeline",
+      "from": "snap-001-filereader",
+      "to": "snap-002-init-pipeline"
+    },
+    {
+      "name": "Intake & Profile Pipeline",
+      "from": "snap-002-init-pipeline",
+      "to": "snap-003-agent1-intake"
+    },
+    {
+      "name": "Transformation Pipeline",
+      "from": "snap-003-agent1-intake",
+      "to": "snap-004-agent2-clean"
+    },
+    {
+      "name": "Storage & Staging Pipeline",
+      "from": "snap-004-agent2-clean",
+      "to": "snap-005-agent3-store"
+    },
+    {
+      "name": "Docx Export & Report Pipeline",
+      "from": "snap-005-agent3-store",
+      "to": "snap-006-agent4-report"
+    },
+    {
+      "name": "Power BI Gateway Sync Pipeline",
+      "from": "snap-006-agent4-report",
+      "to": "snap-007-pbi-sync"
+    },
+    {
+      "name": "Archive Stream Pipeline",
+      "from": "snap-007-pbi-sync",
+      "to": "snap-008-archive-raw"
+    }
+  ]
+}

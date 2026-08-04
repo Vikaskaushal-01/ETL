@@ -1,0 +1,13 @@
+{
+  "snaplogic_flow_version": "2.0.0",
+  "flow_name": "SnapLogic IIP Enterprise Integration Flow",
+  "description": "SnapLogic Commercial Intelligent Integration Platform (SnapLogic IIP) execution engine for autonomous multi-agent data engineering, Word DOCX exports, and real-time Power BI dataset synchronization.",
+  "runtime_environment": "SnapLogic GroundPlex / CloudPlex",
+  "auto_scaling": true,
+  "execution_mode": "Real-time & Batch",
+  "iris_ai_insights": {
+    "auto_mapping": true,
+    "pattern_recognition": "Enabled",
+    "anomaly_detection": "Active"
+  }
+}

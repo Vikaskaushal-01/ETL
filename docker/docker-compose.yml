@@ -1,0 +1,102 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: etl_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: agentic_ai_etl
+      MYSQL_USER: etl_user
+      MYSQL_PASSWORD: etl_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uetl_user", "-petl_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: etl_redis
+    restart: always
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: etl_ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  snaplogic:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.snaplogic
+    container_name: etl_snaplogic
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - SNAPLOGIC_WEB_HTTP_PORT=8080
+      - SNAPLOGIC_ENVIRONMENT=production
+    volumes:
+      - ./snaplogic_data:/opt/snaplogic/data
+      - ../data:/data
+      - ../cleaned data:/cleaned data
+    depends_on:
+      - db
+
+  backend:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.backend
+    container_name: etl_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - MYSQL_HOST=db
+      - MYSQL_PORT=3306
+      - MYSQL_DB=agentic_ai_etl
+      - MYSQL_USER=etl_user
+      - MYSQL_PASSWORD=etl_password
+      - STAGING_MYSQL_DB=agentic_ai_etl_staging
+      - STAGING_MYSQL_USER=etl_user
+      - STAGING_MYSQL_PASSWORD=etl_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LLM_PROVIDER=gemini
+      - OLLAMA_HOST=http://ollama:11434
+      - ENV=production
+      - DATA_DIR=/data
+      - REPORTS_DIR=/reports
+      - CLEANED_DATA_DIR=/cleaned data
+      - LOGS_DIR=/logs
+    volumes:
+      - ../data:/data
+      - ../data:/app/data
+      - ../reports:/reports
+      - ../reports:/app/reports
+      - ../cleaned data:/app/cleaned data
+      - ../cleaned data:/cleaned data
+      - ../logs:/app/logs
+      - ../logs:/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  mysql_data:
+  redis_data:
+  ollama_data:
