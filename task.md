@@ -1,0 +1,10 @@
+- [x] 1. Update Database Models & Repository to include batch_id in RawUpload
+- [x] 2. Update File Upload endpoint to save files using exact input name
+- [x] 3. Update Transformation Agent to save clean files using exact input name
+- [x] 4. Update Pipeline engine to cache successful run metadata to .last_cleaned_backup.json
+- [x] 5. Update Chat Assistant endpoint to handle clean workspace, log query by ID, logs/files of the last cleaned run, and access files by ID
+- [x] 6. Run clean/reset to wipe old files/data and database tables
+- [x] 7. Verify pipeline and chatbot query capabilities
+- [x] 8. Add multi-question conversation history support to frontend and backend chat APIs
+- [x] 9. Resolve relative path configurations to absolute paths using PROJECT_ROOT for consistent file storage
+- [x] 10. Fix double-removal TypeError bug on chatbot loader elements

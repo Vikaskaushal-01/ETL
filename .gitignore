@@ -1,0 +1,47 @@
+# Python environment and packages
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.last_cleaned_backup.json
+
+# Local Environment variables
+.env
+.env.*
+!.env.example
+
+# Local SQLite databases
+*.db
+*.sqlite3
+
+# Node dependencies (if any)
+node_modules/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Logs and runtime outputs
+logs/*
+!logs/.gitkeep
+
+# Data directories (ignore raw input files, but keep directories)
+data/raw/*
+!data/raw/.gitkeep
+cleaned data/*
+!cleaned data/.gitkeep
+reports/*
+!reports/.gitkeep
+
+# Temp test directories
+data/csv/
+data/word/
+data/sql/
+data/processed/
+data/clean/
+docker/nifi_data/
+docker/snaplogic_data/
