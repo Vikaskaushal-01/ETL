@@ -22,6 +22,112 @@ from agents.report_agent.report_agent import ReportAgent
 router = APIRouter(tags=["Pipeline"])
 logger = logging.getLogger("etl_pipeline_api")
 
+def get_pipeline_state_path(pipeline_id: str) -> str:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(PROJECT_ROOT, "logs", f"{pipeline_id}_state.json")
+
+def read_pipeline_state(pipeline_id: str) -> dict:
+    from datetime import datetime
+    path = get_pipeline_state_path(pipeline_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "pipeline_id": pipeline_id,
+        "status": "Running",
+        "start_time": datetime.utcnow().isoformat(),
+        "end_time": None,
+        "execution_time": 0.0,
+        "stages": {
+            "intake": {
+                "status": "waiting",
+                "start_time": None,
+                "end_time": None,
+                "input": {},
+                "output": {},
+                "logs": [],
+                "metadata": {}
+            },
+            "transformation": {
+                "status": "waiting",
+                "start_time": None,
+                "end_time": None,
+                "input": {},
+                "output": {},
+                "logs": [],
+                "metadata": {}
+            },
+            "storage": {
+                "status": "waiting",
+                "start_time": None,
+                "end_time": None,
+                "input": {},
+                "output": {},
+                "logs": [],
+                "metadata": {}
+            },
+            "report": {
+                "status": "waiting",
+                "start_time": None,
+                "end_time": None,
+                "input": {},
+                "output": {},
+                "logs": [],
+                "metadata": {}
+            },
+            "pbi": {
+                "status": "waiting",
+                "start_time": None,
+                "end_time": None,
+                "input": {},
+                "output": {},
+                "logs": [],
+                "metadata": {}
+            }
+        }
+    }
+
+def clean_json_value(v):
+    import math
+    if isinstance(v, float):
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return v
+    elif isinstance(v, dict):
+        return {k: clean_json_value(val) for k, val in v.items()}
+    elif isinstance(v, list):
+        return [clean_json_value(item) for item in v]
+    else:
+        return v
+
+def write_pipeline_state(pipeline_id: str, state: dict):
+    path = get_pipeline_state_path(pipeline_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    cleaned_state = clean_json_value(state)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cleaned_state, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to write pipeline state file: {e}")
+
+def update_pipeline_stage(pipeline_id: str, stage_id: str, status: str, **kwargs):
+    from datetime import datetime
+    state = read_pipeline_state(pipeline_id)
+    stage = state["stages"].setdefault(stage_id, {})
+    stage["status"] = status
+    if status == "processing":
+        stage["start_time"] = datetime.utcnow().isoformat()
+    elif status in ["completed", "failed"]:
+        stage["end_time"] = datetime.utcnow().isoformat()
+        
+    for k, v in kwargs.items():
+        stage[k] = v
+        
+    write_pipeline_state(pipeline_id, state)
+
 def save_pipeline_logs_to_file(batch_id: str, logs: list, raw_file_path: str = None):
     try:
         PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -176,6 +282,10 @@ def start_pipeline(req: PipelineStartRequest, background_tasks: BackgroundTasks,
         existing.status = "Failed"
         db.commit()
         
+    # Initialize the stage state file for this pipeline run
+    initial_stages_state = read_pipeline_state(pipeline_id)
+    write_pipeline_state(pipeline_id, initial_stages_state)
+
     background_tasks.add_task(run_langgraph_pipeline, req.file_path, batch_id, pipeline_id)
     
     return {
@@ -298,29 +408,29 @@ def run_report_agent_endpoint(payload: dict, db: Session = Depends(get_db)):
 @router.get("/pipeline/status")
 def get_pipeline_status(pipeline_id: str, db: Session = Depends(get_db)):
     pipe = db.query(PipelineLog).filter(PipelineLog.pipeline_id == pipeline_id).first()
-    if not pipe:
-        return {
-            "pipeline_id": pipeline_id,
-            "status": "Running",
-            "start_time": None,
-            "end_time": None,
-            "execution_time": None,
-            "logs": ["Pipeline initialization pending in database..."]
-        }
-        
+    
+    state = read_pipeline_state(pipeline_id)
+    
+    if pipe:
+        state["status"] = pipe.status
+        if pipe.start_time:
+            state["start_time"] = pipe.start_time.isoformat()
+        if pipe.end_time:
+            state["end_time"] = pipe.end_time.isoformat()
+        if pipe.execution_time:
+            state["execution_time"] = pipe.execution_time
+            
+    # Construct backward-compatible flat log strings
     batch_id = pipeline_id.replace("pipe_", "")
+    flat_logs = [f"Pipeline run initialized. Batch ID: {batch_id}."]
     
-    agent_logs = db.query(AgentLog).filter(AgentLog.batch_id == batch_id).all()
-    steps = [f"[{log.agent_name}] {log.task}: {log.reasoning} (confidence={log.confidence}%)" for log in agent_logs]
-    
-    return {
-        "pipeline_id": pipe.pipeline_id,
-        "status": pipe.status,
-        "start_time": pipe.start_time,
-        "end_time": pipe.end_time,
-        "execution_time": pipe.execution_time,
-        "logs": steps
-    }
+    for stage_id in ["intake", "transformation", "storage", "report", "pbi"]:
+        stage_data = state["stages"].get(stage_id, {})
+        for log_line in stage_data.get("logs", []):
+            flat_logs.append(log_line)
+            
+    state["logs"] = flat_logs
+    return state
 
 @router.get("/logs")
 def get_all_logs(batch_id: Optional[str] = None, db: Session = Depends(get_db)):
