@@ -652,7 +652,11 @@ function startPipelinePolling(pipelineId) {
             state.currentPipelineData = data;
             
             updateLogsConsole(data.logs);
-            updateFlowVisualFromLogs(data.logs);
+            if (data.stages) {
+                updateFlowVisualFromStages(data.stages);
+            } else {
+                updateFlowVisualFromLogs(data.logs);
+            }
             
             if (data.status === 'Success' || data.status === 'Passed with Warnings') {
                 clearInterval(state.pipelinePollingInterval);
@@ -742,6 +746,34 @@ function updateLogsConsole(logs) {
         consoleBody.appendChild(p);
     });
     consoleBody.scrollTop = consoleBody.scrollHeight;
+}
+
+function updateFlowVisualFromStages(stages) {
+    if (!stages) return;
+    
+    Object.keys(stages).forEach(stageId => {
+        const stage = stages[stageId];
+        const status = stage.status || 'waiting';
+        
+        let statusText = 'Waiting';
+        if (status === 'processing') {
+            if (stageId === 'intake') statusText = 'Profiling...';
+            else if (stageId === 'transformation') statusText = 'Cleaning...';
+            else if (stageId === 'storage') statusText = 'Formatting...';
+            else if (stageId === 'report') statusText = 'Generating PDF...';
+            else if (stageId === 'pbi') statusText = 'Refreshing Sync...';
+            else statusText = 'Running...';
+        } else if (status === 'completed') {
+            if (stageId === 'storage') statusText = 'Stored';
+            else if (stageId === 'report') statusText = 'Report Ready';
+            else if (stageId === 'pbi') statusText = 'Refreshed';
+            else statusText = 'Completed';
+        } else if (status === 'failed') {
+            statusText = 'Crashed';
+        }
+        
+        setStepStatus(stageId, status, statusText);
+    });
 }
 
 function updateFlowVisualFromLogs(logs) {
@@ -1805,6 +1837,12 @@ function initStageInspector() {
             el.addEventListener('click', () => {
                 openStageInspector(stageId);
             });
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openStageInspector(stageId);
+                }
+            });
         }
     });
 
@@ -1823,6 +1861,33 @@ function initStageInspector() {
 }
 
 // Opens the stage inspector overlay and queries stage processed data in real time
+function renderPreviewTable(previewData, title) {
+    if (!previewData || !Array.isArray(previewData) || previewData.length === 0) return '';
+    
+    const headers = Object.keys(previewData[0]);
+    let html = `
+        <div style="margin-top: 10px; margin-bottom: 14px;">
+            <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-table"></i> ${title}</h4>
+            <div style="max-height: 180px; overflow-x: auto; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
+                <table class="inspector-table" style="font-size:10px; margin-bottom:0; width:100%; white-space:nowrap;">
+                    <thead>
+                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+                    </thead>
+                    <tbody>
+                        ${previewData.map(row => `
+                            <tr>${headers.map(h => {
+                                const val = row[h];
+                                return `<td>${val === null || val === undefined ? '<em>null</em>' : val}</td>`;
+                            }).join('')}</tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    return html;
+}
+
 function openStageInspector(stageId) {
     const modal = document.getElementById('stage-inspector-modal');
     if (!modal) return;
@@ -1836,8 +1901,17 @@ function openStageInspector(stageId) {
     const metaType = document.getElementById('stage-meta-type');
     const previewContainer = document.getElementById('stage-inspector-data-preview');
     
-    const batchId = state.currentBatchId || 'No active batch';
     const pipeData = state.currentPipelineData || {};
+    const stages = pipeData.stages || {};
+    const stage = stages[stageId] || {
+        status: 'waiting',
+        start_time: null,
+        end_time: null,
+        input: {},
+        output: {},
+        logs: [],
+        metadata: {}
+    };
     
     let componentName = '';
     let iconClass = '';
@@ -1847,25 +1921,15 @@ function openStageInspector(stageId) {
     let statusClass = 'badge warning';
     let qualityText = 'N/A';
     let typeText = 'N/A';
-    let dataPreviewHtml = '';
     
-    const checkStepState = (stepId) => {
-        const el = document.getElementById(`flow-${stepId}`);
-        if (!el) return 'waiting';
-        if (el.classList.contains('completed')) return 'completed';
-        if (el.classList.contains('processing')) return 'processing';
-        if (el.classList.contains('failed')) return 'failed';
-        return 'waiting';
-    };
-    
-    const stateVal = checkStepState(stageId);
-    if (stateVal === 'completed') {
+    const status = stage.status || 'waiting';
+    if (status === 'completed') {
         statusText = 'Completed';
         statusClass = 'badge success';
-    } else if (stateVal === 'processing') {
+    } else if (status === 'processing') {
         statusText = 'Running / Executing';
         statusClass = 'badge running';
-    } else if (stateVal === 'failed') {
+    } else if (status === 'failed') {
         statusText = 'Failed / Error';
         statusClass = 'badge failed';
     }
@@ -1875,122 +1939,226 @@ function openStageInspector(stageId) {
         subtitle = 'Ingests raw files and analyzes metadata profiling';
         componentName = 'com.snaplogic.snaps.ai.IrisIntakeSnap';
         iconClass = 'fa-solid fa-inbox';
-        
-        const fileDetail = state.selectedFile ? {
-            name: state.selectedFile.name,
-            size: `${(state.selectedFile.size / 1024).toFixed(1)} KB`,
-            type: state.selectedFile.name.split('.').pop().toUpperCase()
-        } : { name: 'Ad-hoc Data Ingestion', size: '12.8 KB', type: 'CSV' };
-        
-        dataPreviewHtml = `
-            <div class="meta-item" style="width:100%; margin-bottom:12px; border:none; padding:0;">
-                <strong>Ingested Dataset Filename</strong>
-                <span style="font-size:15px; color:var(--color-blue);"><i class="fa-solid fa-file-csv" style="margin-right:6px;"></i> ${fileDetail.name}</span>
-            </div>
-            <table class="inspector-table">
-                <thead>
-                    <tr><th>Metadata Parameter</th><th>Observed Value</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>Ingestion Batch ID</td><td><code>${batchId}</code></td></tr>
-                    <tr><td>Inferred Extension</td><td>${fileDetail.type}</td></tr>
-                    <tr><td>Size on Server File System</td><td>${fileDetail.size}</td></tr>
-                    <tr><td>Ingested Destination Path</td><td><code>/data/raw/${fileDetail.name}</code></td></tr>
-                    <tr><td>Iris AI Recommendation</td><td>Standard schema match predicted with 98.4% confidence</td></tr>
-                </tbody>
-            </table>
-        `;
+        qualityText = stage.output && stage.output.estimated_quality ? `${stage.output.estimated_quality}%` : 'N/A';
+        typeText = stage.metadata && stage.metadata.file_type ? stage.metadata.file_type : 'N/A';
     } 
     else if (stageId === 'transformation') {
         stageTitle = 'Data Cleanser Snap';
         subtitle = 'Applies schema profiling, duplicate removal, date formatting, and null imputation';
         componentName = 'com.snaplogic.snaps.transform.DataCleanserSnap';
         iconClass = 'fa-solid fa-wand-magic-sparkles';
-        
-        qualityText = document.getElementById('stat-quality-score').textContent || '-%';
-        
-        const transBody = document.getElementById('rca-details-body').innerHTML;
-        dataPreviewHtml = `
-            <div style="margin-bottom:12px;">
-                <strong>Applied Cleansing & Transformation Progression History:</strong>
-            </div>
-            <div class="rca-content" style="max-height: 250px; overflow-y: auto;">
-                ${transBody.includes('No active execution') ? '<p class="text-secondary text-center">Awaiting cleansing execution pipeline run...</p>' : transBody}
-            </div>
-        `;
+        qualityText = stage.output && stage.output.quality_after ? `${stage.output.quality_after}%` : 'N/A';
+        typeText = 'Dataset';
     }
     else if (stageId === 'storage') {
         stageTitle = 'SQL Staging & Target Format Snap';
         subtitle = 'Orchestrates loading into MySQL staging databases and selects optimal physical formats';
         componentName = 'com.snaplogic.snaps.database.MySQLStagingSnap';
         iconClass = 'fa-solid fa-database';
-        
-        const totalRows = document.getElementById('stat-total-processed').textContent || '-';
-        const rejections = document.getElementById('stat-failed-records').textContent || '-';
-        const runDuration = document.getElementById('stat-avg-runtime').textContent || '-';
-        
-        dataPreviewHtml = `
-            <div style="margin-bottom:12px;">
-                <strong>Staging Table Execution Statistics:</strong>
-            </div>
-            <table class="inspector-table">
-                <thead>
-                    <tr><th>Orchestration Metric</th><th>Staging / Relational Value</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>Total Input Rows Processed</td><td><strong>${totalRows}</strong></td></tr>
-                    <tr><td>Rows Successfully Injected</td><td><span style="color:var(--color-green);">${totalRows}</span></td></tr>
-                    <tr><td>Foreign Key Integrity Rejections</td><td><span style="color:var(--color-red);">${rejections}</span></td></tr>
-                    <tr><td>Target Database Schema</td><td><code>agentic_ai_etl_staging</code></td></tr>
-                    <tr><td>Execution Node Runtime</td><td>${runDuration}</td></tr>
-                </tbody>
-            </table>
-        `;
+        typeText = stage.output && stage.output.format_selected ? stage.output.format_selected : 'N/A';
     }
     else if (stageId === 'report') {
         stageTitle = 'Docx & Report Exporter Snap';
         subtitle = 'Generates PDF analysis reports and saves Microsoft Word (.docx) copies to Cleaned Data';
         componentName = 'com.snaplogic.snaps.docx.DocxReportSnap';
         iconClass = 'fa-solid fa-file-word';
-        
-        dataPreviewHtml = `
-            <div style="margin-bottom:12px;">
-                <strong>Generated Report Document Layouts & Output Targets:</strong>
-            </div>
-            <table class="inspector-table">
-                <thead>
-                    <tr><th>Document Output Format</th><th>Staging Storage Target Folder</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>Microsoft Word (.docx) Clean Export</td><td><code>/cleaned data/</code> <span class="badge success">Saved</span></td></tr>
-                    <tr><td>Executive PDF Report</td><td><code>/reports/</code> <span class="badge success">Generated</span></td></tr>
-                    <tr><td>JSON Report Manifest</td><td><code>/reports/</code> <span class="badge success">Active</span></td></tr>
-                    <tr><td>Markdown Summary</td><td><code>/reports/</code> <span class="badge success">Active</span></td></tr>
-                </tbody>
-            </table>
-        `;
+        typeText = 'DOCX/PDF';
     }
     else if (stageId === 'pbi') {
         stageTitle = 'Power BI Gateway Sync Snap';
         subtitle = 'Connected directly to SnapLogic pipeline for real-time model updates';
         componentName = 'com.snaplogic.snaps.powerbi.PowerBIGatewaySnap';
         iconClass = 'fa-solid fa-chart-column';
+        typeText = 'Star Schema';
+    }
+    
+    // Format timestamps
+    const startTimeStr = stage.start_time ? new Date(stage.start_time).toLocaleTimeString() : 'N/A';
+    const endTimeStr = stage.end_time ? new Date(stage.end_time).toLocaleTimeString() : (status === 'processing' ? 'Running...' : 'N/A');
+    const duration = stage.start_time && stage.end_time 
+        ? ((new Date(stage.end_time) - new Date(stage.start_time)) / 1000).toFixed(2) + 's' 
+        : (status === 'processing' ? 'Running' : 'N/A');
+        
+    let dataPreviewHtml = '';
+    
+    if (status === 'waiting') {
+        dataPreviewHtml = `
+            <div style="text-align: center; padding: 40px 20px;">
+                <div style="font-size: 32px; margin-bottom: 12px; color: rgba(255,255,255,0.2);"><i class="fa-solid fa-hourglass-start"></i></div>
+                <h4 style="margin-bottom: 6px;">Awaiting Pipeline Execution</h4>
+                <p class="text-secondary" style="font-size:12px;">This stage is waiting for the upstream SnapLogic execution nodes to complete.</p>
+            </div>
+        `;
+    } else {
+        // Inputs table rows
+        let inputRows = '';
+        Object.keys(stage.input || {}).forEach(k => {
+            if (k !== 'preview') {
+                inputRows += `<tr><td>${k}</td><td><code>${stage.input[k]}</code></td></tr>`;
+            }
+        });
+        if (!inputRows) inputRows = '<tr><td colspan="2" class="text-secondary">No input parameters registered.</td></tr>';
+        
+        // Outputs table rows
+        let outputRows = '';
+        Object.keys(stage.output || {}).forEach(k => {
+            if (k !== 'preview' && k !== 'sql_preview') {
+                outputRows += `<tr><td>${k}</td><td><strong>${stage.output[k]}</strong></td></tr>`;
+            }
+        });
+        if (!outputRows) outputRows = '<tr><td colspan="2" class="text-secondary">No processed output data yet.</td></tr>';
+        
+        // Metadata table rows
+        let metaRows = '';
+        Object.keys(stage.metadata || {}).forEach(k => {
+            if (k !== 'transformation_history') {
+                const val = typeof stage.metadata[k] === 'object' ? JSON.stringify(stage.metadata[k], null, 1) : stage.metadata[k];
+                metaRows += `<tr><td>${k}</td><td><code>${val}</code></td></tr>`;
+            }
+        });
+        if (!metaRows) metaRows = '<tr><td colspan="2" class="text-secondary">No additional metadata parameters.</td></tr>';
+        
+        // Logs lines
+        let logLinesHtml = '';
+        if (stage.logs && stage.logs.length > 0) {
+            stage.logs.forEach(log => {
+                logLinesHtml += `<div style="color: rgba(255,255,255,0.85); margin-bottom: 4px;"><span style="color: var(--color-blue); margin-right: 6px;">[${startTimeStr}]</span>${log}</div>`;
+            });
+        } else {
+            logLinesHtml = '<div class="text-secondary">No execution logs recorded for this stage.</div>';
+        }
+        
+        // Side-by-side or singular Previews
+        let previewHtml = '';
+        
+        // 1. Intake Stage Raw Data Preview
+        if (stageId === 'intake' && stage.output && stage.output.preview) {
+            previewHtml += renderPreviewTable(stage.output.preview, 'Ingested Raw Data Preview (First 5 Rows)');
+        }
+        
+        // 2. Transformation Stage Raw Input vs Cleaned Output Previews
+        if (stageId === 'transformation') {
+            if (stage.input && stage.input.preview) {
+                previewHtml += renderPreviewTable(stage.input.preview, 'Raw Data Before Cleansing (Input)');
+            }
+            if (stage.output && stage.output.preview) {
+                previewHtml += renderPreviewTable(stage.output.preview, 'Standardized Clean Data After Cleansing (Output)');
+            }
+            
+            // Add column-by-column transformation history timeline/table
+            let historyRows = '';
+            const historyList = stage.metadata ? stage.metadata.transformation_history : null;
+            if (historyList && Array.isArray(historyList) && historyList.length > 0) {
+                historyList.forEach(step => {
+                    historyRows += `
+                        <tr>
+                            <td><code>${step.column_name || 'General'}</code></td>
+                            <td><span style="color:var(--color-red); text-decoration:line-through; font-size:10px;">${step.old_value !== null ? step.old_value : 'null'}</span></td>
+                            <td><span style="color:var(--color-green); font-weight:600;">${step.new_value !== null ? step.new_value : 'null'}</span></td>
+                            <td><span style="font-size:10px; color:rgba(255,255,255,0.7);">${step.reason || 'Auto-cleansed'}</span></td>
+                        </tr>
+                    `;
+                });
+                
+                previewHtml += `
+                    <div style="margin-top: 10px; margin-bottom: 14px;">
+                        <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-clock-rotate-left"></i> Column Transformation Audit Log (Transformation History)</h4>
+                        <div style="max-height: 180px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
+                            <table class="inspector-table" style="font-size:10px; margin-bottom:0; width:100%;">
+                                <thead>
+                                    <tr><th>Target Column</th><th>Original State</th><th>Cleaned State</th><th>Operation Performed</th></tr>
+                                </thead>
+                                <tbody>
+                                    ${historyRows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        // 3. Storage Stage Clean Input vs SQL Script Preview
+        if (stageId === 'storage') {
+            if (stage.input && stage.input.preview) {
+                previewHtml += renderPreviewTable(stage.input.preview, 'Clean Data Before Loading (Input)');
+            }
+            if (stage.output && stage.output.sql_preview) {
+                previewHtml += `
+                    <div style="margin-top: 10px; margin-bottom: 14px;">
+                        <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-code"></i> Generated SQL Schema & Insert Statements (Output Preview)</h4>
+                        <pre style="background: rgba(0,0,0,0.45); border-radius:6px; padding:10px; font-family:monospace; font-size:10px; border:1px solid rgba(255,255,255,0.08); overflow-x:auto; color:#ccc; max-height: 180px; margin:0;">${stage.output.sql_preview}</pre>
+                    </div>
+                `;
+            }
+        }
+        
+        // 4. Report Stage Download Action
+        if (stageId === 'report' && stage.output && (stage.output.pdf_path || stage.output.docx_path)) {
+            previewHtml += `
+                <div style="margin-top: 10px; margin-bottom: 14px; padding: 12px; background: rgba(20, 184, 166, 0.06); border-radius: 6px; border: 1px dashed var(--color-blue); font-size:12px;">
+                    <h5 style="margin-top:0; margin-bottom:8px; color:var(--color-blue); font-weight:600;"><i class="fa-solid fa-file-arrow-down" style="margin-right:4px;"></i> Download Exported Documents</h5>
+                    <div style="display:flex; gap:16px;">
+            `;
+            if (stage.output.pdf_path) {
+                previewHtml += `<div><i class="fa-regular fa-file-pdf" style="color:var(--color-red); margin-right:4px;"></i> <a href="/api/v1/dashboard/download?file_path=${encodeURIComponent(stage.output.pdf_path)}" target="_blank" style="color:#fff; text-decoration:underline; font-weight:600;">Executive PDF Report</a></div>`;
+            }
+            if (stage.output.docx_path) {
+                previewHtml += `<div><i class="fa-regular fa-file-word" style="color:var(--color-blue); margin-right:4px;"></i> <a href="/api/v1/dashboard/download?file_path=${encodeURIComponent(stage.output.docx_path)}" target="_blank" style="color:#fff; text-decoration:underline; font-weight:600;">Microsoft Word (.docx) Clean Export</a></div>`;
+            }
+            previewHtml += `
+                    </div>
+                </div>
+            `;
+        }
         
         dataPreviewHtml = `
-            <div style="margin-bottom:12px;">
-                <strong>Power BI Data Model & Connection Details:</strong>
+            <!-- Timings Section -->
+            <div style="display:flex; justify-content:space-between; margin-bottom:14px; padding: 10px; background: rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.05); font-size:12px;">
+                <div><i class="fa-regular fa-clock" style="margin-right:4px;"></i> Started: <strong>${startTimeStr}</strong></div>
+                <div><i class="fa-solid fa-clock-rotate-left" style="margin-right:4px;"></i> Ended: <strong>${endTimeStr}</strong></div>
+                <div><i class="fa-solid fa-stopwatch" style="margin-right:4px;"></i> Duration: <strong style="color: var(--color-blue);">${duration}</strong></div>
             </div>
-            <table class="inspector-table">
-                <thead>
-                    <tr><th>Power BI Integration Node</th><th>Value</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>Gateway Sync Status</td><td><span class="badge success">Online / Synced</span></td></tr>
-                    <tr><td>Workspace Target</td><td><code>Control AI Workspace</code></td></tr>
-                    <tr><td>MySQL Source Connection</td><td><code>localhost:3306/agentic_ai_etl</code></td></tr>
-                    <tr><td>Star Schema Model Refresh</td><td>Triggered automatically on SnapLogic Pipeline complete</td></tr>
-                </tbody>
-            </table>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
+                <!-- Inputs Section -->
+                <div>
+                    <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-sign-in" style="margin-right:4px;"></i> Input Received</h4>
+                    <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
+                        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+                        <tbody>${inputRows}</tbody>
+                    </table>
+                </div>
+                
+                <!-- Outputs Section -->
+                <div>
+                    <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-sign-out" style="margin-right:4px;"></i> Processed Output</h4>
+                    <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
+                        <thead><tr><th>Metric</th><th>Staging Value</th></tr></thead>
+                        <tbody>${outputRows}</tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Dynamic Previews (Tables, Timelines, SQL scripts) -->
+            ${previewHtml}
+            
+            <!-- Metadata & Config Section -->
+            <div style="margin-bottom:14px;">
+                <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-circle-info" style="margin-right:4px;"></i> Metadata & Configuration Parameters</h4>
+                <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
+                    <thead><tr><th>Config Key</th><th>Value</th></tr></thead>
+                    <tbody>${metaRows}</tbody>
+                </table>
+            </div>
+            
+            <!-- Logs Terminal -->
+            <div>
+                <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-terminal" style="margin-right:4px;"></i> Stage-Specific Execution Log</h4>
+                <div style="background: rgba(0, 0, 0, 0.45); border-radius: 6px; padding: 12px; font-family: monospace; max-height: 180px; overflow-y: auto; font-size: 11px; border: 1px solid rgba(255,255,255,0.08); line-height: 1.5; color: #ccc;">
+                    ${logLinesHtml}
+                </div>
+            </div>
         `;
     }
     
