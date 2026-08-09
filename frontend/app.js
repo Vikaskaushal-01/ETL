@@ -9,7 +9,8 @@ const state = {
     historyChart: null,
     explorerFiles: [],
     equalizerInterval: null,
-    chatHistory: []
+    chatHistory: [],
+    activeInspectedStageId: null
 };
 
 // Initialize Application
@@ -63,13 +64,98 @@ function initAuth() {
     };
     checkSession();
 
+    // Sign In / Sign Up Toggle Logic
+    const toggleSignupLink = document.getElementById('link-toggle-signup');
+    const signupConfirmGroup = document.getElementById('signup-confirm-group');
+    const loginRememberRow = document.getElementById('login-remember-row');
+    const linkForgotPassword = document.getElementById('link-forgot-password');
+    const loginHeaderTitle = document.getElementById('login-header-title');
+    const toggleSignupWrapper = document.getElementById('toggle-signup-wrapper');
+    const loginUsername = document.getElementById('login-username');
+    const loginPassword = document.getElementById('login-password');
+    const signupConfirmPassword = document.getElementById('signup-confirm-password');
+
+    let isSignUp = false;
+
+    if (toggleSignupLink) {
+        toggleSignupLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            isSignUp = !isSignUp;
+            if (isSignUp) {
+                loginHeaderTitle.textContent = 'Sign up';
+                signupConfirmGroup.style.display = 'flex';
+                signupConfirmPassword.setAttribute('required', 'required');
+                loginRememberRow.style.display = 'none';
+                linkForgotPassword.style.display = 'none';
+                loginBtnText.textContent = 'Sign up';
+                toggleSignupWrapper.innerHTML = 'Already have an account? <a href="#" id="link-toggle-signup">Sign in</a>';
+            } else {
+                loginHeaderTitle.textContent = 'Sign in';
+                signupConfirmGroup.style.display = 'none';
+                signupConfirmPassword.removeAttribute('required');
+                loginRememberRow.style.display = 'flex';
+                linkForgotPassword.style.display = 'inline-block';
+                loginBtnText.textContent = 'Sign in';
+                toggleSignupWrapper.innerHTML = "Don't have an account? <a href=\"#\" id=\"link-toggle-signup\">Sign up</a>";
+            }
+            // Re-bind the toggle event listener since the innerHTML overwrite destroys it
+            const newToggleLink = document.getElementById('link-toggle-signup');
+            if (newToggleLink) {
+                newToggleLink.addEventListener('click', (ev) => {
+                    ev.preventDefault();
+                    toggleSignupLink.click();
+                });
+            }
+        });
+    }
+
     // 2. Authentication submission
     loginForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const user = document.getElementById('login-username').value.trim();
-        const pass = document.getElementById('login-password').value.trim();
+        const user = loginUsername.value.trim();
+        const pass = loginPassword.value.trim();
 
-        if (user !== '' && pass !== '') {
+        if (user === '' || pass === '') {
+            showToast('error', 'Please fill in all required fields.');
+            return;
+        }
+
+        if (isSignUp) {
+            const confirmPass = signupConfirmPassword.value.trim();
+            if (pass !== confirmPass) {
+                showToast('error', 'Passwords do not match!');
+                signupConfirmPassword.focus();
+                return;
+            }
+
+            loginBtnText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating account...';
+            
+            fetch('/api/v1/auth/signup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: user, password: pass })
+            })
+            .then(async (response) => {
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Registration failed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                showToast('success', 'Account created successfully! Please sign in.');
+                // Revert to sign in state
+                if (toggleSignupLink) toggleSignupLink.click();
+                loginUsername.value = user;
+                loginPassword.value = '';
+                loginPassword.focus();
+            })
+            .catch(err => {
+                loginBtnText.textContent = 'Sign up';
+                showToast('error', err.message || 'Registration failed.');
+            });
+
+        } else {
             loginBtnText.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Authenticating...';
             
             fetch('/api/v1/auth/login', {
@@ -86,12 +172,24 @@ function initAuth() {
             })
             .then(data => {
                 localStorage.setItem('isLoggedIn', 'true');
-                if (data && data.user && data.user.username) {
-                    if (data.user.username.includes('@')) {
-                        localStorage.setItem('controlai_email', data.user.username);
+                
+                let displayName = 'System Administrator';
+                let email = user;
+                
+                if (data && data.user) {
+                    if (data.user.username) {
+                        email = data.user.username;
+                        displayName = email.split('@')[0];
+                        // Capitalize first letter
+                        displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
                     }
                 }
-                showToast('success', 'Access granted! Welcome to ETL.');
+                
+                localStorage.setItem('controlai_username', displayName);
+                localStorage.setItem('controlai_email', email);
+                localStorage.removeItem('controlai_avatar'); // default avatar
+                
+                showToast('success', `Access granted! Welcome, ${displayName}.`);
                 
                 // Transition views
                 loginScreen.classList.add('fade-out');
@@ -111,10 +209,338 @@ function initAuth() {
                 loginBtnText.textContent = 'Sign in';
                 showToast('error', err.message || 'Authentication failed. Please check inputs.');
             });
-        } else {
-            showToast('error', 'Authentication failed. Please check inputs.');
         }
     });
+
+    // Forgot Password Wizards Flow
+    const forgotLink = document.getElementById('link-forgot-password');
+    const forgotContainer = document.getElementById('forgot-container');
+    const signinContainer = document.getElementById('signin-container');
+    const btnForgotBack = document.getElementById('btn-forgot-back');
+
+    const forgotStepEmail = document.getElementById('forgot-step-email');
+    const forgotStepCode = document.getElementById('forgot-step-code');
+    const forgotStepPassword = document.getElementById('forgot-step-password');
+
+    const btnForgotSend = document.getElementById('btn-forgot-send');
+    const btnForgotVerify = document.getElementById('btn-forgot-verify');
+    const btnForgotReset = document.getElementById('btn-forgot-reset');
+
+    const inputForgotEmail = document.getElementById('forgot-email');
+    const inputForgotCode = document.getElementById('forgot-code');
+    const inputForgotNewPass = document.getElementById('forgot-new-password');
+    const inputForgotConfirmPass = document.getElementById('forgot-confirm-password');
+    const forgotHeaderTitle = document.getElementById('forgot-header-title');
+    const forgotHeaderSubtitle = document.getElementById('forgot-header-subtitle');
+
+    if (forgotLink && forgotContainer && signinContainer) {
+        forgotLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            signinContainer.style.display = 'none';
+            forgotContainer.style.display = 'flex';
+            
+            // Reset forgot wizard to step 1
+            forgotStepEmail.style.display = 'block';
+            forgotStepCode.style.display = 'none';
+            forgotStepPassword.style.display = 'none';
+            forgotHeaderTitle.textContent = 'Forgot Password';
+            forgotHeaderSubtitle.textContent = 'Enter your email to request a verification code.';
+            inputForgotEmail.value = loginUsername.value.trim();
+        });
+    }
+
+    if (btnForgotBack && signinContainer && forgotContainer) {
+        btnForgotBack.addEventListener('click', (e) => {
+            e.preventDefault();
+            forgotContainer.style.display = 'none';
+            signinContainer.style.display = 'flex';
+        });
+    }
+
+    // Step 1: Send Code
+    if (btnForgotSend) {
+        btnForgotSend.addEventListener('click', () => {
+            const email = inputForgotEmail.value.trim();
+            if (!email) {
+                showToast('error', 'Please enter your email address.');
+                inputForgotEmail.focus();
+                return;
+            }
+
+            btnForgotSend.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Sending...</span>';
+            btnForgotSend.disabled = true;
+
+            fetch('/api/v1/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email })
+            })
+            .then(async (res) => {
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.detail || 'Email verification request failed.');
+                }
+                return res.json();
+            })
+            .then(data => {
+                showToast('success', 'Verification code sent to your email.');
+                // Dynamic OTP notification for ease of demo copy-paste
+                setTimeout(() => {
+                    showToast('info', `[DEMO OTP CODE]: ${data.demo_code}`, 10000);
+                }, 800);
+
+                // Transition step
+                forgotStepEmail.style.display = 'none';
+                forgotStepCode.style.display = 'block';
+                forgotHeaderTitle.textContent = 'Verify Code';
+                forgotHeaderSubtitle.textContent = `We've sent a 6-digit code to ${email}`;
+                inputForgotCode.value = '';
+                inputForgotCode.focus();
+            })
+            .catch(err => {
+                showToast('error', err.message || 'No account associated with this email.');
+            })
+            .finally(() => {
+                btnForgotSend.innerHTML = '<span>Send Verification Code</span>';
+                btnForgotSend.disabled = false;
+            });
+        });
+    }
+
+    // Step 2: Verify Code
+    if (btnForgotVerify) {
+        btnForgotVerify.addEventListener('click', () => {
+            const email = inputForgotEmail.value.trim();
+            const code = inputForgotCode.value.trim();
+            if (!code || code.length !== 6) {
+                showToast('error', 'Please enter a valid 6-digit verification code.');
+                inputForgotCode.focus();
+                return;
+            }
+
+            btnForgotVerify.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Verifying...</span>';
+            btnForgotVerify.disabled = true;
+
+            fetch('/api/v1/auth/verify-reset-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, code: code })
+            })
+            .then(async (res) => {
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.detail || 'Invalid verification code.');
+                }
+                return res.json();
+            })
+            .then(data => {
+                showToast('success', 'Verification successful! Set a new password.');
+                forgotStepCode.style.display = 'none';
+                forgotStepPassword.style.display = 'block';
+                forgotHeaderTitle.textContent = 'New Password';
+                forgotHeaderSubtitle.textContent = 'Choose a strong, new password for your account.';
+                inputForgotNewPass.value = '';
+                inputForgotConfirmPass.value = '';
+                inputForgotNewPass.focus();
+            })
+            .catch(err => {
+                showToast('error', err.message || 'Invalid code. Please try again.');
+            })
+            .finally(() => {
+                btnForgotVerify.innerHTML = '<span>Verify Code</span>';
+                btnForgotVerify.disabled = false;
+            });
+        });
+    }
+
+    // Step 3: Reset Password
+    if (btnForgotReset) {
+        btnForgotReset.addEventListener('click', () => {
+            const email = inputForgotEmail.value.trim();
+            const code = inputForgotCode.value.trim();
+            const newPass = inputForgotNewPass.value.trim();
+            const confirmPass = inputForgotConfirmPass.value.trim();
+
+            if (!newPass || newPass.length < 4) {
+                showToast('error', 'New password must be at least 4 characters long.');
+                inputForgotNewPass.focus();
+                return;
+            }
+
+            if (newPass !== confirmPass) {
+                showToast('error', 'Passwords do not match!');
+                inputForgotConfirmPass.focus();
+                return;
+            }
+
+            btnForgotReset.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Updating...</span>';
+            btnForgotReset.disabled = true;
+
+            fetch('/api/v1/auth/reset-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: email, code: code, new_password: newPass })
+            })
+            .then(async (res) => {
+                if (!res.ok) {
+                    const errorData = await res.json();
+                    throw new Error(errorData.detail || 'Failed to reset password.');
+                }
+                return res.json();
+            })
+            .then(data => {
+                showToast('success', 'Password reset successfully! Log in to continue.');
+                forgotContainer.style.display = 'none';
+                signinContainer.style.display = 'flex';
+                loginUsername.value = email;
+                loginPassword.value = '';
+                loginPassword.focus();
+            })
+            .catch(err => {
+                showToast('error', err.message || 'Failed to update password.');
+            })
+            .finally(() => {
+                btnForgotReset.innerHTML = '<span>Update Password</span>';
+                btnForgotReset.disabled = false;
+            });
+        });
+    }
+
+    // Simulated Social Logins & OAuth Modal Flow
+    const oauthModal = document.getElementById('oauth-modal');
+    const btnCloseOauth = document.getElementById('btn-close-oauth');
+    const oauthProviderLogo = document.getElementById('oauth-provider-logo');
+    const oauthTitle = document.getElementById('oauth-title');
+    const oauthLoading = document.getElementById('oauth-loading');
+    const oauthLoadingText = document.getElementById('oauth-loading-text');
+    const oauthAccounts = document.getElementById('oauth-accounts');
+    const oauthAccountList = document.getElementById('oauth-account-list');
+
+    const socialProfiles = {
+        google: {
+            title: 'Sign in with Google',
+            logoClass: 'google',
+            logoHtml: '<i class="fa-brands fa-google"></i>',
+            accounts: [
+                { name: 'John Doe', email: 'john.doe@gmail.com', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=60&q=80' },
+                { name: 'Jane Smith', email: 'jane.smith@gmail.com', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=60&q=80' }
+            ]
+        },
+        github: {
+            title: 'Sign in with GitHub',
+            logoClass: 'github',
+            logoHtml: '<i class="fa-brands fa-github"></i>',
+            accounts: [
+                { name: 'octocat', email: 'octocat@github.com', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=60&q=80' },
+                { name: 'ai_coder', email: 'ai.coder@github.com', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=60&q=80' }
+            ]
+        },
+        facebook: {
+            title: 'Log in with Facebook',
+            logoClass: 'facebook',
+            logoHtml: '<i class="fa-brands fa-facebook-f"></i>',
+            accounts: [
+                { name: 'Sarah Connor', email: 'sarah.c@facebook.com', avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=60&q=80' },
+                { name: 'Mark Zuckerberg', email: 'zuck@meta.com', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=60&q=80' }
+            ]
+        }
+    };
+
+    const openSocialOauth = (provider) => {
+        const config = socialProfiles[provider];
+        if (!config || !oauthModal) return;
+
+        // Reset state
+        oauthTitle.textContent = config.title;
+        oauthProviderLogo.className = `oauth-provider-logo ${config.logoClass}`;
+        oauthProviderLogo.innerHTML = config.logoHtml;
+        oauthLoading.style.display = 'flex';
+        oauthLoadingText.textContent = 'Connecting securely...';
+        oauthAccounts.style.display = 'none';
+        oauthModal.style.display = 'flex';
+
+        // Stage 1: Load secure connection (simulated latency)
+        setTimeout(() => {
+            oauthLoading.style.display = 'none';
+            oauthAccounts.style.display = 'block';
+
+            // Generate profiles list
+            oauthAccountList.innerHTML = config.accounts.map(acc => `
+                <div class="oauth-account-card" onclick="triggerSocialAuth('${provider}', '${acc.name.replace(/'/g, "\\'")}', '${acc.email}', '${acc.avatar}')">
+                    <div class="oauth-account-avatar">
+                        <img src="${acc.avatar}" alt="${acc.name}">
+                    </div>
+                    <div class="oauth-account-info">
+                        <span class="oauth-account-name">${acc.name}</span>
+                        <span class="oauth-account-email">${acc.email}</span>
+                    </div>
+                </div>
+            `).join('');
+        }, 1200);
+    };
+
+    const closeSocialOauth = () => {
+        if (oauthModal) oauthModal.style.display = 'none';
+    };
+
+    if (btnCloseOauth) btnCloseOauth.addEventListener('click', closeSocialOauth);
+    if (oauthModal) {
+        oauthModal.addEventListener('click', (e) => {
+            if (e.target === oauthModal) closeSocialOauth();
+        });
+    }
+
+    // Register social button click listeners
+    const googleBtn = document.querySelector('.google-btn');
+    const githubBtn = document.querySelector('.github-btn');
+    const facebookBtn = document.querySelector('.facebook-btn');
+
+    if (googleBtn) googleBtn.addEventListener('click', (e) => { e.preventDefault(); openSocialOauth('google'); });
+    if (githubBtn) githubBtn.addEventListener('click', (e) => { e.preventDefault(); openSocialOauth('github'); });
+    if (facebookBtn) facebookBtn.addEventListener('click', (e) => { e.preventDefault(); openSocialOauth('facebook'); });
+
+    // Expose social callback handler to window
+    window.triggerSocialAuth = function(provider, name, email, avatar) {
+        oauthAccounts.style.display = 'none';
+        oauthLoading.style.display = 'flex';
+        oauthLoadingText.textContent = `Completing secure login with ${provider}...`;
+
+        fetch('/api/v1/auth/social-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: provider, email: email, name: name })
+        })
+        .then(async (res) => {
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.detail || 'OAuth validation failed.');
+            }
+            return res.json();
+        })
+        .then(data => {
+            // Save state
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('controlai_username', name);
+            localStorage.setItem('controlai_email', email);
+            localStorage.setItem('controlai_avatar', avatar);
+
+            showToast('success', `Logged in via ${provider.charAt(0).toUpperCase() + provider.slice(1)}! Welcome, ${name}.`);
+
+            // Transition main views
+            closeSocialOauth();
+            loginScreen.classList.add('fade-out');
+            mainApp.classList.remove('app-hidden');
+
+            // Trigger profile UI updates and SVG redraw
+            window.dispatchEvent(new Event('controlai_login_success'));
+            setTimeout(drawNetworkConnections, 600);
+        })
+        .catch(err => {
+            showToast('error', err.message || 'OAuth authentication failed.');
+            oauthAccounts.style.display = 'block';
+            oauthLoading.style.display = 'none';
+        });
+    };
 
     // 3. Header Profile Trigger Dropdown
     profileTrigger.addEventListener('click', (e) => {
@@ -151,6 +577,13 @@ function initAuth() {
         profileDropdown.classList.remove('active');
         
         localStorage.setItem('isLoggedIn', 'false');
+        localStorage.removeItem('controlai_username');
+        localStorage.removeItem('controlai_email');
+        localStorage.removeItem('controlai_avatar');
+        
+        // Refresh UI state
+        if (window.updateProfileUI) window.updateProfileUI();
+
         showToast('info', 'Logged out successfully.');
 
         // Revert views
@@ -197,22 +630,47 @@ function initDrawers() {
         }
     };
 
+    const closeAllMenus = () => {
+        document.getElementById('btn-toggle-graph').classList.remove('active');
+        const pbiBtn = document.getElementById('btn-toggle-powerbi');
+        if (pbiBtn) pbiBtn.classList.remove('active');
+        document.getElementById('btn-toggle-explorer').classList.remove('active');
+        document.getElementById('btn-toggle-logs').classList.remove('active');
+        const profBtn = document.getElementById('btn-toggle-profile');
+        if (profBtn) profBtn.classList.remove('active');
+
+        explorerDrawer.classList.remove('active');
+        consoleDrawer.classList.remove('active');
+        if (powerbiDrawer) powerbiDrawer.classList.remove('active');
+
+        const settingsOverlay = document.getElementById('settings-page-overlay');
+        if (settingsOverlay) {
+            settingsOverlay.style.display = 'none';
+            settingsOverlay.classList.remove('active');
+        }
+        workspace.classList.remove('blur-bg');
+    };
+    window.closeAllMenus = closeAllMenus;
+
     if (btnTogglePowerBI && powerbiDrawer) {
         btnTogglePowerBI.addEventListener('click', () => {
-            powerbiDrawer.classList.toggle('active');
-            btnTogglePowerBI.classList.toggle('active');
-            if (powerbiDrawer.classList.contains('active')) {
+            const wasActive = powerbiDrawer.classList.contains('active');
+            closeAllMenus();
+            if (!wasActive) {
+                powerbiDrawer.classList.add('active');
+                btnTogglePowerBI.classList.add('active');
                 fetchPowerBIStatus();
+                workspace.classList.add('blur-bg');
+            } else {
+                btnToggleGraph.classList.add('active');
             }
-            updateWorkspaceBlur();
         });
     }
 
     if (btnClosePowerBI && powerbiDrawer) {
         btnClosePowerBI.addEventListener('click', () => {
-            powerbiDrawer.classList.remove('active');
-            if (btnTogglePowerBI) btnTogglePowerBI.classList.remove('active');
-            updateWorkspaceBlur();
+            closeAllMenus();
+            btnToggleGraph.classList.add('active');
         });
     }
 
@@ -238,42 +696,44 @@ function initDrawers() {
     }
 
     btnToggleExplorer.addEventListener('click', () => {
-        explorerDrawer.classList.toggle('active');
-        btnToggleExplorer.classList.toggle('active');
-        if (explorerDrawer.classList.contains('active')) {
+        const wasActive = explorerDrawer.classList.contains('active');
+        closeAllMenus();
+        if (!wasActive) {
+            explorerDrawer.classList.add('active');
+            btnToggleExplorer.classList.add('active');
             loadExplorerFiles();
             loadDashboardStats();
+            workspace.classList.add('blur-bg');
+        } else {
+            btnToggleGraph.classList.add('active');
         }
-        updateWorkspaceBlur();
     });
 
     btnCloseExplorer.addEventListener('click', () => {
-        explorerDrawer.classList.remove('active');
-        btnToggleExplorer.classList.remove('active');
-        updateWorkspaceBlur();
+        closeAllMenus();
+        btnToggleGraph.classList.add('active');
     });
 
     btnToggleLogs.addEventListener('click', () => {
-        consoleDrawer.classList.toggle('active');
-        btnToggleLogs.classList.toggle('active');
-        updateWorkspaceBlur();
+        const wasActive = consoleDrawer.classList.contains('active');
+        closeAllMenus();
+        if (!wasActive) {
+            consoleDrawer.classList.add('active');
+            btnToggleLogs.classList.add('active');
+            workspace.classList.add('blur-bg');
+        } else {
+            btnToggleGraph.classList.add('active');
+        }
     });
 
     btnCloseLogs.addEventListener('click', () => {
-        consoleDrawer.classList.remove('active');
-        btnToggleLogs.classList.remove('active');
-        updateWorkspaceBlur();
+        closeAllMenus();
+        btnToggleGraph.classList.add('active');
     });
 
     btnToggleGraph.addEventListener('click', () => {
+        closeAllMenus();
         btnToggleGraph.classList.add('active');
-        explorerDrawer.classList.remove('active');
-        consoleDrawer.classList.remove('active');
-        if (powerbiDrawer) powerbiDrawer.classList.remove('active');
-        if (btnTogglePowerBI) btnTogglePowerBI.classList.remove('active');
-        btnToggleExplorer.classList.remove('active');
-        btnToggleLogs.classList.remove('active');
-        updateWorkspaceBlur();
     });
 
     const toggleManualInput = document.getElementById('toggle-manual-input');
@@ -656,6 +1116,10 @@ function startPipelinePolling(pipelineId) {
                 updateFlowVisualFromStages(data.stages);
             } else {
                 updateFlowVisualFromLogs(data.logs);
+            }
+
+            if (state.activeInspectedStageId && document.getElementById('stage-inspector-modal').style.display === 'flex') {
+                openStageInspector(state.activeInspectedStageId);
             }
             
             if (data.status === 'Success' || data.status === 'Passed with Warnings') {
@@ -1243,15 +1707,19 @@ function initChat() {
             appendChatMessage('assistant', data.response);
             
             // Auto-trigger browser download for the first download link found in the response
-            const downloadMatch = data.response.match(/\[Download [^\]]+\]\(([^\)]+)\)/);
-            if (downloadMatch) {
-                const downloadUrl = downloadMatch[1];
-                const tempLink = document.createElement('a');
-                tempLink.href = downloadUrl;
-                tempLink.setAttribute('download', '');
-                document.body.appendChild(tempLink);
-                tempLink.click();
-                document.body.removeChild(tempLink);
+            // only when the user's prompt explicitly requests downloading
+            const isDownloadRequested = /\b(download|save)\b/i.test(message);
+            if (isDownloadRequested) {
+                const downloadMatch = data.response.match(/\[Download [^\]]+\]\(([^\)]+)\)/);
+                if (downloadMatch) {
+                    const downloadUrl = downloadMatch[1];
+                    const tempLink = document.createElement('a');
+                    tempLink.href = downloadUrl;
+                    tempLink.setAttribute('download', '');
+                    document.body.appendChild(tempLink);
+                    tempLink.click();
+                    document.body.removeChild(tempLink);
+                }
             }
         } catch (e) {
             loggerError('chat', e);
@@ -1395,6 +1863,14 @@ function initUserProfileManager() {
         const storedEmail = localStorage.getItem('controlai_email');
         if (storedEmail && storedEmail.trim() !== '' && userDisplayEmail) {
             userDisplayEmail.textContent = storedEmail.trim();
+        }
+
+        const storedAvatar = localStorage.getItem('controlai_avatar');
+        const avatarImg = document.getElementById('user-display-avatar');
+        if (storedAvatar && avatarImg) {
+            avatarImg.src = storedAvatar;
+        } else if (avatarImg) {
+            avatarImg.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80';
         }
     };
 
@@ -1546,6 +2022,8 @@ function initSettingsPage() {
     const closeSettingsPage = function() {
         overlay.style.display = 'none';
         overlay.classList.remove('active');
+        if (window.closeAllMenus) window.closeAllMenus();
+        document.getElementById('btn-toggle-graph').classList.add('active');
     };
 
     // Bind Back to Dashboard
@@ -1572,25 +2050,38 @@ function initSettingsPage() {
     if (btnDropdownProfile) {
         btnDropdownProfile.addEventListener('click', (e) => {
             e.preventDefault();
+            if (window.closeAllMenus) window.closeAllMenus();
+            if (btnToggleProfile) btnToggleProfile.classList.add('active');
             openSettingsPage('tab-profile-settings');
         });
     }
     if (btnDropdownSecurity) {
         btnDropdownSecurity.addEventListener('click', (e) => {
             e.preventDefault();
+            if (window.closeAllMenus) window.closeAllMenus();
+            if (btnToggleProfile) btnToggleProfile.classList.add('active');
             openSettingsPage('tab-api-keys');
         });
     }
     if (btnDropdownPreferences) {
         btnDropdownPreferences.addEventListener('click', (e) => {
             e.preventDefault();
+            if (window.closeAllMenus) window.closeAllMenus();
+            if (btnToggleProfile) btnToggleProfile.classList.add('active');
             openSettingsPage('tab-preferences');
         });
     }
     if (btnToggleProfile) {
         btnToggleProfile.addEventListener('click', (e) => {
             e.preventDefault();
-            openSettingsPage('tab-profile-settings');
+            const wasActive = overlay && overlay.classList.contains('active');
+            if (!wasActive) {
+                if (window.closeAllMenus) window.closeAllMenus();
+                btnToggleProfile.classList.add('active');
+                openSettingsPage('tab-profile-settings');
+            } else {
+                closeSettingsPage();
+            }
         });
     }
 
@@ -1851,10 +2342,12 @@ function initStageInspector() {
     if (closeBtn && modal) {
         closeBtn.addEventListener('click', () => {
             modal.style.display = 'none';
+            state.activeInspectedStageId = null;
         });
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.style.display = 'none';
+                state.activeInspectedStageId = null;
             }
         });
     }
@@ -1891,6 +2384,8 @@ function renderPreviewTable(previewData, title) {
 function openStageInspector(stageId) {
     const modal = document.getElementById('stage-inspector-modal');
     if (!modal) return;
+    
+    state.activeInspectedStageId = stageId;
     
     const titleEl = document.getElementById('stage-inspector-title');
     const subtitleEl = document.getElementById('stage-inspector-subtitle');
@@ -2111,6 +2606,52 @@ function openStageInspector(stageId) {
                 </div>
             `;
         }
+
+        // Build dynamic button generator for premium aesthetics
+        const makeDownloadButton = (label, iconClass, onClickString, themeColor = 'rgba(255,255,255,0.06)', textColor = '#fff', borderColor = 'rgba(255,255,255,0.15)') => {
+            return `<button style="padding: 6px 12px; font-size: 11px; background: ${themeColor}; border: 1px solid ${borderColor}; color: ${textColor}; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family:inherit; font-weight:500; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.2)';" onmouseout="this.style.transform='none'; this.style.boxShadow='none';" onclick="${onClickString}"><i class="${iconClass}"></i> ${label}</button>`;
+        };
+
+        // Construct dynamic actions html
+        const batchId = pipeData.batch_id || state.currentBatchId || '';
+        const filename = pipeData.dataset_name || (state.selectedFile ? state.selectedFile.name : 'dataset.csv');
+        
+        let downloadActionsHtml = `
+            <div style="margin-bottom: 14px; padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08);">
+                <h4 style="font-size:12px; margin-top:0; margin-bottom:8px; color: var(--color-blue); font-weight:600;"><i class="fa-solid fa-cloud-arrow-down" style="margin-right:4px;"></i> Node Data & Outputs Download</h4>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        `;
+
+        if (stageId === 'intake') {
+            downloadActionsHtml += makeDownloadButton('Download Raw Input', 'fa-solid fa-file-import', `downloadNodeData('data/raw/${filename}')`, 'rgba(0, 240, 255, 0.15)', '#fff', 'var(--color-blue)') + ' ';
+            downloadActionsHtml += makeDownloadButton('Download Profile (JSON)', 'fa-solid fa-code', "downloadStageMetadata('intake')", 'rgba(20, 184, 166, 0.15)', '#fff', 'var(--color-teal)') + ' ';
+        } else if (stageId === 'transformation') {
+            downloadActionsHtml += makeDownloadButton('Download Raw Input', 'fa-solid fa-file-import', `downloadNodeData('data/raw/${filename}')`) + ' ';
+            downloadActionsHtml += makeDownloadButton('Download Cleaned Output', 'fa-solid fa-wand-magic-sparkles', `downloadNodeData('cleaned data/${filename}')`, 'rgba(16, 185, 129, 0.15)', '#fff', '#10b981') + ' ';
+            downloadActionsHtml += makeDownloadButton('Download Audit Log (JSON)', 'fa-solid fa-clock-rotate-left', "downloadStageMetadata('transformation')", 'rgba(245, 158, 11, 0.15)', '#fff', '#f59e0b') + ' ';
+        } else if (stageId === 'storage') {
+            downloadActionsHtml += makeDownloadButton('Download Cleaned Input', 'fa-solid fa-wand-magic-sparkles', `downloadNodeData('cleaned data/${filename}')`) + ' ';
+            if (stage.output && stage.output.formatted_file_path) {
+                const fmt = stage.output.format_selected || 'Export';
+                downloadActionsHtml += makeDownloadButton(`Download Target ${fmt}`, 'fa-solid fa-database', `downloadNodeData('${stage.output.formatted_file_path.replace(/\\/g, '/')}')`, 'rgba(59, 130, 246, 0.15)', '#fff', '#3b82f6') + ' ';
+            }
+        } else if (stageId === 'report') {
+            if (stage.output && stage.output.pdf_path) {
+                downloadActionsHtml += makeDownloadButton('Download PDF Report', 'fa-solid fa-file-pdf', `downloadReport('${batchId}', 'pdf')`, 'rgba(239, 68, 68, 0.15)', '#fff', '#ef4444') + ' ';
+            }
+            if (stage.output && stage.output.docx_path) {
+                downloadActionsHtml += makeDownloadButton('Download Word Doc', 'fa-solid fa-file-word', `downloadReport('${batchId}', 'docx')`, 'rgba(59, 130, 246, 0.15)', '#fff', '#3b82f6') + ' ';
+            }
+        } else if (stageId === 'pbi') {
+            downloadActionsHtml += makeDownloadButton('Download Schema Metadata', 'fa-solid fa-chart-column', "downloadStageMetadata('pbi')", 'rgba(245, 158, 11, 0.15)', '#fff', '#f59e0b') + ' ';
+        }
+
+        downloadActionsHtml += makeDownloadButton('Download Stage Logs', 'fa-solid fa-terminal', `downloadStageLogs('${stageId}')`) + ' ';
+
+        downloadActionsHtml += `
+                </div>
+            </div>
+        `;
         
         dataPreviewHtml = `
             <!-- Timings Section -->
@@ -2119,6 +2660,8 @@ function openStageInspector(stageId) {
                 <div><i class="fa-solid fa-clock-rotate-left" style="margin-right:4px;"></i> Ended: <strong>${endTimeStr}</strong></div>
                 <div><i class="fa-solid fa-stopwatch" style="margin-right:4px;"></i> Duration: <strong style="color: var(--color-blue);">${duration}</strong></div>
             </div>
+            
+            ${downloadActionsHtml}
             
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
                 <!-- Inputs Section -->
@@ -2174,5 +2717,41 @@ function openStageInspector(stageId) {
     
     modal.style.display = 'flex';
 }
+
+// Global download helpers
+window.downloadNodeData = function(path) {
+    window.open(`/api/v1/reports/download-file?path=${encodeURIComponent(path)}`, '_blank');
+};
+
+window.downloadStageMetadata = function(stageId) {
+    const pipeData = state.currentPipelineData || {};
+    const stages = pipeData.stages || {};
+    const stage = stages[stageId] || {};
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stage, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href",     dataStr);
+    downloadAnchor.setAttribute("download", `${stageId}_stage_metadata.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+};
+
+window.downloadStageLogs = function(stageId) {
+    const pipeData = state.currentPipelineData || {};
+    const stages = pipeData.stages || {};
+    const stage = stages[stageId] || {};
+    const logs = stage.logs || [];
+    const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(logs.join("\n"));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href",     dataStr);
+    downloadAnchor.setAttribute("download", `${stageId}_stage_logs.txt`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+};
+
+window.downloadReport = function(batchId, format) {
+    window.open(`/api/v1/reports/download/${batchId}?format=${format}`, '_blank');
+};
 
 

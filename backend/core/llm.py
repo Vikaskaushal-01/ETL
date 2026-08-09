@@ -96,36 +96,71 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
         links = re.findall(r'\[Download [^\]]+\]\([^\)]+\)', context_section)
         
         # Build response
-        response_msg = "Hello! I am the ETL Chat Support Agent. "
-        if context_section and "no specific batch context loaded" not in context_section.lower():
-            response_msg += "I analyzed the database logs and reports for the active run:\n\n"
+        response_msg = "Hello! I am the ETL Chat Support Agent.\n\n"
+        
+        # Analyze user query/intent for platform-related issues (files, logs, execution, bugs)
+        query_text = ""
+        q_match = re.search(r'User Query:[\s]*(.*)', prompt, re.DOTALL)
+        if q_match:
+            query_text = q_match.group(1).strip().lower()
             
-            # Extract key details from context
-            quality_match = re.search(r'Quality Score[=:][\s]*([\d\.]+)%', context_section)
-            file_match = re.search(r'Uploaded File:[\s]*([^\s|]+)', context_section)
-            rca_issues = re.findall(r'Issue:[\s]*(.+)', context_section)
-            transformations = re.findall(r'Column \'([^\']+)\':[\s]*(.+)', context_section)
-            
-            if file_match:
-                response_msg += f"- **Dataset Filename**: `{file_match.group(1)}`\n"
-            if quality_match:
-                response_msg += f"- **Data Quality Score**: `{quality_match.group(1)}%`\n"
-            if rca_issues:
-                response_msg += "\n**Data Quality Issues / Root Causes Identified**:\n"
-                for issue in rca_issues[:3]:
-                    response_msg += f"- {issue.strip()}\n"
-            if transformations:
-                response_msg += "\n**Transformations Applied**:\n"
-                for col, details in transformations[:5]:
-                    response_msg += f"- Column `{col}`: {details.strip()}\n"
-            
-            if links:
-                response_msg += "\nHere are the download links for the files you requested:\n"
-                for link in links:
-                    response_msg += f"- {link}\n"
+        is_issue = any(k in query_text for k in ["error", "fail", "crashed", "issue", "bug", "problem", "wrong", "broke"])
+        
+        if is_issue:
+            response_msg += "### Platform Issue Troubleshooting Assistant\n"
+            if any(k in query_text for k in ["file", "upload", "ingest", "format"]):
+                response_msg += "**Issue identified**: File-related problem\n\n"
+                response_msg += "**Possible Causes**:\n"
+                response_msg += "- Schema mismatch or unsupported delimiter.\n"
+                response_msg += "- Missing columns/headers or corrupted file content.\n\n"
+                response_msg += "**Recommended Solutions**:\n"
+                response_msg += "- Verify that your file is formatted correctly (e.g. standard UTF-8 encoding, comma separated headers).\n"
+                response_msg += "- Inspect the intake node in the visualizer to check profiling parameters.\n"
+            elif any(k in query_text for k in ["log", "execution", "console", "run"]):
+                response_msg += "**Issue identified**: Logs and execution issue\n\n"
+                response_msg += "**Possible Causes**:\n"
+                response_msg += "- Redis queue background runner offline or database connection timeout.\n"
+                response_msg += "- Stale or concurrent running pipeline locked state.\n\n"
+                response_msg += "**Recommended Solutions**:\n"
+                response_msg += "- Clear workspace/cleanup logs using chat command `clear all` or `clear logs`.\n"
+                response_msg += "- Check background service container status by running `docker ps`.\n"
+            else:
+                response_msg += "**Issue identified**: General platform / execution bug\n\n"
+                response_msg += "**Possible Causes**:\n"
+                response_msg += "- System cache issue or session database locks.\n\n"
+                response_msg += "**Recommended Solutions**:\n"
+                response_msg += "- Run a complete workspace reset with the command: `reset workspace`.\n"
+                response_msg += "- Confirm browser cache is cleared and restart services.\n"
+                
         else:
-            response_msg += "I am ready to help you analyze your ETL pipeline. Please provide a batch ID, filename, or paste the logs you'd like me to look at!"
-            
+            if context_section and "no specific batch context loaded" not in context_section.lower():
+                response_msg += "I analyzed the database logs and reports for the active run:\n\n"
+                # Extract key details from context
+                quality_match = re.search(r'Quality Score[=:][\s]*([\d\.]+)%', context_section)
+                file_match = re.search(r'Uploaded File:[\s]*([^\s|]+)', context_section)
+                rca_issues = re.findall(r'Issue:[\s]*(.+)', context_section)
+                transformations = re.findall(r'Column \'([^\']+)\':[\s]*(.+)', context_section)
+                
+                if file_match:
+                    response_msg += f"- **Dataset Filename**: `{file_match.group(1)}`\n"
+                if quality_match:
+                    response_msg += f"- **Data Quality Score**: `{quality_match.group(1)}%`\n"
+                if rca_issues:
+                    response_msg += "\n**Data Quality Issues / Root Causes Identified**:\n"
+                    for issue in rca_issues[:3]:
+                        response_msg += f"- {issue.strip()}\n"
+                if transformations:
+                    response_msg += "\n**Transformations Applied**:\n"
+                    for col, details in transformations[:5]:
+                        response_msg += f"- Column `{col}`: {details.strip()}\n"
+            else:
+                response_msg += "I am ready to help you analyze your ETL pipeline. Please provide a batch ID, filename, or describe the logs/errors you'd like me to look at!"
+                
+        if links and not is_issue:
+            response_msg += "\n\nAvailable download links:\n"
+            for link in links:
+                response_msg += f"- {link}\n"
+                
         result = {
             "response": response_msg,
             "agent_name": "ETL Chat Support Agent",

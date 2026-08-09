@@ -309,22 +309,74 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
             "confidence": 100.0
         }
 
-    # 3. Check the last file you cleaned
-    is_last_cleaned_file = ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower) and "log" not in message_lower)
-    if is_last_cleaned_file:
+    # 3. Check the last generated / previous file
+    is_previous_file_request = any(k in message_lower for k in [
+        "last generated file", "previous file", "latest generated file", 
+        "last file", "latest file", "previous generated file", "most recently generated file",
+        "last cleaned file", "latest cleaned file", "previous cleaned file"
+    ]) or ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower) and "log" not in message_lower)
+    if is_previous_file_request:
         latest_batch = get_latest_batch_id(db)
         if not latest_batch:
             return {
-                "response": "No datasets have been successfully cleaned in this workspace yet. Please upload and run a pipeline.",
+                "response": "No datasets have been successfully processed in this workspace yet. Please upload and run a pipeline.",
                 "agent_name": "ETL Chat Support Agent",
                 "confidence": 95.0
             }
-        links, raw_fn = get_files_for_batch(db, latest_batch)
-        response_msg = f"### Last Cleaned File: `{raw_fn}` (Batch ID: `{latest_batch}`)\n\nHere are the access links for the last file cleaned and its reports:\n\n{links}"
+        
+        raw_filename = None
+        try:
+            upload_row = db.execute(
+                text("SELECT filename FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                {"b": latest_batch}
+            ).first()
+            if upload_row:
+                raw_filename = upload_row[0]
+        except Exception:
+            pass
+
+        if not raw_filename:
+            backup_path = os.path.join(PROJECT_ROOT, ".last_cleaned_backup.json")
+            if os.path.exists(backup_path):
+                try:
+                    with open(backup_path, "r", encoding="utf-8") as bf:
+                        raw_filename = json.load(bf).get("filename")
+                except Exception:
+                    pass
+
+        if raw_filename:
+            clean_path = f"cleaned data/{raw_filename}"
+            if os.path.exists(os.path.join(PROJECT_ROOT, clean_path)):
+                clean_url = f"/api/v1/reports/download-file?path={clean_path}"
+                response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated (cleaned) file:\n\n- **Cleaned Dataset File**: [Download {raw_filename}]({clean_url})"
+                return {
+                    "response": response_msg,
+                    "agent_name": "ETL Chat Support Agent",
+                    "confidence": 100.0
+                }
+        
+        try:
+            report_row = db.execute(
+                text("SELECT pdf_path FROM generated_reports WHERE batch_id = :b LIMIT 1"),
+                {"b": latest_batch}
+            ).first()
+            if report_row and report_row[0]:
+                pdf_path = report_row[0]
+                pdf_name = os.path.basename(pdf_path)
+                pdf_url = f"/api/v1/reports/download/{latest_batch}?format=pdf"
+                response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated report file:\n\n- **PDF Report**: [Download {pdf_name}]({pdf_url})"
+                return {
+                    "response": response_msg,
+                    "agent_name": "ETL Chat Support Agent",
+                    "confidence": 100.0
+                }
+        except Exception:
+            pass
+
         return {
-            "response": response_msg,
+            "response": "Found the latest batch but could not locate the generated cleaned dataset or reports on disk.",
             "agent_name": "ETL Chat Support Agent",
-            "confidence": 100.0
+            "confidence": 90.0
         }
 
     # 4. Check process logs (general/by process ID)
@@ -696,15 +748,29 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
     
     User Query: {req.message}
     
-    Provide your explanation and reasoning. Format your answer as a JSON object containing:
-    - response: detailed, formatted markdown response answering the user.
+    Ensure you analyze the user's text patterns and understand their actual intent. 
+    If the user's query is platform-related (such as file-related problems, logs and execution issues, or internal platform bugs), you must structure your response to provide:
+    1. The possible causes of the issue.
+    2. Recommended solutions.
+    
+    Format your answer as a JSON object containing:
+    - response: detailed, formatted markdown response answering the user, containing possible causes and recommended solutions if it is a platform-related issue.
     - agent_name: "ETL Chat Support Agent"
     - confidence: float between 0 and 100 on accuracy of answer.
     
     Return ONLY valid JSON.
     """
     
-    system_instruction = "You are the ETL Chat Support Agent. Answer data pipeline, logs, quality, and report questions using JSON. If the user asks for files or downloads (e.g. raw file, clean file, reports), or shares logs and expects the file, you MUST provide the markdown download links from the 'Available files for download' section in the database context."
+    system_instruction = (
+        "You are the senior intelligent ETL Chat Support Agent. "
+        "Before generating a response, analyze the user's text patterns and understand their actual intent. "
+        "Formulate your response based on the identified intent rather than doing simple keyword matching. "
+        "If the user is experiencing platform-related issues (such as file-related problems, logs and execution issues, "
+        "or internal platform bugs), you must identify possible causes and provide clear recommended solutions. "
+        "Keep this intelligence strictly limited to platform-related assistance. Do not modify unrelated chatbot features. "
+        "If the user asks for files or downloads, you must output the appropriate markdown download links (e.g., [Download filename](url)) "
+        "from the database context."
+    )
     
     try:
         llm_res = query_llm(prompt, system_instruction, json_mode=True)

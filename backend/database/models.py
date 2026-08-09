@@ -189,3 +189,13 @@ class GeneratedReport(Base):
     json_path = Column(String(500))
     markdown_path = Column(String(500))
     created_at = Column(DateTime, server_default=func.now())
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    reset_code = Column(String(50), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
