@@ -466,3 +466,131 @@ def get_data_quality(batch_id: Optional[str] = None, db: Session = Depends(get_d
     if batch_id:
         query = query.filter(QualityReport.batch_id == batch_id)
     return query.all()
+
+@router.get("/pipeline/flowchart")
+def get_pipeline_flowchart_endpoint(batch_id: str, db: Session = Depends(get_db)):
+    from backend.utils.flowchart_generator import generate_pydot_flowchart
+    from fastapi import Response
+    
+    pipeline_id = f"pipe_{batch_id}"
+    state = read_pipeline_state(pipeline_id)
+    
+    # Try to find the filename
+    filename = "dataset.csv"
+    try:
+        row = db.execute(text("SELECT filename FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).first()
+        if row and row[0]:
+            filename = row[0]
+        else:
+            filename = state.get("dataset_name", "dataset.csv")
+    except Exception:
+        pass
+        
+    svg_content = generate_pydot_flowchart(batch_id, state.get("stages", {}), filename)
+    return Response(content=svg_content, media_type="image/svg+xml")
+
+@router.get("/pipeline/graph-json")
+def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db)):
+    pipeline_id = f"pipe_{batch_id}"
+    state = read_pipeline_state(pipeline_id)
+    
+    filename = "dataset.csv"
+    try:
+        row = db.execute(text("SELECT filename FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).first()
+        if row and row[0]:
+            filename = row[0]
+        else:
+            filename = state.get("dataset_name", "dataset.csv")
+    except Exception:
+        pass
+        
+    stages = state.get("stages", {})
+    
+    intake_status = stages.get("intake", {}).get("status", "waiting")
+    trans_status = stages.get("transformation", {}).get("status", "waiting")
+    storage_status = stages.get("storage", {}).get("status", "waiting")
+    report_status = stages.get("report", {}).get("status", "waiting")
+    pbi_status = stages.get("pbi", {}).get("status", "waiting")
+    raw_status = "completed" if intake_status != "waiting" else "waiting"
+    
+    nodes = [
+        {
+            "id": "raw",
+            "label": f"Raw Ingestion Input ({filename})",
+            "type": "RawInputNode",
+            "status": raw_status,
+            "data_preview": stages.get("intake", {}).get("output", {}).get("preview", []),
+            "download_url": f"/api/v1/reports/download-file?path=data/raw/{filename}" if raw_status == "completed" else None
+        },
+        {
+            "id": "intake",
+            "label": "1. Iris AI Ingestion Profile & Readability Validate",
+            "type": "IntakeAgentNode",
+            "status": intake_status,
+            "metrics": {
+                "rows": stages.get("intake", {}).get("output", {}).get("rows"),
+                "columns": stages.get("intake", {}).get("output", {}).get("columns"),
+                "quality": stages.get("intake", {}).get("output", {}).get("estimated_quality")
+            },
+            "download_url": f"/api/v1/pipeline/status?pipeline_id={pipeline_id}" if intake_status == "completed" else None
+        },
+        {
+            "id": "transformation",
+            "label": "2. Data Cleanser & Quality Optimizer Snap",
+            "type": "TransformationAgentNode",
+            "status": trans_status,
+            "metrics": {
+                "quality_before": stages.get("transformation", {}).get("output", {}).get("quality_before"),
+                "quality_after": stages.get("transformation", {}).get("output", {}).get("quality_after")
+            },
+            "download_url": f"/api/v1/reports/download-file?path=cleaned data/{filename}" if trans_status == "completed" else None
+        },
+        {
+            "id": "storage",
+            "label": "3. SQL Staging Target Format Sync",
+            "type": "StorageAgentNode",
+            "status": storage_status,
+            "metrics": {
+                "format_selected": stages.get("storage", {}).get("output", {}).get("format_selected"),
+                "rows_loaded": stages.get("storage", {}).get("output", {}).get("rows_loaded"),
+                "rows_rejected": stages.get("storage", {}).get("output", {}).get("rows_rejected")
+            },
+            "download_url": f"/api/v1/reports/download-file?path={stages.get('storage', {}).get('output', {}).get('formatted_file_path')}" if storage_status == "completed" and stages.get("storage", {}).get("output", {}).get("formatted_file_path") else None
+        },
+        {
+            "id": "report",
+            "label": "4. analytical Docx & Executive Summary Exporter",
+            "type": "ReportAgentNode",
+            "status": report_status,
+            "metrics": {
+                "rca_alerts": stages.get("report", {}).get("output", {}).get("rca_alerts_count")
+            },
+            "download_url": f"/api/v1/reports/download/{batch_id}?format=pdf" if report_status == "completed" else None
+        },
+        {
+            "id": "pbi",
+            "label": "5. Power BI Gateway fact sync",
+            "type": "PowerBIGatewayNode",
+            "status": pbi_status,
+            "metrics": {
+                "refresh_status": stages.get("pbi", {}).get("output", {}).get("refresh_status")
+            },
+            "download_url": None
+        }
+    ]
+    
+    edges = [
+        {"source": "raw", "target": "intake"},
+        {"source": "intake", "target": "transformation"},
+        {"source": "transformation", "target": "storage"},
+        {"source": "storage", "target": "report"},
+        {"source": "report", "target": "pbi"}
+    ]
+    
+    return {
+        "batch_id": batch_id,
+        "pipeline_id": pipeline_id,
+        "nodes": nodes,
+        "edges": edges
+    }
+

@@ -17,7 +17,14 @@ class IntakeAgent:
         logger.info(f"Running Data Intake Agent on {file_path}")
         
         file_info = detect_file_info(file_path)
-        df = read_dataset(file_path)
+        
+        # Optimize profiling for large files (> 10 MB)
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        if file_size > 10 * 1024 * 1024:
+            logger.info("Large dataset detected (>10MB). Ingesting first 20,000 rows for schema profiling.")
+            df = read_dataset(file_path, nrows=20000)
+        else:
+            df = read_dataset(file_path)
         
         row_count, col_count = df.shape
         column_names = list(df.columns)

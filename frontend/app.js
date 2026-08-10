@@ -1009,6 +1009,7 @@ function initPipelineControls() {
         resetFlowVisual();
         clearConsole();
         
+        if (window.closeAllMenus) window.closeAllMenus();
         document.getElementById('console-drawer').classList.add('active');
         document.getElementById('btn-toggle-logs').classList.add('active');
         document.querySelector('.network-workspace').classList.add('blur-bg');
@@ -1481,15 +1482,15 @@ async function loadDashboardStats() {
 }
 
 window.selectBatchDetail = function(batchId) {
-    document.getElementById('explorer-drawer').classList.remove('active');
-    document.getElementById('btn-toggle-explorer').classList.remove('active');
-    document.querySelector('.network-workspace').classList.remove('blur-bg');
+    if (window.closeAllMenus) window.closeAllMenus();
+    document.getElementById('btn-toggle-graph').classList.add('active');
     
     fetchSelectedBatchInsights(batchId);
     showToast('info', `Loaded insights: ${batchId}`);
 };
 
 function viewRunLogs(pipelineId) {
+    if (window.closeAllMenus) window.closeAllMenus();
     document.getElementById('console-drawer').classList.add('active');
     document.getElementById('btn-toggle-logs').classList.add('active');
     document.querySelector('.network-workspace').classList.add('blur-bg');
@@ -1707,8 +1708,10 @@ function initChat() {
             appendChatMessage('assistant', data.response);
             
             // Auto-trigger browser download for the first download link found in the response
-            // only when the user's prompt explicitly requests downloading
-            const isDownloadRequested = /\b(download|save)\b/i.test(message);
+            // only when the user's prompt explicitly requests downloading and doesn't negate it
+            const hasDownloadWord = /\b(download|save)\b/i.test(message);
+            const hasNegation = /\b(don'?t|no|without|never|stop|not)\b/i.test(message);
+            const isDownloadRequested = hasDownloadWord && !hasNegation;
             if (isDownloadRequested) {
                 const downloadMatch = data.response.match(/\[Download [^\]]+\]\(([^\)]+)\)/);
                 if (downloadMatch) {
@@ -2646,6 +2649,8 @@ function openStageInspector(stageId) {
             downloadActionsHtml += makeDownloadButton('Download Schema Metadata', 'fa-solid fa-chart-column', "downloadStageMetadata('pbi')", 'rgba(245, 158, 11, 0.15)', '#fff', '#f59e0b') + ' ';
         }
 
+        downloadActionsHtml += makeDownloadButton('Download Graph JSON', 'fa-solid fa-network-wired', `downloadGraphJson('${batchId}')`, 'rgba(168, 85, 247, 0.15)', '#fff', 'var(--color-blue)') + ' ';
+        downloadActionsHtml += makeDownloadButton('Download Flowchart (SVG)', 'fa-solid fa-project-diagram', `downloadFlowchart('${batchId}')`, 'rgba(20, 184, 166, 0.15)', '#fff', 'var(--color-teal)') + ' ';
         downloadActionsHtml += makeDownloadButton('Download Stage Logs', 'fa-solid fa-terminal', `downloadStageLogs('${stageId}')`) + ' ';
 
         downloadActionsHtml += `
@@ -2659,6 +2664,14 @@ function openStageInspector(stageId) {
                 <div><i class="fa-regular fa-clock" style="margin-right:4px;"></i> Started: <strong>${startTimeStr}</strong></div>
                 <div><i class="fa-solid fa-clock-rotate-left" style="margin-right:4px;"></i> Ended: <strong>${endTimeStr}</strong></div>
                 <div><i class="fa-solid fa-stopwatch" style="margin-right:4px;"></i> Duration: <strong style="color: var(--color-blue);">${duration}</strong></div>
+            </div>
+            
+            <!-- Real-time Flowchart Diagram -->
+            <div style="margin-bottom:14px;">
+                <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue); font-weight:600;"><i class="fa-solid fa-project-diagram"></i> Real-time Ingestion Data Flow</h4>
+                <div style="background: rgba(15, 23, 42, 0.45); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.08); text-align: center; overflow: hidden;">
+                    <img src="/api/v1/pipeline/flowchart?batch_id=${batchId}&t=${Date.now()}" style="width:100%; max-height:160px; object-fit:contain;" alt="Pipeline Flowchart">
+                </div>
             </div>
             
             ${downloadActionsHtml}
@@ -2752,6 +2765,14 @@ window.downloadStageLogs = function(stageId) {
 
 window.downloadReport = function(batchId, format) {
     window.open(`/api/v1/reports/download/${batchId}?format=${format}`, '_blank');
+};
+
+window.downloadGraphJson = function(batchId) {
+    window.open(`/api/v1/pipeline/graph-json?batch_id=${encodeURIComponent(batchId)}`, '_blank');
+};
+
+window.downloadFlowchart = function(batchId) {
+    window.open(`/api/v1/pipeline/flowchart?batch_id=${encodeURIComponent(batchId)}`, '_blank');
 };
 
 
