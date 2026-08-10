@@ -12,6 +12,47 @@ router = APIRouter(prefix="/agent", tags=["AI Agent Chat"])
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
+PLATFORM_TROUBLESHOOTING_GUIDE = """
+=== Platform Troubleshooting Reference (Causes & Solutions) ===
+1. Live Logs Console / Terminal Issues:
+   - Possible Causes:
+     * Pipeline execution has not been started yet.
+     * The `logs/` directory in the project root is missing or doesn't have write permissions.
+     * MySQL connection is down, preventing DB logs from writing.
+   - Recommended Solutions:
+     * Make sure you paste/upload a dataset and click "Start Automation" to spawn a run.
+     * Verify that the `logs` folder exists in the project root. If missing, create it: `mkdir logs`.
+     * Check if the API is active by hitting GET `/api/health`.
+
+2. Staging / Database Load / SQL Sync Problems:
+   - Possible Causes:
+     * MySQL service (`etl_mysql` container) is offline or crashed.
+     * Mismatched host, port, or password in the `.env` settings.
+     * Database tables structure is corrupt or uninitialized.
+   - Recommended Solutions:
+     * Run `docker ps` to verify that `etl_mysql` is up and running.
+     * Verify connection using the database verification script `verify_pipeline.py`.
+     * Run `cleanup_all.py` to reset and automatically recreate all stage schema and production tables.
+     * Double-check credentials in the `.env` file (`MYSQL_HOST`, `MYSQL_PORT`, etc.).
+
+3. File Ingestion & File System Issues:
+   - Possible Causes:
+     * The file paths `data/raw` or `cleaned data` are missing or locked by Windows process handlers.
+     * Invalid delimiter or encoding in the raw file.
+   - Recommended Solutions:
+     * Ensure the project root path is resolved to absolute paths.
+     * Clear process handlers or run a clean reset if files are locked.
+     * Verify delimiter properties (should be comma, semicolon, tab, or pipe).
+
+4. SnapLogic / Container Network / LLM Connection Errors:
+   - Possible Causes:
+     * Docker service container names cannot resolve each other.
+     * Gemini API Key is missing or expired in `.env`.
+   - Recommended Solutions:
+     * Rebuild and restart services: `docker-compose up --build -d`.
+     * Ensure `GEMINI_API_KEY` is set and valid in `.env`.
+"""
+
 def extract_batch_id(message: str, req_batch_id: str = None) -> str:
     if req_batch_id:
         return req_batch_id
@@ -310,7 +351,13 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
         }
 
     # 3. Check the last generated / previous file
-    is_previous_file_request = any(k in message_lower for k in [
+    is_single_last_file = any(k in message_lower for k in [
+        "single file you last generated", "last file you generated", 
+        "file you last generated", "single file last generated",
+        "only the last file", "only last file", "just the last file",
+        "just last file", "single file", "last generated"
+    ])
+    is_previous_file_request = is_single_last_file or any(k in message_lower for k in [
         "last generated file", "previous file", "latest generated file", 
         "last file", "latest file", "previous generated file", "most recently generated file",
         "last cleaned file", "latest cleaned file", "previous cleaned file"
@@ -736,12 +783,25 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
             context = "Context for requested files:\n"
         context += "\nDirectly matched files in the workspace filesystem:\n" + custom_links_context
 
+    # Pattern Analysis for Platform Troubleshooting
+    is_platform_issue = any(k in message_lower for k in [
+        "log", "logs", "terminal", "console", "bug", "error", "crash", "fail", "broken",
+        "database", "mysql", "db", "conn", "schema", "table", "download", "file", "ingest",
+        "snaplogic", "docker", "compose", "api key", "gemini", "problem", "solve", "solution"
+    ])
+    
+    troubleshooting_context = ""
+    if is_platform_issue:
+        troubleshooting_context = f"\nPlatform Troubleshooting Reference (Causes & Solutions):\n{PLATFORM_TROUBLESHOOTING_GUIDE}\n"
+
     prompt = f"""
     You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.
-    Using the database context and conversation history below, answer the user's questions regarding their ETL runs, data quality issues, database structure, or general ETL pipeline behavior.
+    Using the database context, troubleshooting guidelines, and conversation history below, answer the user's questions regarding their ETL runs, data quality issues, database structure, or general ETL pipeline behavior.
     
     Database Context:
     {context if context else "No specific batch context loaded. Provide general info on the pipeline architecture."}
+    
+    {troubleshooting_context}
     
     Conversation History:
     {formatted_history if formatted_history else "No previous conversation history."}
@@ -769,7 +829,9 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
         "or internal platform bugs), you must identify possible causes and provide clear recommended solutions. "
         "Keep this intelligence strictly limited to platform-related assistance. Do not modify unrelated chatbot features. "
         "If the user asks for files or downloads, you must output the appropriate markdown download links (e.g., [Download filename](url)) "
-        "from the database context."
+        "from the database context. "
+        "If the user asks for only the last file or a single file generated, you must only return that specific file (the cleaned dataset file) "
+        "and not list all other reports or raw files from the database context."
     )
     
     try:

@@ -4,7 +4,7 @@ import logging
 import time
 import pandas as pd
 import numpy as np
-from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder
+from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder, detect_file_info
 from backend.core.llm import query_llm
 
 logger = logging.getLogger("etl_transformation_agent")
@@ -28,8 +28,27 @@ class TransformationAgent:
             logger.info(f"Clearing output folder '{output_dir}' prior to storing cleaned data.")
             clear_cleaned_data_folder(output_dir)
             
-        df = read_dataset(file_path)
-        original_shape = df.shape
+        # Optimize reading for large files (> 10 MB)
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        file_info = detect_file_info(file_path)
+        
+        if file_size > 10 * 1024 * 1024 and file_path.lower().endswith(('.csv', '.tsv')):
+            logger.info("Large dataset detected (>10MB). Stream profiling row count.")
+            row_count = 0
+            try:
+                with open(file_path, 'r', encoding=file_info.get("encoding", "utf-8"), errors='ignore') as f:
+                    for _ in f:
+                        row_count += 1
+                row_count = max(0, row_count - 1)
+            except Exception:
+                row_count = 100000  # fallback estimation
+            
+            df = read_dataset(file_path, nrows=5000)
+            original_shape = (row_count, df.shape[1])
+        else:
+            df = read_dataset(file_path)
+            original_shape = df.shape
+            
         history = []
         logs = []
         
@@ -67,16 +86,19 @@ class TransformationAgent:
                     pass
 
         # 3. Deduplicate
-        dups_count = int(df.duplicated().sum())
-        if dups_count > 0:
-            df = df.drop_duplicates().reset_index(drop=True)
-            history.append({
-                "column_name": "all",
-                "old_value": f"{original_shape[0]} rows",
-                "new_value": f"{original_shape[0] - dups_count} rows",
-                "reason": f"Removed {dups_count} duplicate records"
-            })
-            logs.append(f"Removed {dups_count} duplicate rows from the dataset.")
+        if file_size > 10 * 1024 * 1024 and file_path.lower().endswith(('.csv', '.tsv')):
+            dups_count = 0
+        else:
+            dups_count = int(df.duplicated().sum())
+            if dups_count > 0:
+                df = df.drop_duplicates().reset_index(drop=True)
+                history.append({
+                    "column_name": "all",
+                    "old_value": f"{original_shape[0]} rows",
+                    "new_value": f"{original_shape[0] - dups_count} rows",
+                    "reason": f"Removed {dups_count} duplicate records"
+                })
+                logs.append(f"Removed {dups_count} duplicate rows from the dataset.")
 
         # 4. Standardize date formats
         for col in df.columns:
@@ -162,20 +184,67 @@ class TransformationAgent:
         os.makedirs(output_dir, exist_ok=True)
         clean_file_path = os.path.join(output_dir, base_name)
         
-        # Save based on type
         _, ext = os.path.splitext(clean_file_path.lower())
-        if ext == ".json":
-            df.to_json(clean_file_path, orient='records', indent=2)
-        elif ext in [".xlsx", ".xls"]:
-            df.to_excel(clean_file_path, index=False)
-        elif ext == ".tsv":
-            df.to_csv(clean_file_path, sep="\t", index=False)
-        elif ext == ".xml":
-            df.to_xml(clean_file_path, index=False, parser="etree")
-        elif ext == ".ipynb":
-            df.to_json(clean_file_path, orient='records', indent=2)
+        
+        if file_size > 10 * 1024 * 1024 and ext in [".csv", ".tsv"]:
+            logger.info("Large dataset detected (>10MB). Processing in chunks for memory efficiency.")
+            delimiter = file_info.get("delimiter", ",")
+            chunk_size = 50000
+            first_chunk = True
+            
+            with open(clean_file_path, 'w', encoding='utf-8', newline='') as out_f:
+                for chunk in pd.read_csv(file_path, encoding=file_info.get("encoding", "utf-8"), sep=delimiter, chunksize=chunk_size, on_bad_lines='skip'):
+                    # 1. Clean columns
+                    chunk.columns = new_cols
+                    # 2. Trim whitespaces
+                    for col in chunk.columns:
+                        if chunk[col].dtype == object:
+                            try:
+                                chunk[col] = chunk[col].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
+                            except Exception:
+                                pass
+                    # 3. Standardize dates
+                    for col in chunk.columns:
+                        if "date" in col or "time" in col:
+                            try:
+                                chunk[col] = pd.to_datetime(chunk[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                            except Exception:
+                                pass
+                    # 4. Fill missing values
+                    for col in chunk.columns:
+                        null_count = int(chunk[col].isnull().sum())
+                        if null_count > 0:
+                            if col == "quantity":
+                                chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(1).astype(int)
+                            elif col == "unit_price":
+                                chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(10.0)
+                            elif col == "total_price":
+                                chunk["unit_price"] = pd.to_numeric(chunk["unit_price"], errors='coerce').fillna(10.0)
+                                chunk["quantity"] = pd.to_numeric(chunk["quantity"], errors='coerce').fillna(1).astype(int)
+                                calculated_total = chunk["quantity"] * chunk["unit_price"]
+                                chunk[col] = chunk[col].fillna(calculated_total)
+                            else:
+                                if chunk[col].dtype in [np.float64, np.int64]:
+                                    chunk[col] = chunk[col].fillna(0)
+                                else:
+                                    chunk[col] = chunk[col].fillna("Unknown")
+                                    
+                    chunk.to_csv(out_f, sep=delimiter, index=False, header=first_chunk)
+                    first_chunk = False
         else:
-            df.to_csv(clean_file_path, index=False)
+            # Save based on type
+            if ext == ".json":
+                df.to_json(clean_file_path, orient='records', indent=2)
+            elif ext in [".xlsx", ".xls"]:
+                df.to_excel(clean_file_path, index=False)
+            elif ext == ".tsv":
+                df.to_csv(clean_file_path, sep="\t", index=False)
+            elif ext == ".xml":
+                df.to_xml(clean_file_path, index=False, parser="etree")
+            elif ext == ".ipynb":
+                df.to_json(clean_file_path, orient='records', indent=2)
+            else:
+                df.to_csv(clean_file_path, index=False)
 
         # Recalculate post-cleaning quality score
         new_row_count, new_col_count = df.shape

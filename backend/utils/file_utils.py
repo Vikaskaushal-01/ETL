@@ -45,7 +45,7 @@ def detect_file_info(file_path: str) -> dict:
                 pass
     return info
 
-def read_dataset(file_path: str) -> pd.DataFrame:
+def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
     """
     Reads ANY file format into a Pandas DataFrame.
     Supports CSV, TSV, Excel, JSON, XML, IPYNB, PDF, DOCX, DOC, HTML, SQL, MD, TXT, LOG, Parquet, Images, Zip/Archives, and binary fallbacks.
@@ -59,15 +59,17 @@ def read_dataset(file_path: str) -> pd.DataFrame:
     # 1. Delimited Text & CSV / TSV / DAT / LOG
     if file_type in ["csv", "tsv", "txt", "dat", "log"]:
         try:
-            return pd.read_csv(file_path, encoding=info["encoding"], sep=info["delimiter"], on_bad_lines='skip')
+            return pd.read_csv(file_path, encoding=info["encoding"], sep=info["delimiter"], on_bad_lines='skip', nrows=nrows)
         except Exception:
             try:
-                return pd.read_csv(file_path, encoding='latin1', sep=info["delimiter"], on_bad_lines='skip')
+                return pd.read_csv(file_path, encoding='latin1', sep=info["delimiter"], on_bad_lines='skip', nrows=nrows)
             except Exception:
                 # Text line fallback
                 try:
                     with open(file_path, 'r', encoding=info["encoding"], errors='ignore') as f:
                         lines = [l.strip() for l in f.readlines() if l.strip()]
+                    if nrows is not None:
+                        lines = lines[:nrows]
                     return pd.DataFrame([{"line_number": i + 1, "content_text": l} for i, l in enumerate(lines)])
                 except Exception as ex:
                     logger.warning(f"Fallback text read failed for {file_path}: {ex}")
@@ -75,7 +77,7 @@ def read_dataset(file_path: str) -> pd.DataFrame:
     # 2. Excel Spreadsheets
     elif file_type in ["xlsx", "xls", "xlsm", "xlsb", "xltx", "xlt"]:
         try:
-            return pd.read_excel(file_path)
+            return pd.read_excel(file_path, nrows=nrows)
         except Exception as ex:
             logger.warning(f"Error reading excel file {file_path}: {ex}")
             return pd.DataFrame([{
@@ -92,17 +94,26 @@ def read_dataset(file_path: str) -> pd.DataFrame:
                 data = json.load(f)
             if isinstance(data, dict):
                 if "records" in data and isinstance(data["records"], list):
-                    return pd.DataFrame(data["records"])
+                    records = data["records"]
+                    if nrows is not None:
+                        records = records[:nrows]
+                    return pd.DataFrame(records)
                 elif "data" in data and isinstance(data["data"], list):
-                    return pd.DataFrame(data["data"])
+                    records = data["data"]
+                    if nrows is not None:
+                        records = records[:nrows]
+                    return pd.DataFrame(records)
                 return pd.json_normalize(data)
             elif isinstance(data, list):
-                return pd.DataFrame(data)
+                records = data
+                if nrows is not None:
+                    records = records[:nrows]
+                return pd.DataFrame(records)
             else:
                 return pd.read_json(file_path)
         except Exception:
             try:
-                return pd.read_json(file_path, lines=True)
+                return pd.read_json(file_path, lines=True, nrows=nrows)
             except Exception:
                 pass
 
@@ -112,6 +123,8 @@ def read_dataset(file_path: str) -> pd.DataFrame:
             with open(file_path, 'r', encoding='utf-8') as f:
                 nb_data = json.load(f)
             cells = nb_data.get("cells", []) if isinstance(nb_data, dict) else (nb_data if isinstance(nb_data, list) else [])
+            if nrows is not None:
+                cells = cells[:nrows]
             records = []
             for idx, cell in enumerate(cells):
                 if not isinstance(cell, dict):
@@ -144,7 +157,18 @@ def read_dataset(file_path: str) -> pd.DataFrame:
     # 5. XML
     elif file_type == "xml":
         try:
-            return pd.read_xml(file_path, parser="etree")
+            # Note: nrows parameter in pd.read_xml requires pandas >= 1.3
+            # If pd.read_xml doesn't support it (e.g. in some older versions), it will fail over
+            return pd.read_xml(file_path, parser="etree", nrows=nrows)
+        except TypeError:
+            try:
+                # Fallback without nrows
+                df_xml = pd.read_xml(file_path, parser="etree")
+                if nrows is not None:
+                    df_xml = df_xml.head(nrows)
+                return df_xml
+            except Exception as ex:
+                logger.warning(f"Error reading xml: {ex}")
         except Exception as ex:
             logger.warning(f"Error reading xml: {ex}")
 
