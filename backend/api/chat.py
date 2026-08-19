@@ -327,7 +327,11 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
             formatted_history += f"{role_label}: {msg.content}\n"
 
     # 2. Check logs of the last file cleaned
-    is_last_cleaned_logs = ("last" in message_lower and "clean" in message_lower and ("log" in message_lower or "logs" in message_lower))
+    is_last_cleaned_logs = (
+        ("last" in message_lower or "latest" in message_lower or "previous" in message_lower)
+        and ("log" in message_lower or "logs" in message_lower)
+        and not any(k in message_lower for k in ["regenerate", "re-generate", "recreate", "re-create", "previous document"])
+    )
     if is_last_cleaned_logs:
         latest_batch = get_latest_batch_id(db)
         if not latest_batch:
@@ -357,11 +361,11 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
         "only the last file", "only last file", "just the last file",
         "just last file", "single file", "last generated"
     ])
-    is_previous_file_request = is_single_last_file or any(k in message_lower for k in [
+    is_previous_file_request = (is_single_last_file or any(k in message_lower for k in [
         "last generated file", "previous file", "latest generated file", 
         "last file", "latest file", "previous generated file", "most recently generated file",
         "last cleaned file", "latest cleaned file", "previous cleaned file"
-    ]) or ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower) and "log" not in message_lower)
+    ]) or ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower))) and "log" not in message_lower and "logs" not in message_lower
     if is_previous_file_request:
         latest_batch = get_latest_batch_id(db)
         if not latest_batch:

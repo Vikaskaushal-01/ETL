@@ -130,7 +130,7 @@ def generate_svg_fallback(batch_id: str, stages: dict, filename: str) -> str:
   <g transform="translate(730, 30)">
     <rect width="140" height="100" class="node-rect" stroke="{c_report}" />
     <text x="12" y="24" class="node-header">STAGE 4</text>
-    <text x="12" y="44" class="node-title">Docx & Reports</text>
+    <text x="12" y="44" class="node-title">Docx &amp; Reports</text>
     <text x="12" y="65" class="node-meta">RCA Alerts: {rca_alerts}</text>
     <text x="12" y="80" class="node-meta">DOCX/PDF Gen</text>
     <rect x="95" y="10" width="35" height="15" class="badge-rect" fill="{c_report}" opacity="0.2"/>

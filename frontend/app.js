@@ -1,3 +1,14 @@
+function parseUTCDate(dateStr) {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return dateStr;
+    if (typeof dateStr === 'string' && dateStr.includes('T') && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
+        if (!/[-+]\d{2}:\d{2}$/.test(dateStr)) {
+            return new Date(dateStr + 'Z');
+        }
+    }
+    return new Date(dateStr);
+}
+
 // Global Application State
 const state = {
     selectedFile: null,
@@ -759,7 +770,7 @@ async function fetchPowerBIStatus() {
             statusEl.textContent = `MySQL Engine: ${data.connector.status} (${data.connector.server})`;
         }
         if (syncMetaEl && data.dataset) {
-            const timeStr = data.dataset.last_refresh ? new Date(data.dataset.last_refresh).toLocaleTimeString() : 'Just now';
+            const timeStr = data.dataset.last_refresh ? parseUTCDate(data.dataset.last_refresh).toLocaleTimeString() : 'Just now';
             syncMetaEl.textContent = `Database: ${data.connector.database} | Last Refresh: ${timeStr} (${data.dataset.status})`;
         }
     } catch (e) {
@@ -1394,7 +1405,7 @@ async function fetchSelectedBatchInsights(batchId) {
                 const batchReport = reports.find(r => r.batch_id === batchId);
                 if (batchReport) {
                     const pdfName = batchReport.pdf_path.split('/').pop();
-                    const dateStr = batchReport.created_at ? new Date(batchReport.created_at).toLocaleDateString() : 'N/A';
+                    const dateStr = batchReport.created_at ? parseUTCDate(batchReport.created_at).toLocaleDateString() : 'N/A';
                     
                     const reportId = batchReport.batch_id;
                     container.innerHTML = `
@@ -1418,6 +1429,55 @@ async function fetchSelectedBatchInsights(batchId) {
                             <p>No analytical report generated for this batch.</p>
                         </div>`;
                 }
+            }
+
+            // Fetch pipeline status to update 4 Sidebar KPIs and flowchart nodes dynamically
+            try {
+                const pipeStatusRes = await fetch(`/api/v1/pipeline/status?pipeline_id=pipe_${batchId}`);
+                if (pipeStatusRes.ok) {
+                    const pipeData = await pipeStatusRes.json();
+                    if (pipeData) {
+                        state.currentPipelineData = pipeData;
+                        
+                        // Update main flowchart nodes visually to match selected batch status
+                        if (pipeData.stages) {
+                            updateFlowVisualFromStages(pipeData.stages);
+                        }
+                        
+                        // 1. Rows Ingested (stat-total-processed)
+                        const rowsIngested = (pipeData.stages && pipeData.stages.intake && pipeData.stages.intake.output && typeof pipeData.stages.intake.output.rows === 'number') 
+                            ? pipeData.stages.intake.output.rows 
+                            : 0;
+                        document.getElementById('stat-total-processed').textContent = rowsIngested.toLocaleString();
+                        
+                        // 2. Rejections (stat-failed-records)
+                        const rejections = (pipeData.stages && pipeData.stages.storage && pipeData.stages.storage.output && typeof pipeData.stages.storage.output.rows_rejected === 'number') 
+                            ? pipeData.stages.storage.output.rows_rejected 
+                            : 0;
+                        document.getElementById('stat-failed-records').textContent = rejections.toLocaleString();
+                        
+                        // 3. Pipeline Duration (stat-avg-runtime)
+                        let durationVal = 0;
+                        if (pipeData.execution_time) {
+                            durationVal = pipeData.execution_time;
+                        } else if (pipeData.start_time && pipeData.end_time) {
+                            durationVal = (parseUTCDate(pipeData.end_time) - parseUTCDate(pipeData.start_time)) / 1000;
+                        }
+                        document.getElementById('stat-avg-runtime').textContent = `${durationVal.toFixed(1)}s`;
+                        
+                        // 4. Success Rate (stat-success-rate)
+                        let successRate = 100;
+                        if (rowsIngested > 0) {
+                            successRate = ((rowsIngested - rejections) / rowsIngested) * 100;
+                        } else {
+                            if (pipeData.status === 'Failed') successRate = 0;
+                            else if (pipeData.status === 'Success' || pipeData.status === 'Passed with Warnings') successRate = 100;
+                        }
+                        document.getElementById('stat-success-rate').textContent = `${successRate.toFixed(1)}%`;
+                    }
+                }
+            } catch (err) {
+                loggerError('fetchSelectedBatchInsights.pipeStatus', err);
             }
 
             const chatSelect = document.getElementById('chat-batch-select');
@@ -1459,7 +1519,7 @@ async function loadDashboardStats() {
             else if (run.status === 'Passed with Warnings') badgeClass = 'warning';
             else if (run.status === 'Running') badgeClass = 'running';
             
-            const startStr = run.start_time ? new Date(run.start_time).toLocaleTimeString() : 'N/A';
+            const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleTimeString() : 'N/A';
             const runtimeStr = run.execution_time ? `${run.execution_time.toFixed(1)}s` : '--';
             
             tr.innerHTML = `
@@ -2471,10 +2531,10 @@ function openStageInspector(stageId) {
     }
     
     // Format timestamps
-    const startTimeStr = stage.start_time ? new Date(stage.start_time).toLocaleTimeString() : 'N/A';
-    const endTimeStr = stage.end_time ? new Date(stage.end_time).toLocaleTimeString() : (status === 'processing' ? 'Running...' : 'N/A');
+    const startTimeStr = stage.start_time ? parseUTCDate(stage.start_time).toLocaleTimeString() : 'N/A';
+    const endTimeStr = stage.end_time ? parseUTCDate(stage.end_time).toLocaleTimeString() : (status === 'processing' ? 'Running...' : 'N/A');
     const duration = stage.start_time && stage.end_time 
-        ? ((new Date(stage.end_time) - new Date(stage.start_time)) / 1000).toFixed(2) + 's' 
+        ? ((parseUTCDate(stage.end_time) - parseUTCDate(stage.start_time)) / 1000).toFixed(2) + 's' 
         : (status === 'processing' ? 'Running' : 'N/A');
         
     let dataPreviewHtml = '';
