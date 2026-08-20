@@ -5,11 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from backend.database.mysql import engine, Base
-from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi
+from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag
 
 # Set up storage directories and logging format
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-for d in ["logs", "cleaned data", "reports", os.path.join("data", "raw"), os.path.join("data", "processed"), os.path.join("data", "rejected"), os.path.join("data", "archive")]:
+for d in ["logs", "cleaned data", "reports", os.path.join("data", "raw"), os.path.join("data", "processed"), os.path.join("data", "rejected"), os.path.join("data", "archive"), os.path.join("data", "rag_documents")]:
     os.makedirs(os.path.join(PROJECT_ROOT, d), exist_ok=True)
 
 logs_dir = os.path.join(PROJECT_ROOT, "logs")
@@ -56,6 +56,7 @@ app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(powerbi.router, prefix="/api/v1")
+app.include_router(rag.router, prefix="/api/v1")
 
 # Mount frontend files directory
 frontend_dir = os.path.abspath("frontend")

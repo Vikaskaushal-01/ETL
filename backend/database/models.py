@@ -199,3 +199,15 @@ class User(Base):
     reset_code = Column(String(50), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
+
+class RagDocument(Base):
+    __tablename__ = 'rag_documents'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    filename = Column(String(255), nullable=False)
+    file_type = Column(String(50))
+    file_path = Column(String(500))
+    content = Column(Text, nullable=True)
+    upload_time = Column(DateTime, server_default=func.now())
+
+
