@@ -1,3 +1,21 @@
+// Hijack window.fetch to inject X-User-Email header for account separation
+const originalFetch = window.fetch;
+window.fetch = function(url, options) {
+    options = options || {};
+    options.headers = options.headers || {};
+    const email = localStorage.getItem('controlai_email');
+    if (email) {
+        if (options.headers instanceof Headers) {
+            options.headers.set('X-User-Email', email);
+        } else if (Array.isArray(options.headers)) {
+            options.headers.push(['X-User-Email', email]);
+        } else {
+            options.headers['X-User-Email'] = email;
+        }
+    }
+    return originalFetch(url, options);
+};
+
 function parseUTCDate(dateStr) {
     if (!dateStr) return null;
     if (dateStr instanceof Date) return dateStr;
@@ -212,6 +230,11 @@ function initAuth() {
                 
                 // Trigger login success event for profile manager
                 window.dispatchEvent(new Event('controlai_login_success'));
+
+                // Reload data for the logged-in user
+                loadDashboardStats();
+                loadExplorerFiles();
+                loadReportsList();
 
                 // Draw graph components
                 setTimeout(drawNetworkConnections, 600);
@@ -592,8 +615,19 @@ function initAuth() {
         localStorage.removeItem('controlai_email');
         localStorage.removeItem('controlai_avatar');
         
+        // Clear cached or memory lists
+        state.currentBatchId = null;
+        state.chatHistory = [];
+        const chatWindow = document.getElementById('chat-messages-container');
+        if (chatWindow) chatWindow.innerHTML = '';
+        
         // Refresh UI state
         if (window.updateProfileUI) window.updateProfileUI();
+
+        // Reload data (will query under anonymous/empty state)
+        loadDashboardStats();
+        loadExplorerFiles();
+        loadReportsList();
 
         showToast('info', 'Logged out successfully.');
 

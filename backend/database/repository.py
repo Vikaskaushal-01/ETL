@@ -10,8 +10,8 @@ from backend.database.models import (
 
 logger = logging.getLogger("etl_repository")
 
-def create_raw_upload(db: Session, filename: str, source: str, file_type: str, batch_id: str = None) -> RawUpload:
-    upload = RawUpload(filename=filename, source=source, file_type=file_type, status="Pending", batch_id=batch_id)
+def create_raw_upload(db: Session, filename: str, source: str, file_type: str, batch_id: str = None, uploaded_by: str = None) -> RawUpload:
+    upload = RawUpload(filename=filename, source=source, file_type=file_type, status="Pending", batch_id=batch_id, uploaded_by=uploaded_by)
     db.add(upload)
     db.commit()
     db.refresh(upload)

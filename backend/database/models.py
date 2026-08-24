@@ -43,6 +43,7 @@ class Customer(Base):
     region = Column(String(100))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    uploaded_by = Column(String(100))
 
 class StagingCustomer(Base):
     __tablename__ = 'staging_customers'
@@ -69,6 +70,7 @@ class Order(Base):
     total_amount = Column(Float)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    uploaded_by = Column(String(100))
 
 class StagingOrder(Base):
     __tablename__ = 'staging_orders'
@@ -96,6 +98,7 @@ class Sale(Base):
     sale_date = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    uploaded_by = Column(String(100))
 
 class StagingSale(Base):
     __tablename__ = 'staging_sales'
@@ -209,5 +212,6 @@ class RagDocument(Base):
     file_path = Column(String(500))
     content = Column(Text, nullable=True)
     upload_time = Column(DateTime, server_default=func.now())
+    uploaded_by = Column(String(100))
 
 

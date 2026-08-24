@@ -170,37 +170,81 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
 
     # Check if we are inside Intake Agent
     if "intake" in prompt_lower or "detect" in prompt_lower or "delimiter" in prompt_lower:
+        rows = 1000
+        columns = 7
+        column_names = ["sale_id", "order_id", "product_id", "quantity", "unit_price", "total_price", "sale_date"]
+        column_types = {c: "string" for c in column_names}
+        missing_values = {c: 0 for c in column_names}
+        duplicate_rows = 0
+        
+        rows_match = re.search(r'Total Rows:\s*(\d+)', prompt)
+        if rows_match:
+            rows = int(rows_match.group(1))
+
+        cols_match = re.search(r'Total Columns:\s*(\d+)', prompt)
+        if cols_match:
+            columns = int(cols_match.group(1))
+
+        names_match = re.search(r'Columns:\s*\[([^\]]*)\]', prompt)
+        if names_match:
+            column_names = [c.strip().strip("'\"") for c in names_match.group(1).split(",") if c.strip()]
+
+        types_match = re.search(r'Column Data Types \(Inferred by Pandas\):\s*({[^}]+})', prompt)
+        if types_match:
+            try:
+                cleaned_json = types_match.group(1).replace("'", '"')
+                column_types = json.loads(cleaned_json)
+            except Exception:
+                pass
+        if not column_types and column_names:
+            column_types = {name: "string" for name in column_names}
+
+        missing_match = re.search(r'Missing Values:\s*({[^}]+})', prompt)
+        if missing_match:
+            try:
+                cleaned_json = missing_match.group(1).replace("'", '"')
+                missing_values = json.loads(cleaned_json)
+            except Exception:
+                pass
+        if not missing_values and column_names:
+            missing_values = {name: 0 for name in column_names}
+
+        dups_match = re.search(r'Duplicate Rows:\s*(\d+)', prompt)
+        if dups_match:
+            duplicate_rows = int(dups_match.group(1))
+
+        total_elements = rows * columns
+        total_nulls = sum(missing_values.values()) if missing_values else 0
+        total_dups = duplicate_rows
+        quality_score = 100.0
+        if total_elements > 0:
+            null_ratio = total_nulls / total_elements
+            dup_ratio = total_dups / rows if rows > 0 else 0
+            quality_score = max(0.0, round(100.0 * (1.0 - (null_ratio * 0.8 + dup_ratio * 0.2)), 2))
+
+        dataset_name = "dataset.csv"
+        fn_match = re.search(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls)\b', prompt, re.IGNORECASE)
+        if fn_match:
+            dataset_name = fn_match.group(0)
+
+        recommended_transformations = [
+            "Trim whitespace in string columns",
+            "Remove duplicate records"
+        ]
+        for col, missing_cnt in missing_values.items():
+            if missing_cnt > 0:
+                recommended_transformations.append(f"Fill missing values in {col} ({missing_cnt} occurrences)")
+
         result = {
-            "dataset_name": "sales_data.csv",
-            "rows": 1000,
-            "columns": 7,
-            "column_names": ["sale_id", "order_id", "product_id", "quantity", "unit_price", "total_price", "sale_date"],
-            "column_types": {
-                "sale_id": "string",
-                "order_id": "string",
-                "product_id": "string",
-                "quantity": "integer",
-                "unit_price": "float",
-                "total_price": "float",
-                "sale_date": "datetime"
-            },
-            "missing_values": {
-                "sale_id": 0,
-                "order_id": 0,
-                "product_id": 0,
-                "quantity": 2,
-                "unit_price": 5,
-                "total_price": 10,
-                "sale_date": 0
-            },
-            "duplicate_rows": 4,
-            "estimated_quality": 88.5,
-            "recommended_transformations": [
-                "Trim whitespace in string columns",
-                "Remove duplicate records",
-                "Fill missing unit_price and total_price using product reference lookup",
-                "Standardize sale_date string to ISO datetime format"
-            ]
+            "dataset_name": dataset_name,
+            "rows": rows,
+            "columns": columns,
+            "column_names": column_names,
+            "column_types": column_types,
+            "missing_values": missing_values,
+            "duplicate_rows": duplicate_rows,
+            "estimated_quality": quality_score,
+            "recommended_transformations": recommended_transformations
         }
         return json.dumps(result, indent=2)
 
@@ -208,38 +252,36 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
     elif "transform" in prompt_lower or "clean" in prompt_lower or "history" in prompt_lower:
         quality_before = 88.5
         quality_after = 100.0
-        for line in prompt.split("\n"):
-            if "Calculated Quality Before:" in line:
-                try:
-                    quality_before = float(line.split(":")[-1].strip())
-                except Exception:
-                    pass
-            elif "Calculated Quality After:" in line:
-                try:
-                    quality_after = float(line.split(":")[-1].strip())
-                except Exception:
-                    pass
+        
+        qb_match = re.search(r'Calculated Quality Before:\s*([\d\.]+)', prompt)
+        if qb_match:
+            quality_before = float(qb_match.group(1))
+            
+        qa_match = re.search(r'Calculated Quality After:\s*([\d\.]+)', prompt)
+        if qa_match:
+            quality_after = float(qa_match.group(1))
+            
         clean_filename = "clean_dataset.csv"
         fn_match = re.search(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls)\b', prompt, re.IGNORECASE)
         if fn_match:
             clean_filename = fn_match.group(0)
 
+        # If this is the final summary request from the TransformationAgent
+        if "Senior ETL Engineer" in prompt or "cleaned a dataset" in prompt:
+            result = {
+                "quality_before": quality_before,
+                "quality_after": quality_after,
+                "summary": f"The autonomous ETL pipeline successfully processed the dataset, improving the quality score from {quality_before}% to {quality_after}% by removing duplicates and resolving null elements."
+            }
+            return json.dumps(result, indent=2)
+
+        # Legacy format fallback
         result = {
             "transformation_steps": [
-                {"column": "sale_id", "operation": "trim", "reason": "Remove leading/trailing spaces"},
-                {"column": "unit_price", "operation": "fill_null", "reason": "Imputed unit price to 10.00"},
-                {"column": "total_price", "operation": "recalculate", "reason": "Set total_price = quantity * unit_price"},
-                {"column": "all", "operation": "remove_duplicates", "reason": "Removed 4 identical duplicate records"}
+                {"column": "all", "operation": "trim", "reason": "Remove leading/trailing spaces"},
+                {"column": "all", "operation": "remove_duplicates", "reason": "Removed duplicate records"}
             ],
-            "updated_schema": {
-                "sale_id": "string",
-                "order_id": "string",
-                "product_id": "string",
-                "quantity": "integer",
-                "unit_price": "float",
-                "total_price": "float",
-                "sale_date": "datetime"
-            },
+            "updated_schema": {},
             "clean_dataset_path": f"cleaned data/{clean_filename}",
             "quality_before": quality_before,
             "quality_after": quality_after,
@@ -282,8 +324,13 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
 
     # Check if we are inside Business Insights / Executive Summary prompts
     elif "insights" in prompt_lower or "executive summary" in prompt_lower or "corporate executive" in prompt_lower:
+        dataset_name = "the dataset"
+        fn_match = re.search(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls)\b', prompt, re.IGNORECASE)
+        if fn_match:
+            dataset_name = fn_match.group(0)
+            
         result = {
-            "executive_summary": "The autonomous ETL pipeline successfully processed the dataset. Initially, the file contained data quality gaps (null values and duplication) which were cleansed. The pipeline successfully validated schema integrity, stored it in the selected format, and synchronized staging and production schemas.",
+            "executive_summary": f"The autonomous ETL pipeline successfully processed the dataset '{dataset_name}'. Initially, the file contained data quality gaps (null values and duplication) which were cleansed. The pipeline successfully validated schema integrity, stored it in the selected format, and synchronized staging and production schemas.",
             "business_insights": [
                 "Top billing entity categories account for 45% of total value.",
                 "Regional distribution demonstrates South and West regions leading with 60% transactions."

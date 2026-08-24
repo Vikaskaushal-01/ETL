@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from backend.database.mysql import get_db
 from backend.schemas.schemas import ChatRequest, ChatResponse
 from backend.core.llm import query_llm
+from typing import Optional
 import json
 import re
 import os
@@ -70,35 +71,29 @@ def extract_batch_id(message: str, req_batch_id: str = None) -> str:
         return f"batch_{hex_matches[0].lower()}"
     return None
 
-def get_latest_batch_id(db) -> str:
+def get_latest_batch_id(db, user_email: Optional[str] = None) -> str:
+    email = user_email or "admin@controlai.net"
     # Try database
     try:
-        latest_run = db.execute(text("SELECT pipeline_id FROM pipeline_logs WHERE status IN ('Success', 'Passed with Warnings') ORDER BY start_time DESC LIMIT 1")).first()
+        latest_run = db.execute(
+            text("SELECT pipeline_id FROM pipeline_logs WHERE status IN ('Success', 'Passed with Warnings') AND pipeline_id IN (SELECT CONCAT('pipe_', batch_id) FROM raw_uploads WHERE uploaded_by = :email) ORDER BY start_time DESC LIMIT 1"),
+            {"email": email}
+        ).first()
         if latest_run:
             return latest_run[0].replace("pipe_", "")
     except Exception:
         pass
     
-    # Try persistent cache
-    backup_path = os.path.abspath(".last_cleaned_backup.json")
-    if os.path.exists(backup_path):
-        try:
-            with open(backup_path, "r", encoding="utf-8") as bf:
-                return json.load(bf).get("batch_id")
-        except Exception:
-            pass
+    # Try persistent cache (only if user email is admin)
+    if email == "admin@controlai.net":
+        backup_path = os.path.abspath(".last_cleaned_backup.json")
+        if os.path.exists(backup_path):
+            try:
+                with open(backup_path, "r", encoding="utf-8") as bf:
+                    return json.load(bf).get("batch_id")
+            except Exception:
+                pass
             
-    # Try logs dir files
-    try:
-        logs_dir = os.path.abspath("logs")
-        if os.path.exists(logs_dir):
-            log_files = [f for f in os.listdir(logs_dir) if f.startswith("batch_") and f.endswith(".log")]
-            if log_files:
-                log_files.sort(key=lambda x: os.path.getmtime(os.path.join(logs_dir, x)), reverse=True)
-                return log_files[0].replace(".log", "")
-    except Exception:
-        pass
-        
     return None
 
 def get_logs_for_batch(db, batch_id: str) -> tuple[str, str]:
@@ -236,7 +231,7 @@ def get_files_for_batch(db, batch_id: str) -> tuple[str, str]:
     return available_files_context, raw_filename
 
 @router.post("/chat", response_model=ChatResponse)
-def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
+def agent_chat(req: ChatRequest, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
     """
     Interact with the multi-agent system regarding pipeline status, data issues, business metrics, or query logs/files.
     """
@@ -317,7 +312,7 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
                 batch_id = extracted
                 break
     if not batch_id:
-        batch_id = get_latest_batch_id(db)
+        batch_id = get_latest_batch_id(db, x_user_email)
 
     # Format history
     formatted_history = ""
@@ -333,7 +328,7 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
         and not any(k in message_lower for k in ["regenerate", "re-generate", "recreate", "re-create", "previous document"])
     )
     if is_last_cleaned_logs:
-        latest_batch = get_latest_batch_id(db)
+        latest_batch = get_latest_batch_id(db, x_user_email)
         if not latest_batch:
             return {
                 "response": "No datasets have been successfully cleaned in this workspace yet. Please upload and run a pipeline.",
@@ -367,7 +362,7 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db)):
         "last cleaned file", "latest cleaned file", "previous cleaned file"
     ]) or ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower))) and "log" not in message_lower and "logs" not in message_lower
     if is_previous_file_request:
-        latest_batch = get_latest_batch_id(db)
+        latest_batch = get_latest_batch_id(db, x_user_email)
         if not latest_batch:
             return {
                 "response": "No datasets have been successfully processed in this workspace yet. Please upload and run a pipeline.",

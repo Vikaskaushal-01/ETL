@@ -157,9 +157,22 @@ class ReportAgent:
             dataset_name = "unknown"
 
         # Build paths for report organized by exact input name
-        PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        reports_dir = os.path.join(PROJECT_ROOT, os.getenv("REPORTS_DIR", "reports"))
-        input_name_dir = os.path.join(reports_dir, dataset_name).replace("\\", "/")
+        from backend.utils.account_utils import get_user_path
+        from sqlalchemy import text
+        
+        db_user = SessionLocal()
+        user_email = None
+        try:
+            user_email = db_user.execute(
+                text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                {"b": batch_id}
+            ).scalar()
+        except Exception as e:
+            logger.warning(f"ReportAgent failed to query uploaded_by: {e}")
+        finally:
+            db_user.close()
+
+        input_name_dir = os.path.dirname(get_user_path(user_email, os.path.join("reports", dataset_name, "dummy.pdf")))
         os.makedirs(input_name_dir, exist_ok=True)
         
         pdf_path = os.path.join(input_name_dir, f"{batch_id}_report.pdf").replace("\\", "/")
