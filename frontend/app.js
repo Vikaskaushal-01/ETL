@@ -2927,19 +2927,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Toggle manual input accordion
-    const toggleManualBtn = document.getElementById('toggle-manual-input');
-    const manualInputBody = toggleManualBtn ? toggleManualBtn.nextElementSibling : null;
-    if (toggleManualBtn && manualInputBody) {
-        toggleManualBtn.addEventListener('click', () => {
-            const isHidden = manualInputBody.style.display === 'none';
-            manualInputBody.style.display = isHidden ? 'block' : 'none';
-            toggleManualBtn.querySelector('.arrow-icon').className = isHidden 
-                ? 'fa-solid fa-chevron-up arrow-icon' 
-                : 'fa-solid fa-chevron-down arrow-icon';
-        });
-    }
-
     // RAG Drawer Open/Close Toggle
     const chatAttachBtn = document.getElementById('chat-attach-btn');
     const chatAttachDrawer = document.getElementById('chat-attach-drawer');
