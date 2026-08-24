@@ -495,14 +495,25 @@ def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db
     state = read_pipeline_state(pipeline_id)
     
     filename = "dataset.csv"
+    uploaded_by = None
     try:
-        row = db.execute(text("SELECT filename FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).first()
-        if row and row[0]:
+        row = db.execute(text("SELECT filename, uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).first()
+        if row:
             filename = row[0]
+            uploaded_by = row[1]
         else:
             filename = state.get("dataset_name", "dataset.csv")
     except Exception:
         pass
+        
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    from backend.utils.account_utils import get_user_path
+    
+    raw_full_path = get_user_path(uploaded_by, f"data/raw/{filename}")
+    clean_full_path = get_user_path(uploaded_by, f"cleaned data/{filename}")
+    
+    rel_raw = raw_full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+    rel_clean = clean_full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
         
     stages = state.get("stages", {})
     
@@ -513,6 +524,10 @@ def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db
     pbi_status = stages.get("pbi", {}).get("status", "waiting")
     raw_status = "completed" if intake_status != "waiting" else "waiting"
     
+    storage_path = stages.get('storage', {}).get('output', {}).get('formatted_file_path')
+    if storage_path:
+        storage_path = storage_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+    
     nodes = [
         {
             "id": "raw",
@@ -520,7 +535,7 @@ def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db
             "type": "RawInputNode",
             "status": raw_status,
             "data_preview": stages.get("intake", {}).get("output", {}).get("preview", []),
-            "download_url": f"/api/v1/reports/download-file?path=data/raw/{filename}" if raw_status == "completed" else None
+            "download_url": f"/api/v1/reports/download-file?path={rel_raw}" if raw_status == "completed" else None
         },
         {
             "id": "intake",
@@ -543,7 +558,7 @@ def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db
                 "quality_before": stages.get("transformation", {}).get("output", {}).get("quality_before"),
                 "quality_after": stages.get("transformation", {}).get("output", {}).get("quality_after")
             },
-            "download_url": f"/api/v1/reports/download-file?path=cleaned data/{filename}" if trans_status == "completed" else None
+            "download_url": f"/api/v1/reports/download-file?path={rel_clean}" if trans_status == "completed" else None
         },
         {
             "id": "storage",
@@ -555,7 +570,7 @@ def get_pipeline_graph_json_endpoint(batch_id: str, db: Session = Depends(get_db
                 "rows_loaded": stages.get("storage", {}).get("output", {}).get("rows_loaded"),
                 "rows_rejected": stages.get("storage", {}).get("output", {}).get("rows_rejected")
             },
-            "download_url": f"/api/v1/reports/download-file?path={stages.get('storage', {}).get('output', {}).get('formatted_file_path')}" if storage_status == "completed" and stages.get("storage", {}).get("output", {}).get("formatted_file_path") else None
+            "download_url": f"/api/v1/reports/download-file?path={storage_path}" if storage_status == "completed" and storage_path else None
         },
         {
             "id": "report",

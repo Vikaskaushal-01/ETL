@@ -171,45 +171,65 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
     # Check if we are inside Intake Agent
     if "intake" in prompt_lower or "detect" in prompt_lower or "delimiter" in prompt_lower:
         rows = 1000
-        columns = 7
-        column_names = ["sale_id", "order_id", "product_id", "quantity", "unit_price", "total_price", "sale_date"]
-        column_types = {c: "string" for c in column_names}
-        missing_values = {c: 0 for c in column_names}
-        duplicate_rows = 0
+        columns = 5
         
-        rows_match = re.search(r'Total Rows:\s*(\d+)', prompt)
+        # Safely extract rows and columns
+        rows_match = re.search(r'Total Rows:\s*(\d+)', prompt, re.IGNORECASE)
         if rows_match:
             rows = int(rows_match.group(1))
-
-        cols_match = re.search(r'Total Columns:\s*(\d+)', prompt)
+            
+        cols_match = re.search(r'Total Columns:\s*(\d+)', prompt, re.IGNORECASE)
         if cols_match:
             columns = int(cols_match.group(1))
 
-        names_match = re.search(r'Columns:\s*\[([^\]]*)\]', prompt)
+        # Safer parsing of columns list
+        column_names = []
+        names_match = re.search(r'Columns:\s*\[([^\]]*)\]', prompt, re.IGNORECASE)
         if names_match:
             column_names = [c.strip().strip("'\"") for c in names_match.group(1).split(",") if c.strip()]
-
-        types_match = re.search(r'Column Data Types \(Inferred by Pandas\):\s*({[^}]+})', prompt)
+            
+        # Safer parsing of column types
+        column_types = {}
+        types_match = re.search(r'Column Data Types [^:]*:\s*({[^}]+})', prompt, re.IGNORECASE)
         if types_match:
             try:
+                # Replace single quotes and Python representations to load json
                 cleaned_json = types_match.group(1).replace("'", '"')
+                # Replace any pandas/numpy dtypes like dtype('int64') with string
+                cleaned_json = re.sub(r'dtype\("[^"]+"\)', '"string"', cleaned_json)
+                cleaned_json = re.sub(r'dtype\(\'[^\']+\'\)', '"string"', cleaned_json)
                 column_types = json.loads(cleaned_json)
             except Exception:
                 pass
-        if not column_types and column_names:
-            column_types = {name: "string" for name in column_names}
-
-        missing_match = re.search(r'Missing Values:\s*({[^}]+})', prompt)
+        
+        # Safer parsing of missing values
+        missing_values = {}
+        missing_match = re.search(r'Missing Values:\s*({[^}]+})', prompt, re.IGNORECASE)
         if missing_match:
             try:
                 cleaned_json = missing_match.group(1).replace("'", '"')
                 missing_values = json.loads(cleaned_json)
             except Exception:
                 pass
-        if not missing_values and column_names:
-            missing_values = {name: 0 for name in column_names}
 
-        dups_match = re.search(r'Duplicate Rows:\s*(\d+)', prompt)
+        # If parsing failed or returned empty, populate dynamically from column_names
+        if not column_names:
+            # Fallback parsing line by line
+            for line in prompt.split("\n"):
+                if "columns:" in line.lower() and "[" in line:
+                    cols_str = line.split("[")[1].split("]")[0]
+                    column_names = [c.strip().strip("'\"") for c in cols_str.split(",") if c.strip()]
+                    break
+        if not column_names:
+            column_names = ["column_1", "column_2", "column_3"]
+            
+        if not column_types:
+            column_types = {name: "string" for name in column_names}
+        if not missing_values:
+            missing_values = {name: 0 for name in column_names}
+            
+        duplicate_rows = 0
+        dups_match = re.search(r'Duplicate Rows:\s*(\d+)', prompt, re.IGNORECASE)
         if dups_match:
             duplicate_rows = int(dups_match.group(1))
 

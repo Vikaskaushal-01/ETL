@@ -292,6 +292,19 @@
                             </div>
                         </div>
 
+                        <!-- URL Link Ingestion Section (Under Manual Data Ingestion) -->
+                        <div class="manual-input-box card-glass" style="margin-top: 10px;">
+                            <div class="box-header" id="toggle-url-input">
+                                <span><i class="fa-solid fa-link"></i> Ingest from URL / Link</span>
+                                <i class="fa-solid fa-chevron-down arrow-icon"></i>
+                            </div>
+                            <div class="box-body" id="url-input-body" style="display: none;">
+                                <div class="form-group" style="margin-bottom:0;">
+                                    <input type="url" id="ingest-url-input" placeholder="https://raw.githubusercontent.com/.../sales.csv" style="width:100%; padding:10px; border-radius:6px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.3); color:#fff; font-size:12px; outline:none; box-sizing: border-box;">
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Execute Pipeline Button -->
                         <button class="btn-execute ripple" id="btn-run-pipeline">
                             <i class="fa-solid fa-play"></i> Start Automation
@@ -726,8 +739,46 @@
             </div>
             <!-- Input field -->
             <div class="chat-input-area">
+                <button class="chat-attach-btn" id="chat-attach-btn" title="Attach Document or Link to RAG Knowledge Base"><i class="fa-solid fa-paperclip"></i></button>
                 <input type="text" id="chat-input" placeholder="Ask a question about this batch...">
                 <button class="btn-send-message" id="chat-send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+            
+            <!-- RAG Attachment / Link Upload Drawer -->
+            <div class="chat-attach-drawer card-glass" id="chat-attach-drawer" style="display: none;">
+                <div class="drawer-header">
+                    <span><i class="fa-solid fa-brain"></i> RAG Document Ingestion</span>
+                    <button class="drawer-close-btn" id="btn-close-attach-drawer"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <div class="drawer-body">
+                    <!-- File Upload Tab -->
+                    <div class="attach-form-group">
+                        <label for="rag-file-input"><strong>Local Document Upload</strong> (.txt, .pdf, .docx, .md)</label>
+                        <div class="rag-file-drop-zone" id="rag-file-drop-zone">
+                            <i class="fa-solid fa-file-arrow-up"></i>
+                            <span id="rag-file-selected-name">Click or Drag File to Index</span>
+                            <input type="file" id="rag-file-input" accept=".txt,.pdf,.docx,.md,.json,.csv" style="display: none;">
+                        </div>
+                    </div>
+                    <!-- OR Divider -->
+                    <div class="drawer-divider-text">OR</div>
+                    <!-- URL Link Ingest -->
+                    <div class="attach-form-group">
+                        <label for="rag-url-input"><strong>Index Web Link / URL</strong></label>
+                        <div class="url-input-row" style="display:flex; gap:6px;">
+                            <input type="url" id="rag-url-input" placeholder="https://example.com/documentation.html" style="flex:1; padding:8px; border-radius:4px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.3); color:#fff; font-size:11px; outline:none; box-sizing:border-box;">
+                            <button class="btn-url-ingest" id="btn-rag-url-ingest" style="padding:8px 12px; border-radius:4px; border:none; background:var(--color-blue); color:#fff; font-size:11px; font-weight:600; cursor:pointer;">Index Link</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Indexed documents list -->
+                    <div class="indexed-docs-list-section" style="margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+                        <h4>Active Knowledge Base Documents</h4>
+                        <div class="indexed-docs-list" id="indexed-docs-container" style="max-height:150px; overflow-y:auto; margin-top:6px;">
+                            <p class="text-secondary" style="font-size:11px; text-align:center; padding:10px;">Loading indexed documents...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
             <!-- Dummy container to hold chat sidebar list to prevent errors -->
             <div id="chat-batch-list" style="display:none;"></div>
@@ -1056,6 +1107,176 @@
             
             <div class="oauth-footer">
                 <span><i class="fa-solid fa-shield-halved"></i> Secure connection via ETL OAuth Gateway</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real-time Ingestion Pipeline Monitor Full Page Overlay -->
+    <div id="pipeline-monitor-page" class="pipeline-monitor-overlay-page" style="display: none;">
+        <div class="monitor-container">
+            <!-- Header section -->
+            <div class="monitor-header">
+                <div class="monitor-title-area">
+                    <div class="monitor-icon pulse-blue"><i class="fa-solid fa-network-wired"></i></div>
+                    <div>
+                        <h2>Real-Time Ingestion Data Flow</h2>
+                        <p>Batch ID: <span id="monitor-batch-id" class="neon-text-blue">-</span> | Source File: <span id="monitor-file-name" class="neon-text-teal">-</span></p>
+                    </div>
+                </div>
+                <div class="monitor-header-actions" style="display:flex; align-items:center; gap:12px;">
+                    <div class="monitor-stat-pill">
+                        <i class="fa-solid fa-clock"></i> Duration: <span id="monitor-duration">0.0s</span>
+                    </div>
+                    <div class="monitor-stat-pill success" id="monitor-overall-status-pill">
+                        <span class="status-pulse-dot"></span>
+                        <span id="monitor-overall-status">Initializing...</span>
+                    </div>
+                    <button class="btn-close-monitor" id="btn-close-monitor-page">
+                        <i class="fa-solid fa-arrow-left"></i> Exit Monitor
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main view container split into columns -->
+            <div class="monitor-main-content">
+                <!-- Left panel: Live execution metrics & gamification -->
+                <div class="monitor-sidebar card-glass">
+                    <div class="sidebar-section">
+                        <h3><i class="fa-solid fa-chart-pie"></i> Ingestion Performance</h3>
+                        <div class="sidebar-stat-row">
+                            <div class="sidebar-stat-card">
+                                <strong>Rows Ingested</strong>
+                                <span id="monitor-stat-rows">0</span>
+                            </div>
+                            <div class="sidebar-stat-card">
+                                <strong>Data Loss / Rejections</strong>
+                                <span id="monitor-stat-rejections" class="text-red">0</span>
+                            </div>
+                        </div>
+                        <div class="sidebar-stat-row" style="margin-top: 10px;">
+                            <div class="sidebar-stat-card">
+                                <strong>Data Quality Score</strong>
+                                <span id="monitor-stat-quality" class="text-teal">100%</span>
+                            </div>
+                            <div class="sidebar-stat-card">
+                                <strong>Loss Rate</strong>
+                                <span id="monitor-stat-loss-rate">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Progress bar -->
+                    <div class="sidebar-section">
+                        <h3><i class="fa-solid fa-spinner"></i> Ingestion Progression</h3>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar-fill" id="monitor-progress-bar-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="progress-step-labels">
+                            <span id="label-step-intake" class="active">Read</span>
+                            <span id="label-step-transformation">Clean</span>
+                            <span id="label-step-storage">Stage</span>
+                            <span id="label-step-report">Report</span>
+                            <span id="label-step-pbi">Sync</span>
+                        </div>
+                    </div>
+
+                    <!-- Gamified Achievements & XP -->
+                    <div class="sidebar-section gamification-section">
+                        <h3><i class="fa-solid fa-award text-yellow"></i> Gamification Center</h3>
+                        <div class="xp-container">
+                            <div class="xp-bar-wrapper">
+                                <div class="xp-bar-fill" id="xp-progress-bar" style="width: 0%;"></div>
+                            </div>
+                            <div class="xp-text-row">
+                                <span>Level <span id="user-xp-level">1</span></span>
+                                <span class="text-secondary"><span id="user-xp-current">0</span> / 1000 XP</span>
+                            </div>
+                        </div>
+                        <div class="badges-unlocked-container">
+                            <h4>Unlocked Achievements</h4>
+                            <div class="badge-grid" id="monitor-badge-grid">
+                                <div class="badge-item locked" id="badge-dup-slayer" title="Remove duplicate rows from raw data">
+                                    <div class="badge-icon"><i class="fa-solid fa-clone"></i></div>
+                                    <span>Duplicate Slayer</span>
+                                </div>
+                                <div class="badge-item locked" id="badge-null-hunter" title="Impute missing data elements">
+                                    <div class="badge-icon"><i class="fa-solid fa-magnifying-glass"></i></div>
+                                    <span>Null Hunter</span>
+                                </div>
+                                <div class="badge-item locked" id="badge-schema-shield" title="Achieve perfect validation rules matching">
+                                    <div class="badge-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                                    <span>Schema Guard</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center visualizer: Network flow -->
+                <div class="monitor-canvas-area card-glass">
+                    <svg id="monitor-connection-svg" class="monitor-connection-svg"></svg>
+                    <div class="monitor-nodes-flow">
+                        <!-- Raw Node -->
+                        <div class="monitor-node-card raw-node" id="mnode-raw">
+                            <div class="node-head"><i class="fa-solid fa-file-code"></i> Raw Input</div>
+                            <div class="node-desc" id="mnode-raw-file">-</div>
+                        </div>
+                        
+                        <!-- Intake Node -->
+                        <div class="monitor-node-card waiting" id="mnode-intake">
+                            <div class="node-head"><i class="fa-solid fa-inbox"></i> Iris Ingest</div>
+                            <div class="node-desc">Profiling schema...</div>
+                        </div>
+
+                        <!-- Cleanser Node -->
+                        <div class="monitor-node-card waiting" id="mnode-transformation">
+                            <div class="node-head"><i class="fa-solid fa-wand-magic-sparkles"></i> Data Cleanser</div>
+                            <div class="node-desc">Waiting</div>
+                        </div>
+
+                        <!-- SQL Storage Node -->
+                        <div class="monitor-node-card waiting" id="mnode-storage">
+                            <div class="node-head"><i class="fa-solid fa-database"></i> SQL Staging</div>
+                            <div class="node-desc">Waiting</div>
+                        </div>
+
+                        <!-- Report Node -->
+                        <div class="monitor-node-card waiting" id="mnode-report">
+                            <div class="node-head"><i class="fa-solid fa-file-pdf"></i> PDF Exporter</div>
+                            <div class="node-desc">Waiting</div>
+                        </div>
+
+                        <!-- PBI Gateway Node -->
+                        <div class="monitor-node-card waiting" id="mnode-pbi">
+                            <div class="node-head"><i class="fa-solid fa-chart-column"></i> PBI Gateway</div>
+                            <div class="node-desc">Waiting</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right panel: Detailed Inspection -->
+                <div class="monitor-inspector card-glass" id="monitor-inspector-panel">
+                    <div class="inspector-empty-state" id="monitor-inspector-empty">
+                        <i class="fa-solid fa-magnifying-glass-chart"></i>
+                        <h4>Component Inspector</h4>
+                        <p>Click on any agent node in the pipeline flowchart to inspect intermediate staging databases, generated schemas, validation rules, or logs.</p>
+                    </div>
+                    <div class="inspector-content" id="monitor-inspector-content" style="display: none;">
+                        <h3 id="inspector-node-title">-</h3>
+                        <div class="inspector-meta-row">
+                            <span class="badge" id="inspector-node-status">-</span>
+                            <span class="text-secondary" id="inspector-node-component">-</span>
+                        </div>
+                        <div class="inspector-section" id="inspector-section-data" style="margin-top:14px;">
+                            <h4>Intermediate Outputs</h4>
+                            <div id="inspector-data-output" class="inspector-scroll-container"></div>
+                        </div>
+                        <div class="inspector-section" id="inspector-section-logs" style="margin-top:14px;">
+                            <h4>Stage Logs</h4>
+                            <div id="inspector-logs-output" class="inspector-logs-box"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

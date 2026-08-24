@@ -30,10 +30,10 @@ def get_reports_history(db: Session = Depends(get_db), x_user_email: Optional[st
     return reports
 
 @router.get("/latest")
-def get_latest_report(format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
-    email = x_user_email or "admin@controlai.net"
+def get_latest_report(format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
+    active_email = x_user_email or email or "admin@controlai.net"
     from backend.database.models import RawUpload
-    user_batches = db.query(RawUpload.batch_id).filter(RawUpload.uploaded_by == email).all()
+    user_batches = db.query(RawUpload.batch_id).filter(RawUpload.uploaded_by == active_email).all()
     batch_ids = [b[0] for b in user_batches if b[0]]
     if not batch_ids:
         raise HTTPException(status_code=404, detail="No reports generated yet.")
@@ -75,13 +75,13 @@ def get_latest_report(format: str = Query("pdf", enum=["pdf", "txt", "markdown",
     )
 
 @router.get("/download/{batch_id}")
-def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
-    email = x_user_email or "admin@controlai.net"
+def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
+    active_email = x_user_email or email or "admin@controlai.net"
     from backend.database.models import RawUpload
     from sqlalchemy import text
     try:
         uploaded_by = db.execute(text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).scalar()
-        if uploaded_by and uploaded_by != email:
+        if uploaded_by and uploaded_by != active_email:
             raise HTTPException(status_code=403, detail="Access denied: report does not belong to your account.")
     except HTTPException:
         raise
@@ -125,16 +125,23 @@ def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=["pd
     )
 
 @router.get("/download-file")
-def download_file(path: str, db: Session = Depends(get_db)):
+def download_file(path: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
     """
     Safely download any dataset or report file from allowed directories.
     """
+    active_email = x_user_email or email or "admin@controlai.net"
     if not path:
         raise HTTPException(status_code=400, detail="Path parameter is required.")
         
     abs_path = resolve_report_path(path)
     if not abs_path or not os.path.exists(abs_path):
         raise HTTPException(status_code=404, detail="File not found on disk.")
+        
+    # Ownership check: if the path is inside Accounts/, ensure it matches active_email's folder
+    if "Accounts" in abs_path.replace("\\", "/").split("/"):
+        sanitized_email = active_email.replace("@", "_").replace(".", "_")
+        if f"Accounts/{sanitized_email}" not in abs_path.replace("\\", "/"):
+            raise HTTPException(status_code=403, detail="Access denied: file belongs to another user account.")
         
     # Security check: verify that the path lies within one of the approved folders in PROJECT_ROOT
     allowed_folders = ["data", "cleaned data", "reports", "logs", "Accounts"]

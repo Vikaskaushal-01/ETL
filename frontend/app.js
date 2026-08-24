@@ -1043,12 +1043,17 @@ function initDragAndDrop() {
     }
 }
 
+function osBasename(path) {
+    return path.substring(path.lastIndexOf('/') + 1).substring(path.lastIndexOf('\\') + 1);
+}
+
 // Pipeline controls trigger
 function initPipelineControls() {
     const runBtn = document.getElementById('btn-run-pipeline');
     
     runBtn.addEventListener('click', async () => {
         const hasVirtualInput = document.getElementById('manual-textarea').value.trim() !== '';
+        const urlVal = document.getElementById('ingest-url-input') ? document.getElementById('ingest-url-input').value.trim() : '';
         let uploadResult = null;
         
         resetFlowVisual();
@@ -1059,12 +1064,35 @@ function initPipelineControls() {
         document.getElementById('btn-toggle-logs').classList.add('active');
         document.querySelector('.network-workspace').classList.add('blur-bg');
 
-        if (!hasVirtualInput) {
+        if (urlVal) {
+            writeConsoleLog('[System] Fetching file from remote URL...');
+            try {
+                const uploadRes = await fetch('/api/v1/upload/url', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-Email': state.currentUserEmail || ''
+                    },
+                    body: JSON.stringify({ url: urlVal })
+                });
+                if (!uploadRes.ok) {
+                    const err = await uploadRes.json();
+                    writeConsoleLog(`[System Error] URL upload failed: ${err.detail || 'Unknown error'}`, 'text-red');
+                    showToast('error', 'URL Ingestion failed.');
+                    return;
+                }
+                uploadResult = await uploadRes.json();
+            } catch (err) {
+                writeConsoleLog(`[System Error] URL upload connection failed: ${err}`, 'text-red');
+                showToast('error', 'Connection to URL upload failed.');
+                return;
+            }
+        } else if (!hasVirtualInput) {
             if (!state.selectedFile) {
                 showToast('error', 'Select a file or enter text data to ingest.');
                 return;
             }
-            writeConsoleLog('[System] Initiating file ingestion...');
+            writeConsoleLog('[System] Ingesting local file upload...');
             uploadResult = await uploadFile(state.selectedFile);
         } else {
             const rawData = document.getElementById('manual-textarea').value.trim();
@@ -1097,6 +1125,12 @@ function initPipelineControls() {
         const startSuccess = await startPipeline(file_path, batch_id);
         if (startSuccess) {
             setStepStatus('intake', 'processing', 'Profiling schema...');
+            
+            // Open full-screen pipeline monitor
+            if (window.openPipelineMonitorOverlay) {
+                window.openPipelineMonitorOverlay(batch_id, osBasename(file_path));
+            }
+            
             startPipelinePolling(`pipe_${batch_id}`);
         } else {
             showToast('error', 'Failed to start pipeline.');
@@ -1708,7 +1742,8 @@ function renderExplorerFiles() {
 }
 
 function downloadDataFile(filePath) {
-    window.open(`/api/v1/dashboard/download?file_path=${encodeURIComponent(filePath)}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/dashboard/download?file_path=${encodeURIComponent(filePath)}&email=${encodeURIComponent(email)}`, '_blank');
 }
 
 // PDF Reports List Operations
@@ -1727,7 +1762,8 @@ async function loadReportsList() {
 }
 
 window.downloadReport = function(batchId, format) {
-    window.open(`/api/v1/reports/download/${batchId}?format=${format}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/reports/download/${batchId}?format=${format}&email=${encodeURIComponent(email)}`, '_blank');
 };
 
 // AI Assistant Chat operations
@@ -2827,7 +2863,8 @@ function openStageInspector(stageId) {
 
 // Global download helpers
 window.downloadNodeData = function(path) {
-    window.open(`/api/v1/reports/download-file?path=${encodeURIComponent(path)}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/reports/download-file?path=${encodeURIComponent(path)}&email=${encodeURIComponent(email)}`, '_blank');
 };
 
 window.downloadStageMetadata = function(stageId) {
@@ -2858,15 +2895,721 @@ window.downloadStageLogs = function(stageId) {
 };
 
 window.downloadReport = function(batchId, format) {
-    window.open(`/api/v1/reports/download/${batchId}?format=${format}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/reports/download/${batchId}?format=${format}&email=${encodeURIComponent(email)}`, '_blank');
 };
 
 window.downloadGraphJson = function(batchId) {
-    window.open(`/api/v1/pipeline/graph-json?batch_id=${encodeURIComponent(batchId)}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/pipeline/graph-json?batch_id=${encodeURIComponent(batchId)}&email=${encodeURIComponent(email)}`, '_blank');
 };
 
 window.downloadFlowchart = function(batchId) {
-    window.open(`/api/v1/pipeline/flowchart?batch_id=${encodeURIComponent(batchId)}`, '_blank');
+    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+    window.open(`/api/v1/pipeline/flowchart?batch_id=${encodeURIComponent(batchId)}&email=${encodeURIComponent(email)}`, '_blank');
 };
+
+/* ==========================================================================
+   Real-Time Pipeline Ingestion Monitor & RAG Handlers
+   ========================================================================== */
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Accordion Toggle for Ingest URL
+    const toggleUrlBtn = document.getElementById('toggle-url-input');
+    const urlInputBody = document.getElementById('url-input-body');
+    if (toggleUrlBtn && urlInputBody) {
+        toggleUrlBtn.addEventListener('click', () => {
+            const isHidden = urlInputBody.style.display === 'none';
+            urlInputBody.style.display = isHidden ? 'block' : 'none';
+            toggleUrlBtn.querySelector('.arrow-icon').className = isHidden 
+                ? 'fa-solid fa-chevron-up arrow-icon' 
+                : 'fa-solid fa-chevron-down arrow-icon';
+        });
+    }
+
+    // Toggle manual input accordion
+    const toggleManualBtn = document.getElementById('toggle-manual-input');
+    const manualInputBody = toggleManualBtn ? toggleManualBtn.nextElementSibling : null;
+    if (toggleManualBtn && manualInputBody) {
+        toggleManualBtn.addEventListener('click', () => {
+            const isHidden = manualInputBody.style.display === 'none';
+            manualInputBody.style.display = isHidden ? 'block' : 'none';
+            toggleManualBtn.querySelector('.arrow-icon').className = isHidden 
+                ? 'fa-solid fa-chevron-up arrow-icon' 
+                : 'fa-solid fa-chevron-down arrow-icon';
+        });
+    }
+
+    // RAG Drawer Open/Close Toggle
+    const chatAttachBtn = document.getElementById('chat-attach-btn');
+    const chatAttachDrawer = document.getElementById('chat-attach-drawer');
+    const closeAttachDrawerBtn = document.getElementById('btn-close-attach-drawer');
+
+    if (chatAttachBtn && chatAttachDrawer) {
+        chatAttachBtn.addEventListener('click', () => {
+            const isHidden = chatAttachDrawer.style.display === 'none';
+            chatAttachDrawer.style.display = isHidden ? 'block' : 'none';
+            chatAttachBtn.classList.toggle('active', isHidden);
+            if (isHidden) {
+                loadRagDocuments();
+            }
+        });
+    }
+    if (closeAttachDrawerBtn && chatAttachDrawer && chatAttachBtn) {
+        closeAttachDrawerBtn.addEventListener('click', () => {
+            chatAttachDrawer.style.display = 'none';
+            chatAttachBtn.classList.remove('active');
+        });
+    }
+
+    // RAG File Input Drop Zone Handlers
+    const ragDropZone = document.getElementById('rag-file-drop-zone');
+    const ragFileInput = document.getElementById('rag-file-input');
+
+    if (ragDropZone && ragFileInput) {
+        ragDropZone.addEventListener('click', () => ragFileInput.click());
+        ragDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            ragDropZone.style.borderColor = 'var(--color-blue)';
+        });
+        ragDropZone.addEventListener('dragleave', () => {
+            ragDropZone.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+        });
+        ragDropZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            ragDropZone.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                await uploadRagFile(file);
+            }
+        });
+        ragFileInput.addEventListener('change', async () => {
+            if (ragFileInput.files.length > 0) {
+                const file = ragFileInput.files[0];
+                await uploadRagFile(file);
+            }
+        });
+    }
+
+    // RAG URL Ingestion Handler
+    const btnRagUrlIngest = document.getElementById('btn-rag-url-ingest');
+    const inputRagUrl = document.getElementById('rag-url-input');
+    if (btnRagUrlIngest && inputRagUrl) {
+        btnRagUrlIngest.addEventListener('click', async () => {
+            const urlVal = inputRagUrl.value.trim();
+            if (!urlVal) {
+                showToast('error', 'Please enter a valid URL.');
+                return;
+            }
+            btnRagUrlIngest.disabled = true;
+            btnRagUrlIngest.textContent = 'Indexing...';
+            try {
+                const res = await fetch('/api/v1/rag/upload/url', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-Email': localStorage.getItem('controlai_email') || 'admin@controlai.net'
+                    },
+                    body: JSON.stringify({ url: urlVal })
+                });
+                if (res.ok) {
+                    showToast('success', 'URL text content successfully indexed to RAG!');
+                    inputRagUrl.value = '';
+                    loadRagDocuments();
+                } else {
+                    const err = await res.json();
+                    showToast('error', `RAG indexing failed: ${err.detail || 'Unknown error'}`);
+                }
+            } catch (err) {
+                showToast('error', 'Failed to connect to RAG indexer.');
+            } finally {
+                btnRagUrlIngest.disabled = false;
+                btnRagUrlIngest.textContent = 'Index Link';
+            }
+        });
+    }
+
+    // Exit Pipeline Monitor button handler
+    const btnCloseMonitorPage = document.getElementById('btn-close-monitor-page');
+    if (btnCloseMonitorPage) {
+        btnCloseMonitorPage.addEventListener('click', () => {
+            document.getElementById('pipeline-monitor-page').style.display = 'none';
+            document.querySelector('.network-workspace').classList.remove('blur-bg');
+            if (state.monitorTimerInterval) {
+                clearInterval(state.monitorTimerInterval);
+                state.monitorTimerInterval = null;
+            }
+        });
+    }
+
+    // Monitor canvas click listeners for inspection nodes
+    const mnodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
+    mnodes.forEach(nodeId => {
+        const nodeCard = document.getElementById(`mnode-${nodeId}`);
+        if (nodeCard) {
+            nodeCard.addEventListener('click', () => {
+                inspectPipelineMonitorNode(nodeId);
+            });
+        }
+    });
+
+    // Window resize observer to update SVG flowpaths dynamically
+    window.addEventListener('resize', () => {
+        if (document.getElementById('pipeline-monitor-page').style.display === 'flex') {
+            updateMonitorPaths();
+        }
+    });
+});
+
+// 2. Fetch and Render Indexed RAG Documents
+async function loadRagDocuments() {
+    const container = document.getElementById('indexed-docs-container');
+    if (!container) return;
+    try {
+        const res = await fetch('/api/v1/rag/documents', {
+            headers: {
+                'X-User-Email': localStorage.getItem('controlai_email') || 'admin@controlai.net'
+            }
+        });
+        if (!res.ok) throw new Error();
+        const docs = await res.json();
+        
+        if (docs.length === 0) {
+            container.innerHTML = `<p class="text-secondary" style="font-size:11px; text-align:center; padding:10px;">No RAG documents indexed yet.</p>`;
+            return;
+        }
+
+        container.innerHTML = docs.map(doc => {
+            const timeStr = new Date(doc.upload_time).toLocaleDateString();
+            return `
+                <div class="rag-doc-item">
+                    <div class="rag-doc-info" title="${doc.filename} (Uploaded: ${timeStr})">
+                        <i class="fa-solid ${doc.file_type === 'url' ? 'fa-link' : 'fa-file-lines'}"></i>
+                        <span>${doc.filename}</span>
+                    </div>
+                    <button class="btn-delete-rag-doc" onclick="deleteRagDocument(${doc.id})" title="Delete knowledge item">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        container.innerHTML = `<p class="text-red" style="font-size:11px; text-align:center; padding:10px;">Failed to load documents.</p>`;
+    }
+}
+
+async function deleteRagDocument(docId) {
+    try {
+        const res = await fetch(`/api/v1/rag/documents/${docId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-User-Email': localStorage.getItem('controlai_email') || 'admin@controlai.net'
+            }
+        });
+        if (res.ok) {
+            showToast('success', 'RAG knowledge item deleted successfully.');
+            loadRagDocuments();
+        } else {
+            showToast('error', 'Failed to delete knowledge item.');
+        }
+    } catch (e) {
+        showToast('error', 'Connection error.');
+    }
+}
+window.deleteRagDocument = deleteRagDocument;
+
+async function uploadRagFile(file) {
+    const dropZoneLabel = document.getElementById('rag-file-selected-name');
+    if (dropZoneLabel) dropZoneLabel.textContent = `Uploading: ${file.name}...`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch('/api/v1/rag/upload', {
+            method: 'POST',
+            headers: {
+                'X-User-Email': localStorage.getItem('controlai_email') || 'admin@controlai.net'
+            },
+            body: formData
+        });
+        if (res.ok) {
+            showToast('success', `${file.name} text indexed to local RAG storage successfully!`);
+            loadRagDocuments();
+        } else {
+            const err = await res.json();
+            showToast('error', `Failed to index file: ${err.detail || 'Unknown error'}`);
+        }
+    } catch (e) {
+        showToast('error', 'Connection error while uploading RAG file.');
+    } finally {
+        if (dropZoneLabel) dropZoneLabel.textContent = `Click or Drag File to Index`;
+    }
+}
+
+// 3. Pipeline monitor page initialization
+window.openPipelineMonitorOverlay = function(batchId, filename) {
+    // Show overlay
+    document.getElementById('pipeline-monitor-page').style.display = 'flex';
+    document.querySelector('.network-workspace').classList.add('blur-bg');
+    
+    // Set Header Info
+    document.getElementById('monitor-batch-id').textContent = batchId;
+    document.getElementById('monitor-file-name').textContent = filename;
+    document.getElementById('mnode-raw-file').textContent = filename;
+    
+    // Reset Stats
+    document.getElementById('monitor-stat-rows').textContent = '0';
+    document.getElementById('monitor-stat-rejections').textContent = '0';
+    document.getElementById('monitor-stat-quality').textContent = '100%';
+    document.getElementById('monitor-stat-loss-rate').textContent = '0%';
+    document.getElementById('monitor-progress-bar-fill').style.width = '0%';
+    document.getElementById('monitor-overall-status').textContent = 'Initializing...';
+    document.getElementById('monitor-overall-status-pill').className = 'monitor-stat-pill success';
+    
+    // Set all nodes to waiting
+    const nodeIds = ['intake', 'transformation', 'storage', 'report', 'pbi'];
+    nodeIds.forEach(id => {
+        const el = document.getElementById(`mnode-${id}`);
+        if (el) {
+            el.className = 'monitor-node-card waiting';
+            el.querySelector('.node-desc').textContent = 'Waiting';
+        }
+        
+        const label = document.getElementById(`label-step-${id}`);
+        if (label) label.className = '';
+    });
+    document.getElementById('mnode-raw').className = 'monitor-node-card raw-node';
+    
+    // Clear inspector panel
+    document.getElementById('monitor-inspector-empty').style.display = 'flex';
+    document.getElementById('monitor-inspector-content').style.display = 'none';
+
+    // Start timer clock
+    state.monitorStartTime = Date.now();
+    if (state.monitorTimerInterval) clearInterval(state.monitorTimerInterval);
+    state.monitorTimerInterval = setInterval(() => {
+        const elapsed = ((Date.now() - state.monitorStartTime) / 1000).toFixed(1);
+        document.getElementById('monitor-duration').textContent = `${elapsed}s`;
+    }, 100);
+
+    // Render connecting lines
+    setupMonitorSvg();
+    
+    // Reset badges
+    document.getElementById('badge-dup-slayer').className = 'badge-item locked';
+    document.getElementById('badge-null-hunter').className = 'badge-item locked';
+    document.getElementById('badge-schema-shield').className = 'badge-item locked';
+    
+    // Retrieve stored XP
+    const currentXp = parseInt(localStorage.getItem('user_xp') || '350');
+    const currentLevel = parseInt(localStorage.getItem('user_xp_level') || '1');
+    document.getElementById('user-xp-current').textContent = currentXp;
+    document.getElementById('user-xp-level').textContent = currentLevel;
+    document.getElementById('xp-progress-bar').style.width = `${(currentXp % 1000) / 10}%`;
+};
+
+// Setup and coordinates SVG paths
+function setupMonitorSvg() {
+    const svg = document.getElementById('monitor-connection-svg');
+    if (!svg) return;
+    svg.innerHTML = '';
+    
+    const nodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
+    for (let i = 0; i < nodes.length - 1; i++) {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('id', `path-${nodes[i]}-to-${nodes[i+1]}`);
+        path.setAttribute('class', 'svg-flow-path');
+        svg.appendChild(path);
+    }
+    updateMonitorPaths();
+}
+
+function updateMonitorPaths() {
+    const canvas = document.querySelector('.monitor-canvas-area');
+    if (!canvas) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    
+    const nodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
+    for (let i = 0; i < nodes.length - 1; i++) {
+        const el1 = document.getElementById(`mnode-${nodes[i]}`);
+        const el2 = document.getElementById(`mnode-${nodes[i+1]}`);
+        const path = document.getElementById(`path-${nodes[i]}-to-${nodes[i+1]}`);
+        if (!el1 || !el2 || !path) continue;
+        
+        const r1 = el1.getBoundingClientRect();
+        const r2 = el2.getBoundingClientRect();
+        
+        const x1 = (r1.left + r1.right) / 2 - canvasRect.left;
+        const y1 = r1.bottom - canvasRect.top;
+        const x2 = (r2.left + r2.right) / 2 - canvasRect.left;
+        const y2 = r2.top - canvasRect.top;
+        
+        path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+    }
+}
+
+// 4. Update visualizer from stage data
+function updatePipelineMonitorUI(data) {
+    if (document.getElementById('pipeline-monitor-page').style.display !== 'flex') return;
+    
+    const stages = data.stages || {};
+    let progress = 0;
+    let overallStatus = 'Processing...';
+    let statusClass = 'monitor-stat-pill';
+    
+    // Update node statuses and connect paths
+    const stepKeys = ['intake', 'transformation', 'storage', 'report', 'pbi'];
+    let reachedActive = false;
+    
+    stepKeys.forEach((key, index) => {
+        const stage = stages[key] || {};
+        const nodeEl = document.getElementById(`mnode-${key}`);
+        const pathEl = index > 0 ? document.getElementById(`path-${stepKeys[index-1]}-to-${key}`) : document.getElementById(`path-raw-to-intake`);
+        const labelEl = document.getElementById(`label-step-${key}`);
+        
+        if (!nodeEl) return;
+        
+        // Node state class mapping
+        if (stage.status === 'completed') {
+            nodeEl.className = 'monitor-node-card completed';
+            nodeEl.querySelector('.node-desc').textContent = getStageDesc(key, stage);
+            if (pathEl) pathEl.className = 'svg-flow-path completed';
+            if (labelEl) labelEl.className = 'active';
+            progress = Math.max(progress, (index + 1) * 20);
+        } else if (stage.status === 'processing') {
+            nodeEl.className = 'monitor-node-card processing';
+            nodeEl.querySelector('.node-desc').textContent = 'Profiling...';
+            if (pathEl) pathEl.className = 'svg-flow-path processing';
+            if (labelEl) labelEl.className = 'active';
+            reachedActive = true;
+            progress = Math.max(progress, index * 20 + 10);
+        } else if (stage.status === 'failed') {
+            nodeEl.className = 'monitor-node-card failed';
+            nodeEl.querySelector('.node-desc').textContent = 'Failed';
+            if (pathEl) pathEl.className = 'svg-flow-path';
+            if (labelEl) labelEl.className = 'text-red';
+            overallStatus = 'Failed';
+            statusClass = 'monitor-stat-pill failed';
+        } else {
+            nodeEl.className = 'monitor-node-card waiting';
+            nodeEl.querySelector('.node-desc').textContent = 'Waiting';
+            if (pathEl) pathEl.className = 'svg-flow-path';
+            if (labelEl) labelEl.className = '';
+        }
+    });
+    
+    // Special path connecting raw input to intake
+    const rawPath = document.getElementById('path-raw-to-intake');
+    if (rawPath) {
+        const intakeStage = stages['intake'] || {};
+        if (intakeStage.status === 'completed') rawPath.className = 'svg-flow-path completed';
+        else if (intakeStage.status === 'processing') rawPath.className = 'svg-flow-path processing';
+        else rawPath.className = 'svg-flow-path';
+    }
+
+    // Set Performance Stats from stages output
+    let rowsCount = 0;
+    let rejectionsCount = 0;
+    let qualityScore = 100.0;
+    
+    if (stages['intake'] && stages['intake'].output) {
+        rowsCount = stages['intake'].output.rows || 0;
+        qualityScore = stages['intake'].output.estimated_quality || 100.0;
+    }
+    
+    if (stages['transformation'] && stages['transformation'].output) {
+        qualityScore = stages['transformation'].output.quality_after || qualityScore;
+    }
+    
+    if (stages['storage'] && stages['storage'].output) {
+        rejectionsCount = stages['storage'].output.rows_rejected || 0;
+        rowsCount = stages['storage'].output.rows_loaded || rowsCount;
+    }
+    
+    document.getElementById('monitor-stat-rows').textContent = rowsCount;
+    document.getElementById('monitor-stat-rejections').textContent = rejectionsCount;
+    document.getElementById('monitor-stat-quality').textContent = `${qualityScore}%`;
+    
+    const lossRate = rowsCount > 0 ? ((rejectionsCount / (rowsCount + rejectionsCount)) * 100).toFixed(1) : 0;
+    document.getElementById('monitor-stat-loss-rate').textContent = `${lossRate}%`;
+    
+    document.getElementById('monitor-progress-bar-fill').style.width = `${progress}%`;
+
+    // Process general state status
+    if (data.status === 'Success' || data.status === 'Passed with Warnings') {
+        overallStatus = 'Finished';
+        statusClass = 'monitor-stat-pill success';
+        document.getElementById('monitor-progress-bar-fill').style.width = '100%';
+        if (state.monitorTimerInterval) {
+            clearInterval(state.monitorTimerInterval);
+            state.monitorTimerInterval = null;
+        }
+        
+        // Trigger gamification XP increment
+        awardXpPoints(rejectionsCount, qualityScore);
+    } else if (data.status === 'Failed') {
+        overallStatus = 'Execution Aborted';
+        statusClass = 'monitor-stat-pill error';
+        if (state.monitorTimerInterval) {
+            clearInterval(state.monitorTimerInterval);
+            state.monitorTimerInterval = null;
+        }
+    } else {
+        overallStatus = 'Active Ingestion';
+        statusClass = 'monitor-stat-pill processing';
+    }
+    
+    document.getElementById('monitor-overall-status').textContent = overallStatus;
+    document.getElementById('monitor-overall-status-pill').className = statusClass;
+}
+
+function getStageDesc(key, stage) {
+    const output = stage.output || {};
+    if (key === 'intake') return `${output.rows || 0} rows profiled`;
+    if (key === 'transformation') return `Quality: ${output.quality_after || 100}%`;
+    if (key === 'storage') return `${output.format_selected || 'SQL'} | Staged`;
+    if (key === 'report') return 'PDF Exporter ready';
+    if (key === 'pbi') return 'Facts Synced';
+    return 'Completed';
+}
+
+// Intercept polling loop to hook monitor UI updates
+const originalPolling = startPipelinePolling;
+startPipelinePolling = function(pipelineId) {
+    originalPolling(pipelineId);
+    
+    // Poll hook to update full-screen monitor UI
+    const customInterval = setInterval(async () => {
+        if (!state.pipelinePollingInterval) {
+            // Stop this custom hook loop as well if main is cancelled
+            clearInterval(customInterval);
+            return;
+        }
+        try {
+            const res = await fetch(`/api/v1/pipeline/status?pipeline_id=${pipelineId}`);
+            if (res.ok) {
+                const data = await res.json();
+                updatePipelineMonitorUI(data);
+            }
+        } catch (e) {}
+    }, 1500);
+};
+
+// 5. Interactive Inspection of monitor nodes
+function inspectPipelineMonitorNode(nodeId) {
+    const emptyState = document.getElementById('monitor-inspector-empty');
+    const content = document.getElementById('monitor-inspector-content');
+    if (!emptyState || !content) return;
+    
+    const pipeData = state.currentPipelineData || {};
+    const stages = pipeData.stages || {};
+    
+    emptyState.style.display = 'none';
+    content.style.display = 'block';
+    
+    let title = '';
+    let statusText = 'waiting';
+    let statusClass = 'badge';
+    let component = '';
+    let dataHtml = '';
+    let logHtml = '';
+    
+    if (nodeId === 'raw') {
+        const intake = stages['intake'] || {};
+        const filename = document.getElementById('monitor-file-name').textContent;
+        title = 'Raw Ingestion File';
+        statusText = intake.status !== 'waiting' ? 'read' : 'waiting';
+        statusClass = 'badge success';
+        component = 'com.snaplogic.snaps.file.FileReader';
+        
+        // Show raw data preview table from intake output
+        if (intake.output && intake.output.preview && intake.output.preview.length > 0) {
+            dataHtml = renderInspectorGrid(intake.output.preview);
+        } else {
+            dataHtml = `<p class="text-secondary" style="font-size:10px;">Raw file contents not profiled yet.</p>`;
+        }
+        logHtml = `<p style="color:#00ff00;">[FileReader] Loaded file buffer: ${filename}</p><p>[FileReader] Auto-detected encoding stream successfully.</p>`;
+    } else {
+        const stage = stages[nodeId] || {};
+        statusText = stage.status || 'waiting';
+        
+        if (statusText === 'completed') statusClass = 'badge success';
+        else if (statusText === 'processing') statusClass = 'badge warning';
+        else if (statusText === 'failed') statusClass = 'badge failed';
+        else statusClass = 'badge';
+        
+        const logs = stage.logs || [];
+        logHtml = logs.length > 0 
+            ? logs.map(line => `<p style="margin:2px 0;">${line}</p>`).join('') 
+            : `<p class="text-secondary">No execution logs registered for this step yet.</p>`;
+            
+        if (nodeId === 'intake') {
+            title = 'Iris AI Dataset Profiler';
+            component = 'com.snaplogic.snaps.ai.IrisIntakeSnap';
+            
+            if (stage.output) {
+                dataHtml = `
+                    <table class="inspector-table">
+                        <tr><td><strong>Dataset Rows</strong></td><td>${stage.output.rows || 0}</td></tr>
+                        <tr><td><strong>Dataset Columns</strong></td><td>${stage.output.columns || 0}</td></tr>
+                        <tr><td><strong>Total Missing Elements</strong></td><td>${stage.output.missing_values_total || 0}</td></tr>
+                        <tr><td><strong>Duplicate Rows Found</strong></td><td>${stage.output.duplicate_rows || 0}</td></tr>
+                        <tr><td><strong>Calculated Initial Quality</strong></td><td>${stage.output.estimated_quality || 100}%</td></tr>
+                    </table>
+                `;
+            } else {
+                dataHtml = `<p class="text-secondary" style="font-size:10px;">Stage waiting execution.</p>`;
+            }
+        } else if (nodeId === 'transformation') {
+            title = 'Data Cleanser Snap';
+            component = 'com.snaplogic.snaps.transform.DataCleanserSnap';
+            
+            if (stage.output && stage.output.preview) {
+                dataHtml = `
+                    <div style="margin-bottom:8px; font-size:10px; color:var(--color-teal); font-weight:600;">
+                        Quality Score Improved: ${stage.output.quality_before}% ➔ ${stage.output.quality_after}%
+                    </div>
+                    ${renderInspectorGrid(stage.output.preview)}
+                `;
+            } else {
+                dataHtml = `<p class="text-secondary" style="font-size:10px;">Waiting dataset cleanup.</p>`;
+            }
+        } else if (nodeId === 'storage') {
+            title = 'MySQL Staging DB Snap';
+            component = 'com.snaplogic.snaps.database.MySQLStagingSnap';
+            
+            if (stage.output) {
+                let sqlCodeSection = '';
+                if (stage.output.sql_preview) {
+                    sqlCodeSection = `
+                        <h5 style="font-size:9px; text-transform:uppercase; color:var(--color-blue); margin:8px 0 4px 0;">Generated DDL Schema & Insert Preview</h5>
+                        <pre style="background:rgba(0,0,0,0.5); font-size:9px; padding:6px; border-radius:4px; overflow-x:auto; border:1px solid rgba(255,255,255,0.06); max-height:80px; color:#aaa; font-family:monospace; margin:0;">${stage.output.sql_preview}</pre>
+                    `;
+                }
+                dataHtml = `
+                    <table class="inspector-table">
+                        <tr><td><strong>Format Selected</strong></td><td><span class="badge warning">${stage.output.format_selected || 'SQL'}</span></td></tr>
+                        <tr><td><strong>Rows Staged & Loaded</strong></td><td class="text-green">${stage.output.rows_loaded || 0}</td></tr>
+                        <tr><td><strong>Rows Rejected (Data Loss)</strong></td><td class="${stage.output.rows_rejected > 0 ? 'text-red' : 'text-green'}">${stage.output.rows_rejected || 0}</td></tr>
+                    </table>
+                    ${sqlCodeSection}
+                `;
+            } else {
+                dataHtml = `<p class="text-secondary" style="font-size:10px;">Waiting staging DB load.</p>`;
+            }
+        } else if (nodeId === 'report') {
+            title = 'PDF Report Exporter';
+            component = 'com.snaplogic.snaps.file.DocumentGenerator';
+            
+            if (stage.status === 'completed' && stage.output) {
+                const batchId = pipeData.batch_id;
+                dataHtml = `
+                    <div style="font-size:11px; margin-bottom:8px;">Analytical report has been compiled in multiple formats:</div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <button class="btn-download-file" onclick="downloadReport('${batchId}', 'pdf')" style="width:100%; text-align:left; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-pdf text-red"></i> Download PDF Executive Report</button>
+                        <button class="btn-download-file" onclick="downloadReport('${batchId}', 'docx')" style="width:100%; text-align:left; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-word text-blue"></i> Download Word (Docx) Document</button>
+                        <button class="btn-download-file" onclick="downloadReport('${batchId}', 'md')" style="width:100%; text-align:left; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-file-markdown text-purple"></i> Download Markdown Summary</button>
+                    </div>
+                `;
+            } else {
+                dataHtml = `<p class="text-secondary" style="font-size:10px;">Waiting document generation.</p>`;
+            }
+        } else if (nodeId === 'pbi') {
+            title = 'Power BI Gateway Sync';
+            component = 'com.snaplogic.snaps.bi.PowerBISync';
+            
+            if (stage.status === 'completed') {
+                dataHtml = `
+                    <div style="text-align:center; padding:12px; background:rgba(20, 184, 166, 0.05); border-radius:6px; border:1px dashed var(--color-teal);">
+                        <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px; color:var(--color-teal); margin-bottom:8px;"></i>
+                        <h4 style="font-size:11px; margin:0; color:#fff;">Fact Tables Synchronized</h4>
+                        <p style="font-size:9px; color:var(--text-secondary); margin:4px 0 0 0;">Power BI embedded model refreshed successfully.</p>
+                    </div>
+                `;
+            } else {
+                dataHtml = `<p class="text-secondary" style="font-size:10px;">Waiting dashboard sync.</p>`;
+            }
+        }
+    }
+    
+    document.getElementById('inspector-node-title').textContent = title;
+    document.getElementById('inspector-node-status').textContent = statusText;
+    document.getElementById('inspector-node-status').className = statusClass;
+    document.getElementById('inspector-node-component').textContent = component;
+    document.getElementById('inspector-data-output').innerHTML = dataHtml;
+    document.getElementById('inspector-logs-output').innerHTML = logHtml;
+}
+
+function renderInspectorGrid(records) {
+    if (!records || records.length === 0) return '';
+    const headers = Object.keys(records[0]);
+    
+    const headerHtml = headers.map(h => `<th>${h}</th>`).join('');
+    const rowsHtml = records.slice(0, 4).map(row => {
+        const cells = headers.map(h => {
+            const val = row[h];
+            return `<td>${val === null || val === undefined ? '<span class="text-secondary">null</span>' : String(val)}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+    }).join('');
+    
+    return `
+        <div style="overflow-x:auto; background:rgba(0,0,0,0.2); border-radius:4px; max-height:120px;">
+            <table class="inspector-table" style="font-size:9px;">
+                <thead><tr>${headerHtml}</tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+// 6. Gamification XP Engine
+function awardXpPoints(rejectionsCount, qualityScore) {
+    // XP math: base 300XP for completion + bonus for high quality
+    let xpGain = 300;
+    if (qualityScore > 95) xpGain += 100;
+    if (rejectionsCount === 0) xpGain += 100;
+    
+    let currentXp = parseInt(localStorage.getItem('user_xp') || '350');
+    let currentLevel = parseInt(localStorage.getItem('user_xp_level') || '1');
+    
+    let newXp = currentXp + xpGain;
+    let newLevel = Math.floor(newXp / 1000) + 1;
+    let levelUp = newLevel > currentLevel;
+    
+    localStorage.setItem('user_xp', newXp);
+    localStorage.setItem('user_xp_level', newLevel);
+    
+    document.getElementById('user-xp-current').textContent = newXp;
+    document.getElementById('user-xp-level').textContent = newLevel;
+    document.getElementById('xp-progress-bar').style.width = `${(newXp % 1000) / 10}%`;
+    
+    showToast('info', `+${xpGain} XP Gained! (Level ${newLevel})`);
+    
+    // Check and unlock badges
+    setTimeout(() => {
+        if (rejectionsCount === 0) {
+            unlockBadge('badge-schema-shield', 'Schema Guard badge unlocked! Perfect data formatting validation.');
+        }
+        if (qualityScore > 90) {
+            unlockBadge('badge-null-hunter', 'Null Hunter badge unlocked! Perfect missing data repair.');
+        }
+        // Duplicate row count from intake
+        const intakeStage = (state.currentPipelineData || {}).stages?.['intake'] || {};
+        if (intakeStage.output && intakeStage.output.duplicate_rows > 0) {
+            unlockBadge('badge-dup-slayer', 'Duplicate Slayer badge unlocked! Removed duplicate records.');
+        }
+    }, 1500);
+}
+
+function unlockBadge(badgeId, message) {
+    const badge = document.getElementById(badgeId);
+    if (badge && badge.classList.contains('locked')) {
+        badge.classList.remove('locked');
+        showToast('success', message);
+    }
+}
+
 
 
