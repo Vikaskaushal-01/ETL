@@ -112,10 +112,18 @@ class StorageAgent:
             else:
                 dataset_type = "dataset"
 
-        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df)
+        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df, batch_id)
         logger.info(f"Storage agent saved formatted dataset ({format_selected}) to clean folder: {formatted_file_path}")
 
         db = SessionLocal()
+        user_email = None
+        try:
+            user_email = db.execute(
+                text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                {"b": batch_id}
+            ).scalar()
+        except Exception as e:
+            logger.warning(f"Failed to query uploaded_by in StorageAgent: {e}")
         sql_logs = []
         rejected_records = []
         rows_loaded = 0
@@ -297,16 +305,18 @@ class StorageAgent:
 
             if production_records:
                 if dataset_type == "customers":
+                    for r in production_records:
+                        r["uploaded_by"] = user_email
                     if is_sqlite:
                         stmt = text("""
-                            INSERT OR REPLACE INTO customers (customer_id, customer_name, email, phone, region)
-                            VALUES (:customer_id, :customer_name, :email, :phone, :region)
+                            INSERT OR REPLACE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by)
+                            VALUES (:customer_id, :customer_name, :email, :phone, :region, :uploaded_by)
                         """)
                     else:
                         stmt = text("""
-                            INSERT INTO customers (customer_id, customer_name, email, phone, region)
-                            VALUES (:customer_id, :customer_name, :email, :phone, :region)
-                            ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), email=VALUES(email), phone=VALUES(phone), region=VALUES(region)
+                            INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by)
+                            VALUES (:customer_id, :customer_name, :email, :phone, :region, :uploaded_by)
+                            ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), email=VALUES(email), phone=VALUES(phone), region=VALUES(region), uploaded_by=VALUES(uploaded_by)
                         """)
                     db.execute(stmt, production_records)
                 elif dataset_type == "orders":
@@ -323,18 +333,19 @@ class StorageAgent:
                         formatted_prod.append({
                             **r,
                             "order_date": o_date,
-                            "total_amount": float(r.get("total_amount")) if r.get("total_amount") else 0.0
+                            "total_amount": float(r.get("total_amount")) if r.get("total_amount") else 0.0,
+                            "uploaded_by": user_email
                         })
                     if is_sqlite:
                         stmt = text("""
-                            INSERT OR REPLACE INTO orders (order_id, customer_id, order_date, status, total_amount)
-                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount)
+                            INSERT OR REPLACE INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by)
+                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount, :uploaded_by)
                         """)
                     else:
                         stmt = text("""
-                            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount)
-                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount)
-                            ON DUPLICATE KEY UPDATE customer_id=VALUES(customer_id), order_date=VALUES(order_date), status=VALUES(status), total_amount=VALUES(total_amount)
+                            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by)
+                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount, :uploaded_by)
+                            ON DUPLICATE KEY UPDATE customer_id=VALUES(customer_id), order_date=VALUES(order_date), status=VALUES(status), total_amount=VALUES(total_amount), uploaded_by=VALUES(uploaded_by)
                         """)
                     db.execute(stmt, formatted_prod)
                 elif dataset_type == "sales":
@@ -353,18 +364,19 @@ class StorageAgent:
                             "quantity": int(r.get("quantity")) if r.get("quantity") else 0,
                             "unit_price": float(r.get("unit_price")) if r.get("unit_price") else 0.0,
                             "total_price": float(r.get("total_price")) if r.get("total_price") else 0.0,
-                            "sale_date": s_date
+                            "sale_date": s_date,
+                            "uploaded_by": user_email
                         })
                     if is_sqlite:
                         stmt = text("""
-                            INSERT OR REPLACE INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date)
-                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date)
+                            INSERT OR REPLACE INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date, uploaded_by)
+                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date, :uploaded_by)
                         """)
                     else:
                         stmt = text("""
-                            INSERT INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date)
-                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date)
-                            ON DUPLICATE KEY UPDATE order_id=VALUES(order_id), product_id=VALUES(product_id), quantity=VALUES(quantity), unit_price=VALUES(unit_price), total_price=VALUES(total_price), sale_date=VALUES(sale_date)
+                            INSERT INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date, uploaded_by)
+                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date, :uploaded_by)
+                            ON DUPLICATE KEY UPDATE order_id=VALUES(order_id), product_id=VALUES(product_id), quantity=VALUES(quantity), unit_price=VALUES(unit_price), total_price=VALUES(total_price), sale_date=VALUES(sale_date), uploaded_by=VALUES(uploaded_by)
                         """)
                     db.execute(stmt, formatted_prod)
                 else:
@@ -435,10 +447,23 @@ class StorageAgent:
             }
         }
 
-    def _save_formatted_file_to_clean_folder(self, clean_file_path: str, format_selected: str, dataset_type: str, df: pd.DataFrame) -> str:
+    def _save_formatted_file_to_clean_folder(self, clean_file_path: str, format_selected: str, dataset_type: str, df: pd.DataFrame, batch_id: str) -> str:
         try:
-            PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            clean_dir = os.path.join(PROJECT_ROOT, "cleaned data")
+            from backend.utils.account_utils import get_user_path
+            from backend.database.mysql import SessionLocal
+            db_user = SessionLocal()
+            user_email = None
+            try:
+                user_email = db_user.execute(
+                    text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                    {"b": batch_id}
+                ).scalar()
+            except Exception as e:
+                logger.warning(f"StorageAgent failed to query uploaded_by: {e}")
+            finally:
+                db_user.close()
+                
+            clean_dir = os.path.dirname(get_user_path(user_email, "cleaned data/dummy.txt"))
             os.makedirs(clean_dir, exist_ok=True)
             
             base_name = os.path.basename(clean_file_path)

@@ -172,7 +172,24 @@ def transformation_node(state: PipelineState) -> dict:
     time.sleep(1.2)
     
     try:
-        res = agent.run(dataset_path, {**metadata, "batch_id": batch_id})
+        from backend.utils.account_utils import get_user_path
+        from backend.database.mysql import SessionLocal
+        from sqlalchemy import text
+        
+        db_user = SessionLocal()
+        user_email = None
+        try:
+            user_email = db_user.execute(
+                text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                {"b": batch_id}
+            ).scalar()
+        except Exception as e:
+            logger.warning(f"Failed to query uploaded_by for batch {batch_id}: {e}")
+        finally:
+            db_user.close()
+
+        user_clean_dir = os.path.dirname(get_user_path(user_email, "cleaned data/dummy.txt"))
+        res = agent.run(dataset_path, {**metadata, "batch_id": batch_id}, output_dir=user_clean_dir)
         
         # Read clean preview
         clean_preview = []

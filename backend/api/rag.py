@@ -1,16 +1,17 @@
 import os
 import logging
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Header
 from sqlalchemy.orm import Session
 from backend.database.mysql import get_db
 from backend.database.models import RagDocument
+from backend.utils.account_utils import get_user_path
+from typing import Optional
 
 router = APIRouter(prefix="/rag", tags=["RAG Knowledge Base"])
 logger = logging.getLogger("etl_rag")
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-RAG_DIR = os.path.join(PROJECT_ROOT, "data", "rag_documents")
 
 def extract_text_from_pdf(file_path: str) -> str:
     text = ""
@@ -66,12 +67,18 @@ def extract_text_from_plain(file_path: str) -> str:
         return ""
 
 @router.post("/upload")
-async def upload_rag_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_rag_document(
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db), 
+    x_user_email: Optional[str] = Header(None)
+):
     """
     Upload a document (PDF, DOCX, TXT, MD, CSV, JSON) to RAG memory.
     Extracts text and saves the record in db.
     """
-    os.makedirs(RAG_DIR, exist_ok=True)
+    email = x_user_email or "admin@controlai.net"
+    sanitized = email.replace("@", "_").replace(".", "_")
+    
     filename = file.filename
     _, ext = os.path.splitext(filename.lower())
     file_type = ext[1:] if ext else "unknown"
@@ -87,7 +94,9 @@ async def upload_rag_document(file: UploadFile = File(...), db: Session = Depend
     unique_id = str(uuid.uuid4())[:8]
     base_name, _ = os.path.splitext(filename)
     safe_filename = f"{base_name}_{unique_id}{ext}"
-    file_path = os.path.join(RAG_DIR, safe_filename)
+    
+    file_path = get_user_path(email, os.path.join("data", "rag_documents", safe_filename))
+    db_file_path = f"Accounts/{sanitized}/data/rag_documents/{safe_filename}"
     
     try:
         with open(file_path, "wb") as buffer:
@@ -123,8 +132,9 @@ async def upload_rag_document(file: UploadFile = File(...), db: Session = Depend
         db_doc = RagDocument(
             filename=filename,
             file_type=file_type,
-            file_path=f"data/rag_documents/{safe_filename}",
-            content=extracted_content
+            file_path=db_file_path,
+            content=extracted_content,
+            uploaded_by=email
         )
         db.add(db_doc)
         db.commit()
@@ -144,12 +154,13 @@ async def upload_rag_document(file: UploadFile = File(...), db: Session = Depend
     }
 
 @router.get("/documents")
-def list_rag_documents(db: Session = Depends(get_db)):
+def list_rag_documents(db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
     """
     List all documents in RAG knowledge base.
     """
+    email = x_user_email or "admin@controlai.net"
     try:
-        docs = db.query(RagDocument).order_by(RagDocument.upload_time.desc()).all()
+        docs = db.query(RagDocument).filter(RagDocument.uploaded_by == email).order_by(RagDocument.upload_time.desc()).all()
         return [
             {
                 "id": d.id,
@@ -166,12 +177,13 @@ def list_rag_documents(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/documents/{doc_id}")
-def delete_rag_document(doc_id: int, db: Session = Depends(get_db)):
+def delete_rag_document(doc_id: int, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
     """
     Delete a document from RAG knowledge base.
     """
+    email = x_user_email or "admin@controlai.net"
     try:
-        doc = db.query(RagDocument).filter(RagDocument.id == doc_id).first()
+        doc = db.query(RagDocument).filter(RagDocument.id == doc_id, RagDocument.uploaded_by == email).first()
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
         
