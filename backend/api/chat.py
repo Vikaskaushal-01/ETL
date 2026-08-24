@@ -144,17 +144,19 @@ def get_logs_for_batch(db, batch_id: str) -> tuple[str, str]:
     return "", ""
 
 def get_files_for_batch(db, batch_id: str) -> tuple[str, str]:
+    from backend.utils.account_utils import get_user_path
     # 1. Get raw file info from DB
     raw_filename = None
     file_type = None
+    uploaded_by = None
     
     try:
         upload_row = db.execute(
-            text("SELECT filename, file_type FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+            text("SELECT filename, file_type, uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
             {"b": batch_id}
         ).first()
         if upload_row:
-            raw_filename, file_type = upload_row[0], upload_row[1]
+            raw_filename, file_type, uploaded_by = upload_row[0], upload_row[1], upload_row[2]
     except Exception:
         pass
         
@@ -177,16 +179,20 @@ def get_files_for_batch(db, batch_id: str) -> tuple[str, str]:
         
     available_files_context = f"Available files for download/viewing for Batch `{batch_id}`:\n"
     
+    # Resolve user isolated paths
+    raw_full_path = get_user_path(uploaded_by, f"data/raw/{raw_filename}")
+    clean_full_path = get_user_path(uploaded_by, f"cleaned data/{raw_filename}")
+    
     # A. Raw file path
-    raw_path = f"data/raw/{raw_filename}"
-    if os.path.exists(os.path.join(PROJECT_ROOT, raw_path)):
-        raw_url = f"/api/v1/reports/download-file?path={raw_path}"
+    if os.path.exists(raw_full_path):
+        rel_raw = raw_full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+        raw_url = f"/api/v1/reports/download-file?path={rel_raw}"
         available_files_context += f"- **Raw Uploaded File**: [Download {raw_filename}]({raw_url})\n"
         
     # B. Clean file path
-    clean_path = f"cleaned data/{raw_filename}"
-    if os.path.exists(os.path.join(PROJECT_ROOT, clean_path)):
-        clean_url = f"/api/v1/reports/download-file?path={clean_path}"
+    if os.path.exists(clean_full_path):
+        rel_clean = clean_full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+        clean_url = f"/api/v1/reports/download-file?path={rel_clean}"
         available_files_context += f"- **Cleaned Dataset File**: [Download {raw_filename}]({clean_url})\n"
         
     # C. Reports
@@ -198,15 +204,23 @@ def get_files_for_batch(db, batch_id: str) -> tuple[str, str]:
         ).first()
         if report_row:
             pdf_p, docx_p, json_p, md_p, txt_p = report_row
-            if pdf_p and os.path.exists(os.path.join(PROJECT_ROOT, pdf_p)):
+            
+            def check_file_path(p):
+                if not p:
+                    return False
+                if os.path.isabs(p):
+                    return os.path.exists(p)
+                return os.path.exists(os.path.join(PROJECT_ROOT, p))
+                
+            if pdf_p and check_file_path(pdf_p):
                 available_files_context += f"- **PDF Report**: [Download PDF Report](/api/v1/reports/download/{batch_id}?format=pdf)\n"
-            if docx_p and os.path.exists(os.path.join(PROJECT_ROOT, docx_p)):
+            if docx_p and check_file_path(docx_p):
                 available_files_context += f"- **Word (DOCX) Report**: [Download Word Report](/api/v1/reports/download/{batch_id}?format=docx)\n"
-            if md_p and os.path.exists(os.path.join(PROJECT_ROOT, md_p)):
+            if md_p and check_file_path(md_p):
                 available_files_context += f"- **Markdown Report**: [Download Markdown Report](/api/v1/reports/download/{batch_id}?format=markdown)\n"
-            if json_p and os.path.exists(os.path.join(PROJECT_ROOT, json_p)):
+            if json_p and check_file_path(json_p):
                 available_files_context += f"- **JSON Report**: [Download JSON Report](/api/v1/reports/download/{batch_id}?format=json)\n"
-            if txt_p and os.path.exists(os.path.join(PROJECT_ROOT, txt_p)):
+            if txt_p and check_file_path(txt_p):
                 available_files_context += f"- **TXT Report**: [Download TXT Report](/api/v1/reports/download/{batch_id}?format=txt)\n"
             reports_added = True
     except Exception:
@@ -222,7 +236,7 @@ def get_files_for_batch(db, batch_id: str) -> tuple[str, str]:
                     if data.get("batch_id") == batch_id:
                         reps = data.get("reports", {})
                         for fmt, path in reps.items():
-                            if path and os.path.exists(os.path.join(PROJECT_ROOT, path)):
+                            if path and (os.path.exists(path) if os.path.isabs(path) else os.path.exists(os.path.join(PROJECT_ROOT, path))):
                                 clean_fmt = fmt.replace("_path", "")
                                 available_files_context += f"- **{clean_fmt.upper()} Report**: [Download {clean_fmt.upper()} Report](/api/v1/reports/download/{batch_id}?format={clean_fmt})\n"
             except Exception:
@@ -761,6 +775,8 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
     query_file_matches = re.findall(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls)\b', req.message, re.IGNORECASE)
     custom_links_context = ""
     if query_file_matches:
+        from backend.utils.account_utils import get_user_path
+        email = x_user_email or "admin@controlai.net"
         for f_match in query_file_matches:
             paths_to_check = [
                 ("cleaned data", f"cleaned data/{f_match}"),
@@ -769,9 +785,10 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                 ("logs", f"logs/{f_match}")
             ]
             for label, relative_path in paths_to_check:
-                full_check_path = os.path.join(PROJECT_ROOT, relative_path)
+                full_check_path = get_user_path(email, relative_path)
                 if os.path.exists(full_check_path):
-                    download_url = f"/api/v1/reports/download-file?path={relative_path.replace(' ', '%20')}"
+                    rel_p = full_check_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+                    download_url = f"/api/v1/reports/download-file?path={rel_p}"
                     link_text = f"[Download {f_match}]({download_url})"
                     if download_url not in context:
                         custom_links_context += f"- File {f_match} ({label}): {link_text}\n"
@@ -781,6 +798,46 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
         if not context:
             context = "Context for requested files:\n"
         context += "\nDirectly matched files in the workspace filesystem:\n" + custom_links_context
+
+    # J. Retrieve relevant chunks from uploaded RAG documents
+    email = x_user_email or "admin@controlai.net"
+    rag_context = ""
+    try:
+        from backend.database.models import RagDocument
+        rag_docs = db.query(RagDocument).filter(RagDocument.uploaded_by == email).all()
+        if rag_docs:
+            query_words = set(re.findall(r'\w+', req.message.lower()))
+            matching_chunks = []
+            for doc in rag_docs:
+                if not doc.content:
+                    continue
+                # Split content into paragraphs/lines
+                paragraphs = [p.strip() for p in doc.content.split('\n') if p.strip()]
+                for p in paragraphs:
+                    # Chunk larger paragraphs into ~500 chars
+                    sub_chunks = [p[i:i+500] for i in range(0, len(p), 500)]
+                    for chunk in sub_chunks:
+                        chunk_words = set(re.findall(r'\w+', chunk.lower()))
+                        intersection = query_words.intersection(chunk_words)
+                        if intersection:
+                            score = len(intersection) / (len(query_words) + 1)
+                            matching_chunks.append((score, doc.filename, chunk))
+                            
+            # Sort by score descending and take top 5 matches
+            matching_chunks.sort(key=lambda x: x[0], reverse=True)
+            top_chunks = matching_chunks[:5]
+            if top_chunks:
+                rag_context += "\n=== Relevant Information from User Documents (RAG Context) ===\n"
+                for score, filename, chunk in top_chunks:
+                    rag_context += f"[Document Reference: {filename}] (Score: {score:.2f}):\n{chunk}\n\n"
+    except Exception as rag_err:
+        import logging
+        logging.getLogger("etl_chat").error(f"Error querying RAG context: {rag_err}")
+
+    if rag_context:
+        if not context:
+            context = "Context for requested query:\n"
+        context += rag_context
 
     # Pattern Analysis for Platform Troubleshooting
     is_platform_issue = any(k in message_lower for k in [

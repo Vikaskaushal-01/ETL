@@ -205,3 +205,101 @@ def delete_rag_document(doc_id: int, db: Session = Depends(get_db), x_user_email
     except Exception as e:
         logger.error(f"Failed to delete RAG document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+from pydantic import BaseModel
+
+class RagUrlRequest(BaseModel):
+    url: str
+
+@router.post("/upload/url")
+async def upload_rag_url(
+    req: RagUrlRequest,
+    db: Session = Depends(get_db),
+    x_user_email: Optional[str] = Header(None)
+):
+    """
+    Fetch content from a URL and store it as text in the RAG database.
+    """
+    email = x_user_email or "admin@controlai.net"
+    sanitized = email.replace("@", "_").replace(".", "_")
+    url = str(req.url)
+    
+    import httpx
+    from bs4 import BeautifulSoup
+    
+    # Fetch content
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, follow_redirects=True, timeout=15.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=400, detail=f"Failed to fetch RAG URL. Status code: {response.status_code}")
+            html_content = response.text
+    except Exception as e:
+         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+         
+    # Parse text from HTML
+    try:
+        # Use simple BeautifulSoup if bs4 is installed, otherwise standard regex strip
+        try:
+            soup = BeautifulSoup(html_content, "lxml")
+            # remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            text_content = soup.get_text(separator="\n")
+        except Exception:
+            try:
+                soup = BeautifulSoup(html_content, "html.parser")
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                text_content = soup.get_text(separator="\n")
+            except Exception:
+                # Regex fallback
+                import re
+                text_content = re.sub(r'<[^>]+>', '\n', html_content)
+                
+        # Clean up whitespace
+        lines = (line.strip() for line in text_content.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text_content = "\n".join(chunk for chunk in chunks if chunk)
+    except Exception as pe:
+        logger.error(f"Failed to parse text from HTML: {pe}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract text content: {str(pe)}")
+
+    if not text_content.strip():
+        raise HTTPException(status_code=400, detail="No readable text content could be extracted from the URL.")
+        
+    # Limit content size (max 200KB of text)
+    if len(text_content) > 200 * 1024:
+        text_content = text_content[:200 * 1024] + "\n... [Content truncated due to size limit]"
+        
+    # Save database entry
+    try:
+        # Save a virtual file reference
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        filename = os.path.basename(parsed.path) or "webpage_link"
+        if not filename or "." not in filename:
+            filename = f"link_{uuid.uuid4().hex[:8]}.txt"
+            
+        db_doc = RagDocument(
+            filename=f"URL: {url[:60]}...",
+            file_type="url",
+            file_path=url,
+            content=text_content,
+            uploaded_by=email
+        )
+        db.add(db_doc)
+        db.commit()
+        db.refresh(db_doc)
+    except Exception as db_err:
+        logger.error(f"Database registration for RAG url failed: {db_err}")
+        raise HTTPException(status_code=500, detail=f"Database registration failed: {str(db_err)}")
+        
+    return {
+        "status": "Success",
+        "id": db_doc.id,
+        "filename": db_doc.filename,
+        "file_type": db_doc.file_type,
+        "upload_time": db_doc.upload_time
+    }
+

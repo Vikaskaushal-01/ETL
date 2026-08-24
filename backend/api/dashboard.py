@@ -181,10 +181,11 @@ def list_datasets(x_user_email: Optional[str] = Header(None)):
     return {"files": files_list}
 
 @router.get("/download")
-def download_dataset(file_path: str):
+def download_dataset(file_path: str, x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
     """
     Download a data file from the processed folders.
     """
+    active_email = x_user_email or email or "admin@controlai.net"
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found.")
         
@@ -192,6 +193,12 @@ def download_dataset(file_path: str):
     workspace_root = os.path.abspath(".")
     if not abs_path.replace("\\", "/").startswith(workspace_root.replace("\\", "/")):
         raise HTTPException(status_code=403, detail="Access denied: outside workspace path.")
+        
+    # Ownership check: if the path is inside Accounts/, ensure it matches active_email's folder
+    if "Accounts" in abs_path.replace("\\", "/").split("/"):
+        sanitized_email = active_email.replace("@", "_").replace(".", "_")
+        if f"Accounts/{sanitized_email}" not in abs_path.replace("\\", "/"):
+            raise HTTPException(status_code=403, detail="Access denied: file belongs to another user account.")
         
     media_type = "application/octet-stream"
     if file_path.endswith(".csv"):
