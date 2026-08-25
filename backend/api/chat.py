@@ -325,7 +325,28 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db), x_user_email: Op
             if extracted:
                 batch_id = extracted
                 break
-    if not batch_id:
+
+    # Dynamic batch resolution based on filename keywords or substrings
+    email = x_user_email or "admin@controlai.net"
+    matched_batch_id = None
+    try:
+        uploads = db.execute(
+            text("SELECT batch_id, filename FROM raw_uploads WHERE uploaded_by = :e ORDER BY upload_time DESC"),
+            {"e": email}
+        ).fetchall()
+        for bid, fn in uploads:
+            fn_base = os.path.splitext(fn.lower())[0]
+            # Match if they type "pokemon", "titanic", "customers", etc.
+            words_in_fn = [w for w in re.split(r'\W+', fn_base) if len(w) > 2]
+            if fn.lower() in message_lower or fn_base in message_lower or any(w in message_lower for w in words_in_fn):
+                matched_batch_id = bid
+                break
+    except Exception:
+        pass
+
+    if matched_batch_id:
+        batch_id = matched_batch_id
+    elif not batch_id:
         batch_id = get_latest_batch_id(db, x_user_email)
 
     # Format history

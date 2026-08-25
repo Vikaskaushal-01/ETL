@@ -4226,5 +4226,393 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     color: var(--color-red);
 }
 
+/* ==========================================================================
+   Full-Screen Branching Pipeline Monitor Design Overrides (Reference Image)
+   ========================================================================== */
+
+#pipeline-monitor-page {
+    background: #f1f5f9 !important; /* Soft light grey background */
+    color: #0f172a !important;
+}
+
+#pipeline-monitor-page .monitor-header {
+    border-bottom: 1px solid #e2e8f0 !important;
+}
+
+#pipeline-monitor-page .monitor-title-area h2 {
+    color: #0f172a !important;
+}
+
+#pipeline-monitor-page .monitor-title-area p {
+    color: #475569 !important;
+}
+
+#pipeline-monitor-page .monitor-stat-pill {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #475569 !important;
+}
+
+#pipeline-monitor-page .monitor-stat-pill.success {
+    background: #f0fdf4 !important;
+    border: 1px solid #bbf7d0 !important;
+    color: #16a34a !important;
+}
+
+#pipeline-monitor-page .monitor-sidebar, 
+#pipeline-monitor-page .monitor-inspector {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03) !important;
+}
+
+#pipeline-monitor-page .sidebar-section h3,
+#pipeline-monitor-page .monitor-inspector h3,
+#pipeline-monitor-page .inspector-section h4 {
+    color: #1f2937 !important;
+    border-bottom: 1px solid #f1f5f9 !important;
+    padding-bottom: 8px;
+}
+
+#pipeline-monitor-page .sidebar-stat-card {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+#pipeline-monitor-page .sidebar-stat-card strong {
+    color: #475569 !important;
+}
+
+#pipeline-monitor-page .progress-bar-container {
+    background: #e2e8f0 !important;
+}
+
+#pipeline-monitor-page .progress-bar-fill {
+    background: linear-gradient(90deg, #a78bfa 0%, #8b5cf6 100%) !important;
+}
+
+#pipeline-monitor-page .progress-step-labels span {
+    color: #94a3b8 !important;
+}
+
+#pipeline-monitor-page .progress-step-labels span.active {
+    color: #8b5cf6 !important;
+    font-weight: 700;
+}
+
+/* Central white canvas area */
+#pipeline-monitor-page .monitor-canvas-area {
+    background: #ffffff !important; /* Perfect white canvas background matching image */
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02) !important;
+    position: relative;
+}
+
+/* Branching SVG flow lines */
+#pipeline-monitor-page .svg-flow-path {
+    stroke: #e2e8f0 !important; /* Elegant light-grey connector lines */
+    stroke-width: 4 !important;
+}
+
+#pipeline-monitor-page .svg-flow-path.processing {
+    stroke: #3b82f6 !important;
+    stroke-dasharray: 8 6 !important;
+    animation: dash-flow 0.8s linear infinite !important;
+}
+
+#pipeline-monitor-page .svg-flow-path.completed {
+    stroke: #8b5cf6 !important; /* Glowing completed paths */
+}
+
+/* Squircle node cards layout and styling (directly styled from the reference image) */
+#pipeline-monitor-page .monitor-node-card {
+    position: absolute !important;
+    width: 140px !important;
+    height: 140px !important;
+    border-radius: 30px !important; /* Soft, smooth squircle shape */
+    background: #ffffff !important;
+    border: none !important;
+    padding: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    cursor: pointer !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04) !important;
+    z-index: 5;
+    overflow: hidden;
+}
+
+#pipeline-monitor-page .monitor-node-card:hover {
+    transform: scale(1.08) translateY(-4px) !important;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Positioning coordinates for branching layout */
+#mnode-raw {
+    left: 8% !important;
+    top: 40% !important;
+    transform: translateY(-50%) !important;
+}
+
+#mnode-intake {
+    left: 24% !important;
+    top: 10% !important;
+}
+
+#mnode-transformation {
+    left: 24% !important;
+    bottom: 18% !important;
+}
+
+#mnode-storage {
+    left: 50% !important;
+    top: 40% !important;
+    transform: translate(-50%, -50%) !important;
+}
+
+#mnode-report {
+    right: 24% !important;
+    top: 10% !important;
+}
+
+#mnode-pbi {
+    right: 24% !important;
+    bottom: 18% !important;
+}
+
+/* Node statuses styles */
+#pipeline-monitor-page .monitor-node-card.waiting {
+    opacity: 0.55 !important;
+    filter: grayscale(85%) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02) !important;
+}
+
+#pipeline-monitor-page .monitor-node-card.processing {
+    opacity: 1 !important;
+    filter: none !important;
+    animation: squirclePulse 1.5s infinite alternate !important;
+}
+
+#pipeline-monitor-page .monitor-node-card.completed {
+    opacity: 1 !important;
+    filter: none !important;
+}
+
+@keyframes squirclePulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.05) translateY(-3px); }
+}
+
+/* Individual Squircle color themes and gradient shadows (matching reference image) */
+#pipeline-monitor-page .yellow-squircle.completed {
+    background: #ffb703 !important; /* Yellow lightbulb squircle */
+    color: #ffffff !important;
+    box-shadow: 0 15px 35px rgba(255, 183, 3, 0.45) !important;
+}
+
+#pipeline-monitor-page .blue-squircle.completed {
+    background: #219ebc !important; /* Blue balloons squircle */
+    color: #ffffff !important;
+    box-shadow: 0 15px 35px rgba(33, 158, 188, 0.45) !important;
+}
+
+#pipeline-monitor-page .purple-squircle.completed {
+    background: #8b5cf6 !important; /* Purple center squircle */
+    color: #ffffff !important;
+    box-shadow: 0 25px 50px rgba(139, 92, 246, 0.55) !important;
+    width: 165px !important;
+    height: 165px !important;
+    border-radius: 38px !important;
+    z-index: 10 !important;
+}
+
+/* Adjust purple layout centering offsets due to larger size */
+#mnode-storage.purple-squircle {
+    transform: translate(-50%, -50%) !important;
+}
+
+#pipeline-monitor-page .red-squircle.completed {
+    background: #ef4444 !important; /* Red shield/alert squircle */
+    color: #ffffff !important;
+    box-shadow: 0 15px 35px rgba(239, 68, 68, 0.45) !important;
+}
+
+#pipeline-monitor-page .white-squircle.completed {
+    background: #ffffff !important; /* White eyes squircle */
+    color: #0f172a !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Icon styles inside nodes */
+.node-squircle-icon {
+    font-size: 32px !important;
+    margin-bottom: 6px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 48px;
+}
+
+.purple-squircle .node-squircle-icon {
+    font-size: 48px !important;
+    margin-bottom: 8px !important;
+}
+
+.node-label-title {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 2px !important;
+    color: inherit !important;
+}
+
+.purple-squircle .node-label-title {
+    font-size: 12px !important;
+}
+
+.monitor-node-card .node-desc {
+    font-size: 9px !important;
+    color: inherit !important;
+    opacity: 0.85 !important;
+    max-width: 90% !important;
+    margin: 0 auto !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Avatar container inside raw-node */
+.node-avatar-container {
+    width: 100% !important;
+    height: 90px !important;
+    overflow: hidden !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+.node-avatar-img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+}
+
+.raw-node .node-label-title {
+    margin-top: 6px !important;
+    color: #334155 !important;
+}
+
+.raw-node .node-desc {
+    color: #64748b !important;
+}
+
+/* Branding footer styling matching reference image */
+.monitor-canvas-branding {
+    position: absolute !important;
+    bottom: 5% !important;
+    left: 0 !important;
+    width: 100% !important;
+    text-align: center !important;
+    pointer-events: none !important;
+    z-index: 2 !important;
+}
+
+.monitor-canvas-branding h1 {
+    font-size: 40px !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    margin: 0 0 6px 0 !important;
+    letter-spacing: -1.2px !important;
+}
+
+.monitor-canvas-branding p {
+    font-size: 13px !important;
+    color: #64748b !important;
+    max-width: 520px !important;
+    margin: 0 auto !important;
+    line-height: 1.5 !important;
+}
+
+/* Node card inline download links */
+.node-card-links {
+    margin-top: 8px !important;
+    display: flex !important;
+    gap: 6px !important;
+    justify-content: center !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+}
+
+.node-inline-link {
+    font-size: 9px !important;
+    font-weight: 600 !important;
+    background: rgba(0, 0, 0, 0.05) !important;
+    border: 1px solid rgba(0, 0, 0, 0.08) !important;
+    color: #334155 !important;
+    padding: 3px 6px !important;
+    border-radius: 6px !important;
+    text-decoration: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    transition: all 0.2s ease !important;
+}
+
+.node-inline-link:hover {
+    background: #0f172a !important;
+    border-color: #0f172a !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15) !important;
+}
+
+.yellow-squircle .node-inline-link,
+.blue-squircle .node-inline-link,
+.purple-squircle .node-inline-link,
+.red-squircle .node-inline-link {
+    background: rgba(255, 255, 255, 0.2) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    color: #ffffff !important;
+}
+
+.yellow-squircle .node-inline-link:hover,
+.blue-squircle .node-inline-link:hover,
+.purple-squircle .node-inline-link:hover,
+.red-squircle .node-inline-link:hover {
+    background: #ffffff !important;
+    border-color: #ffffff !important;
+    color: #0f172a !important;
+}
+
+/* Badge list styles */
+.badge-grid .badge-item {
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #64748b !important;
+}
+
+.badge-grid .badge-item:not(.locked) {
+    background: #fff8e1 !important;
+    border-color: #ffe082 !important;
+    color: #b78103 !important;
+}
+
+/* Close/exit button */
+.btn-close-monitor {
+    background: #0f172a !important;
+    color: #ffffff !important;
+    border: none !important;
+    transition: all 0.2s ease !important;
+}
+
+.btn-close-monitor:hover {
+    background: #1e293b !important;
+    transform: translateY(-1px) !important;
+}
+
 
 

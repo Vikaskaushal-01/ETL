@@ -48,9 +48,14 @@ class ReportAgent:
             - recommendation: technical fix (e.g. re-extract data, validate source CRM exports)
             - confidence: float score between 0 and 100 on this assessment
             
+            Strict Directives:
+            - Be concise, factual, and professional.
+            - Do NOT add generic filler text, placeholder text, or speculative boilerplate.
+            - Focus strictly on the actual raw fields and error samples.
+            
             Return ONLY a valid JSON list.
             """
-            system_instruction = "You are the Report Generation Agent. Generate Root Cause Analysis metrics as valid JSON."
+            system_instruction = "You are the Report Generation Agent. Generate concise Root Cause Analysis metrics as valid JSON. Do not write explanations outside the JSON."
             try:
                 llm_res = query_llm(prompt_rca, system_instruction, json_mode=True)
                 if "```json" in llm_res:
@@ -80,6 +85,12 @@ class ReportAgent:
         Data Quality: {state.get('quality_score')}%
         
         Generate a corporate executive summary and a list of business insights and pipeline optimization recommendations.
+        
+        Strict Directives:
+        - Avoid speculative narrative or hypothetical industry trends.
+        - Focus strictly on the exact column counts, row dimensions, duplicates, nulls, and load statistics.
+        - Keep insights and summaries highly concise, professional, and clear.
+        
         Output a JSON object containing:
         - executive_summary: A high-level description of what the dataset is, how the pipeline run executed, and the overall load success.
         - business_insights: Bullets outlining key observations (e.g. transaction distributions, region performance, or customer profile observations).
@@ -87,7 +98,7 @@ class ReportAgent:
         
         Return ONLY valid JSON.
         """
-        system_instruction = "You are the Report Generation Agent. Extract and summarize executive business insights as valid JSON."
+        system_instruction = "You are the Report Generation Agent. Extract and summarize executive business insights as valid JSON. Do not write explanations outside the JSON."
         try:
             llm_ins = query_llm(prompt_insights, system_instruction, json_mode=True)
             if "```json" in llm_ins:

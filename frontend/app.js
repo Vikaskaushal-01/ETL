@@ -3196,19 +3196,26 @@ window.openPipelineMonitorOverlay = function(batchId, filename) {
     document.getElementById('xp-progress-bar').style.width = `${(currentXp % 1000) / 10}%`;
 };
 
-// Setup and coordinates SVG paths
+// Setup and coordinates SVG paths in a branching layout
 function setupMonitorSvg() {
     const svg = document.getElementById('monitor-connection-svg');
     if (!svg) return;
     svg.innerHTML = '';
     
-    const nodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
-    for (let i = 0; i < nodes.length - 1; i++) {
+    const connections = [
+        { from: 'raw', to: 'storage' },
+        { from: 'intake', to: 'storage' },
+        { from: 'transformation', to: 'storage' },
+        { from: 'storage', to: 'report' },
+        { from: 'storage', to: 'pbi' }
+    ];
+    
+    connections.forEach(conn => {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('id', `path-${nodes[i]}-to-${nodes[i+1]}`);
+        path.setAttribute('id', `path-${conn.from}-to-${conn.to}`);
         path.setAttribute('class', 'svg-flow-path');
         svg.appendChild(path);
-    }
+    });
     updateMonitorPaths();
 }
 
@@ -3217,23 +3224,31 @@ function updateMonitorPaths() {
     if (!canvas) return;
     const canvasRect = canvas.getBoundingClientRect();
     
-    const nodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
-    for (let i = 0; i < nodes.length - 1; i++) {
-        const el1 = document.getElementById(`mnode-${nodes[i]}`);
-        const el2 = document.getElementById(`mnode-${nodes[i+1]}`);
-        const path = document.getElementById(`path-${nodes[i]}-to-${nodes[i+1]}`);
-        if (!el1 || !el2 || !path) continue;
+    const connections = [
+        { from: 'raw', to: 'storage' },
+        { from: 'intake', to: 'storage' },
+        { from: 'transformation', to: 'storage' },
+        { from: 'storage', to: 'report' },
+        { from: 'storage', to: 'pbi' }
+    ];
+    
+    connections.forEach(conn => {
+        const el1 = document.getElementById(`mnode-${conn.from}`);
+        const el2 = document.getElementById(`mnode-${conn.to}`);
+        const path = document.getElementById(`path-${conn.from}-to-${conn.to}`);
+        if (!el1 || !el2 || !path) return;
         
         const r1 = el1.getBoundingClientRect();
         const r2 = el2.getBoundingClientRect();
         
+        // Connect center coordinates to center coordinates
         const x1 = (r1.left + r1.right) / 2 - canvasRect.left;
-        const y1 = r1.bottom - canvasRect.top;
+        const y1 = (r1.top + r1.bottom) / 2 - canvasRect.top;
         const x2 = (r2.left + r2.right) / 2 - canvasRect.left;
-        const y2 = r2.top - canvasRect.top;
+        const y2 = (r2.top + r2.bottom) / 2 - canvasRect.top;
         
         path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
-    }
+    });
 }
 
 // 4. Update visualizer from stage data
@@ -3252,47 +3267,91 @@ function updatePipelineMonitorUI(data) {
     stepKeys.forEach((key, index) => {
         const stage = stages[key] || {};
         const nodeEl = document.getElementById(`mnode-${key}`);
-        const pathEl = index > 0 ? document.getElementById(`path-${stepKeys[index-1]}-to-${key}`) : document.getElementById(`path-raw-to-intake`);
         const labelEl = document.getElementById(`label-step-${key}`);
+        
+        let pathEl = null;
+        if (key === 'intake') pathEl = document.getElementById('path-intake-to-storage');
+        else if (key === 'transformation') pathEl = document.getElementById('path-transformation-to-storage');
+        else if (key === 'storage') pathEl = document.getElementById('path-raw-to-storage');
+        else if (key === 'report') pathEl = document.getElementById('path-storage-to-report');
+        else if (key === 'pbi') pathEl = document.getElementById('path-storage-to-pbi');
         
         if (!nodeEl) return;
         
         // Node state class mapping
         if (stage.status === 'completed') {
-            nodeEl.className = 'monitor-node-card completed';
-            nodeEl.querySelector('.node-desc').textContent = getStageDesc(key, stage);
+            nodeEl.className = `monitor-node-card ${key}-squircle completed`;
+            
+            // Render inline download links
+            const batchId = data.batch_id;
+            const filename = data.filename || 'dataset.csv';
+            const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+            const emailPath = email.replace('@','_').replace('.','_');
+            
+            let linksHtml = '';
+            if (key === 'intake') {
+                linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
+            } else if (key === 'transformation') {
+                const rel_clean = `Accounts/${emailPath}/cleaned data/${filename}`;
+                linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
+            } else if (key === 'storage') {
+                linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
+            } else if (key === 'report') {
+                linksHtml = `
+                    <div class="node-card-links">
+                        <a href="#" onclick="downloadReport('${batchId}', 'pdf'); event.stopPropagation();" class="node-inline-link" title="PDF Report"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+                        <a href="#" onclick="downloadReport('${batchId}', 'docx'); event.stopPropagation();" class="node-inline-link" title="Word Report"><i class="fa-solid fa-file-word"></i> Word</a>
+                    </div>`;
+            } else if (key === 'pbi') {
+                linksHtml = `<div class="node-card-links"><span class="node-inline-link text-green"><i class="fa-solid fa-circle-check"></i> Sync OK</span></div>`;
+            }
+            
+            nodeEl.querySelector('.node-desc').innerHTML = `<div>${getStageDesc(key, stage)}</div>${linksHtml}`;
             if (pathEl) pathEl.className = 'svg-flow-path completed';
             if (labelEl) labelEl.className = 'active';
             progress = Math.max(progress, (index + 1) * 20);
         } else if (stage.status === 'processing') {
-            nodeEl.className = 'monitor-node-card processing';
+            nodeEl.className = `monitor-node-card ${key}-squircle processing`;
             nodeEl.querySelector('.node-desc').textContent = 'Profiling...';
             if (pathEl) pathEl.className = 'svg-flow-path processing';
             if (labelEl) labelEl.className = 'active';
             reachedActive = true;
             progress = Math.max(progress, index * 20 + 10);
         } else if (stage.status === 'failed') {
-            nodeEl.className = 'monitor-node-card failed';
+            nodeEl.className = `monitor-node-card ${key}-squircle failed`;
             nodeEl.querySelector('.node-desc').textContent = 'Failed';
             if (pathEl) pathEl.className = 'svg-flow-path';
             if (labelEl) labelEl.className = 'text-red';
             overallStatus = 'Failed';
             statusClass = 'monitor-stat-pill failed';
         } else {
-            nodeEl.className = 'monitor-node-card waiting';
+            nodeEl.className = `monitor-node-card ${key}-squircle waiting`;
             nodeEl.querySelector('.node-desc').textContent = 'Waiting';
             if (pathEl) pathEl.className = 'svg-flow-path';
             if (labelEl) labelEl.className = '';
         }
     });
     
-    // Special path connecting raw input to intake
-    const rawPath = document.getElementById('path-raw-to-intake');
-    if (rawPath) {
+    // Raw Ingest Node Link Update
+    const rawNodeEl = document.getElementById('mnode-raw');
+    if (rawNodeEl) {
         const intakeStage = stages['intake'] || {};
-        if (intakeStage.status === 'completed') rawPath.className = 'svg-flow-path completed';
-        else if (intakeStage.status === 'processing') rawPath.className = 'svg-flow-path processing';
-        else rawPath.className = 'svg-flow-path';
+        if (intakeStage.status === 'completed' || intakeStage.status === 'processing') {
+            const filename = data.filename || 'dataset.csv';
+            const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+            const emailPath = email.replace('@','_').replace('.','_');
+            const rel_raw = `Accounts/${emailPath}/data/raw/${filename}`;
+            rawNodeEl.querySelector('.node-desc').innerHTML = `
+                <div>${filename}</div>
+                <div class="node-card-links"><a href="#" onclick="downloadNodeData('${rel_raw}'); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>
+            `;
+            
+            const rawPath = document.getElementById('path-raw-to-storage');
+            if (rawPath) {
+                if (intakeStage.status === 'completed') rawPath.className = 'svg-flow-path completed';
+                else rawPath.className = 'svg-flow-path processing';
+            }
+        }
     }
 
     // Set Performance Stats from stages output

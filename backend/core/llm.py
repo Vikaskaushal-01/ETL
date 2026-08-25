@@ -133,7 +133,39 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
                 response_msg += "- Confirm browser cache is cleared and restart services.\n"
                 
         else:
-            if context_section and "no specific batch context loaded" not in context_section.lower():
+            if any(k in query_text for k in ["hello", "hi", "hey", "greetings"]):
+                response_msg += "Hello! I am the ETL Chat Support Agent. I'm here to help you analyze your data pipelines, configure local RAG vectors, check staging databases, or troubleshoot execution logs. How can I assist you today?"
+            elif any(k in query_text for k in ["rag", "retrieval", "vector", "overlap"]):
+                response_msg += """### Retrieval-Augmented Generation (RAG) Architecture
+The platform has a built-in local document and link indexer:
+1. **Local Documents & Web Links**: Use the paperclip attachment drawer in the chatbot sidebar to drag/drop files or index URL text content.
+2. **Word Overlap Cosine Ranking**: Text content is split into ~500-character blocks. The system computes intersection overlap ranking locally to identify the most relevant context, avoiding expensive remote LLM calls.
+3. **In-Context Learning**: Relevant snippets are automatically prepended as reference context for your queries."""
+            elif any(k in query_text for k in ["snaplogic", "snap", "FileReader"]):
+                response_msg += """### SnapLogic Integration Architecture
+The ETL pipeline integrates with SnapLogic IIP (Intelligent Integration Platform):
+- **FileReader Snap**: Automates raw dataset intake triggers on file system modifications.
+- **Iris AI Profiler**: Recommends schemas and performs mismatch validations.
+- **REST Snaps**: Secure RESTPost Snaps propagate execution events and staging logs directly to our FastAPI endpoints."""
+            elif any(k in query_text for k in ["power bi", "pbi", "refresh"]):
+                response_msg += """### Power BI Gateway Sync
+Once dataset cleaning finishes:
+1. The **Power BI Sync agent** executes a gateway refresh trigger.
+2. Staging MySQL records are consolidated into production fact models.
+3. Dashboards and reports refresh automatically with 100% success rate."""
+            elif any(k in query_text for k in ["gamification", "xp", "badge", "level"]):
+                response_msg += """### Gamification & Achievements Engine
+Completing automation runs earns you Experience Points (XP) and unlocks engineering badges:
+- **Schema Guard**: Unlocked when 0 records are rejected during validation.
+- **Null Hunter**: Unlocked when missing data items are repaired.
+- **Duplicate Slayer**: Unlocked when the cleansers detect and remove duplicate entries."""
+            elif any(k in query_text for k in ["help", "features", "commands"]):
+                response_msg += """### ETL Chat Assistant - Available Commands
+I can execute several platform maintenance tasks directly from the chat:
+- **`reset workspace`**: Wipes all files from disk and re-creates empty database tables.
+- **`clear logs`**: Deletes all pipeline logs.
+- Mention files or processes (e.g. 'show files for pokemon') to search logs and retrieve active download links."""
+            elif context_section and "no specific batch context loaded" not in context_section.lower():
                 response_msg += "I analyzed the database logs and reports for the active run:\n\n"
                 # Extract key details from context
                 quality_match = re.search(r'Quality Score[=:][\s]*([\d\.]+)%', context_section)
@@ -154,7 +186,7 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
                     for col, details in transformations[:5]:
                         response_msg += f"- Column `{col}`: {details.strip()}\n"
             else:
-                response_msg += "I am ready to help you analyze your ETL pipeline. Please provide a batch ID, filename, or describe the logs/errors you'd like me to look at!"
+                response_msg += f"I am here to assist you with the ETL Platform. I see you asked about: '{query_text}'.\n\nTo retrieve reports or logs for a specific upload, simply mention its filename (e.g., 'pokemon' or 'sales') in your message. If you are experiencing a pipeline error, describe the issue and I will provide possible causes and recommendations!"
                 
         if links and not is_issue:
             response_msg += "\n\nAvailable download links:\n"
