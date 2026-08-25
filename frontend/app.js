@@ -1380,8 +1380,37 @@ function setStepStatus(step, status, text) {
     if (!stepEl) return;
     
     stepEl.className = `flow-step ${status}`;
-    stepEl.querySelector('.flow-status-text').textContent = text;
     
+    let htmlContent = text;
+    
+    if (status === 'completed' && state.currentPipelineData) {
+        const data = state.currentPipelineData;
+        const batchId = data.batch_id || state.currentBatchId;
+        const filename = data.filename || 'dataset.csv';
+        const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
+        const emailPath = email.replace('@','_').replace('.','_');
+        
+        let linksHtml = '';
+        if (step === 'intake') {
+            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
+        } else if (step === 'transformation') {
+            const rel_clean = `Accounts/${emailPath}/cleaned data/${filename}`;
+            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
+        } else if (step === 'storage') {
+            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
+        } else if (step === 'report') {
+            linksHtml = `
+                <div class="step-card-links">
+                    <a href="#" onclick="downloadReport('${batchId}', 'pdf'); event.stopPropagation();" class="node-inline-link" title="PDF Report"><i class="fa-solid fa-file-pdf"></i> PDF</a>
+                    <a href="#" onclick="downloadReport('${batchId}', 'docx'); event.stopPropagation();" class="node-inline-link" title="Word Report"><i class="fa-solid fa-file-word"></i> Word</a>
+                </div>`;
+        } else if (step === 'pbi') {
+            linksHtml = `<div class="step-card-links"><span class="node-inline-link text-green"><i class="fa-solid fa-circle-check"></i> Sync OK</span></div>`;
+        }
+        htmlContent = `<div>${text}</div>${linksHtml}`;
+    }
+    
+    stepEl.querySelector('.flow-status-text').innerHTML = htmlContent;
     drawNetworkConnections();
 }
 
@@ -3194,6 +3223,12 @@ window.openPipelineMonitorOverlay = function(batchId, filename) {
     document.getElementById('user-xp-current').textContent = currentXp;
     document.getElementById('user-xp-level').textContent = currentLevel;
     document.getElementById('xp-progress-bar').style.width = `${(currentXp % 1000) / 10}%`;
+    
+    // Initialize gamification canvas
+    state.previousStageStatuses = {};
+    setTimeout(() => {
+        initGamificationCanvas();
+    }, 100);
 };
 
 // Setup and coordinates SVG paths in a branching layout
@@ -3310,6 +3345,31 @@ function updatePipelineMonitorUI(data) {
             if (pathEl) pathEl.className = 'svg-flow-path completed';
             if (labelEl) labelEl.className = 'active';
             progress = Math.max(progress, (index + 1) * 20);
+
+            // Confetti and floating text triggers on node completion transition
+            state.previousStageStatuses = state.previousStageStatuses || {};
+            if (state.previousStageStatuses[key] !== 'completed') {
+                state.previousStageStatuses[key] = 'completed';
+                setTimeout(() => {
+                    const r = nodeEl.getBoundingClientRect();
+                    const canvasEl = document.getElementById('gamification-canvas');
+                    if (canvasEl) {
+                        const canvasRect = canvasEl.getBoundingClientRect();
+                        const x = r.left + r.width / 2 - canvasRect.left;
+                        const y = r.top + r.height / 2 - canvasRect.top;
+                        
+                        let flowColor = '#8b5cf6';
+                        if (key === 'intake') flowColor = '#ffb703';
+                        else if (key === 'transformation') flowColor = '#219ebc';
+                        else if (key === 'storage') flowColor = '#8b5cf6';
+                        else if (key === 'report') flowColor = '#ef4444';
+                        else if (key === 'pbi') flowColor = '#10b981';
+                        
+                        spawnExplosion(x, y, flowColor);
+                        spawnFloatingText(x, y - 50, `+200 XP`, flowColor);
+                    }
+                }, 100);
+            }
         } else if (stage.status === 'processing') {
             nodeEl.className = `monitor-node-card ${key}-squircle processing`;
             nodeEl.querySelector('.node-desc').textContent = 'Profiling...';
@@ -3633,6 +3693,16 @@ function awardXpPoints(rejectionsCount, qualityScore) {
     
     showToast('info', `+${xpGain} XP Gained! (Level ${newLevel})`);
     
+    if (levelUp) {
+        setTimeout(() => {
+            spawnBanner("LEVEL UP!", `Level ${newLevel} ETL Architect`, "#8b5cf6");
+            const canvasEl = document.getElementById('gamification-canvas');
+            if (canvasEl) {
+                spawnExplosion(canvasEl.width / 2, canvasEl.height / 2, "#8b5cf6");
+            }
+        }, 1000);
+    }
+    
     // Check and unlock badges
     setTimeout(() => {
         if (rejectionsCount === 0) {
@@ -3654,8 +3724,302 @@ function unlockBadge(badgeId, message) {
     if (badge && badge.classList.contains('locked')) {
         badge.classList.remove('locked');
         showToast('success', message);
+        
+        // Canvas banner trigger
+        const badgeName = badge.querySelector('span')?.textContent || "Achievement Unlocked";
+        const canvasEl = document.getElementById('gamification-canvas');
+        if (canvasEl) {
+            spawnBanner("ACHIEVEMENT UNLOCKED!", badgeName, "#ffb703");
+            spawnExplosion(canvasEl.width / 2, canvasEl.height / 2, "#ffb703");
+        }
     }
 }
 
+// Gamification Canvas Particles System
+let animFrameId = null;
+let canvasParticles = [];
+let canvasExplosions = [];
+let canvasFloatingTexts = [];
+let canvasBanners = [];
 
+function initGamificationCanvas() {
+    const canvas = document.getElementById('gamification-canvas');
+    if (!canvas) return;
+    
+    const resizeCanvas = () => {
+        canvas.width = canvas.parentElement.clientWidth || window.innerWidth;
+        canvas.height = canvas.parentElement.clientHeight || window.innerHeight;
+    };
+    
+    resizeCanvas();
+    window.removeEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', resizeCanvas);
+    
+    canvasParticles = [];
+    canvasExplosions = [];
+    canvasFloatingTexts = [];
+    canvasBanners = [];
+    
+    // Play "Initiate" banner
+    spawnBanner("AUTONOMOUS ETL ACTIVE", "Data Pipeline Ingesting...", "#00f0ff");
+    
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    animFrameId = requestAnimationFrame(canvasAnimationLoop);
+}
 
+function spawnBanner(title, subtitle, color = "#00f0ff") {
+    canvasBanners.push({
+        title: title,
+        subtitle: subtitle,
+        color: color,
+        alpha: 0,
+        scale: 0.8,
+        life: 150, // frames (~2.5 seconds)
+        maxLife: 150
+    });
+}
+
+function spawnExplosion(x, y, color = "#ffb703") {
+    for (let i = 0; i < 60; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 4 + 2;
+        canvasExplosions.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: color,
+            size: Math.random() * 4 + 2,
+            alpha: 1,
+            decay: Math.random() * 0.015 + 0.01,
+            gravity: 0.08
+        });
+    }
+}
+
+function spawnFloatingText(x, y, text, color = "#00f0ff") {
+    canvasFloatingTexts.push({
+        x: x,
+        y: y,
+        text: text,
+        color: color,
+        vy: -1.2,
+        alpha: 1,
+        decay: 0.012
+    });
+}
+
+function canvasAnimationLoop() {
+    const canvas = document.getElementById('gamification-canvas');
+    if (!canvas || canvas.parentElement.style.display !== 'flex') {
+        if (animFrameId) {
+            cancelAnimationFrame(animFrameId);
+            animFrameId = null;
+        }
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 1. Spawning Flow Particles based on active/processing node paths
+    const stages = (state.currentPipelineData || {}).stages || {};
+    const flows = [
+        { from: 'mnode-raw', to: 'mnode-intake', key: 'intake', color: '#ffb703' },
+        { from: 'mnode-intake', to: 'mnode-transformation', key: 'transformation', color: '#219ebc' },
+        { from: 'mnode-transformation', to: 'mnode-storage', key: 'storage', color: '#8b5cf6' },
+        { from: 'mnode-storage', to: 'mnode-report', key: 'report', color: '#ef4444' },
+        { from: 'mnode-storage', to: 'mnode-pbi', key: 'pbi', color: '#10b981' }
+    ];
+    
+    const canvasRect = canvas.getBoundingClientRect();
+    
+    flows.forEach(flow => {
+        const stage = stages[flow.key] || {};
+        if (stage.status === 'processing' || stage.status === 'completed') {
+            const elFrom = document.getElementById(flow.from);
+            const elTo = document.getElementById(flow.to);
+            if (elFrom && elTo && elFrom.parentElement.style.display !== 'none' && elTo.parentElement.style.display !== 'none') {
+                const r1 = elFrom.getBoundingClientRect();
+                const r2 = elTo.getBoundingClientRect();
+                const fromX = r1.left + r1.width / 2 - canvasRect.left;
+                const fromY = r1.top + r1.height / 2 - canvasRect.top;
+                const toX = r2.left + r2.width / 2 - canvasRect.left;
+                const toY = r2.top + r2.height / 2 - canvasRect.top;
+                
+                // Spawn particle occasionally
+                // Higher probability if processing, lower/none if completed
+                const probability = stage.status === 'processing' ? 0.25 : 0.03;
+                if (Math.random() < probability) {
+                    canvasParticles.push({
+                        fromX: fromX,
+                        fromY: fromY,
+                        toX: toX,
+                        toY: toY,
+                        x: fromX,
+                        y: fromY,
+                        progress: 0,
+                        speed: Math.random() * 0.01 + 0.006,
+                        size: Math.random() * 3 + 2,
+                        color: flow.color,
+                        waveMultiplier: Math.random() * 2 - 1
+                    });
+                }
+            }
+        }
+    });
+    
+    // Update & Draw Flow Particles
+    canvasParticles.forEach((p, idx) => {
+        p.progress += p.speed;
+        if (p.progress >= 1) {
+            canvasParticles.splice(idx, 1);
+            return;
+        }
+        
+        // Linear path
+        p.x = p.fromX + (p.toX - p.fromX) * p.progress;
+        p.y = p.fromY + (p.toY - p.fromY) * p.progress;
+        
+        // Sine wave offset for organic look
+        const offset = Math.sin(p.progress * Math.PI) * 15 * p.waveMultiplier;
+        const normAngle = Math.atan2(p.toY - p.fromY, p.toX - p.fromX) + Math.PI / 2;
+        const drawX = p.x + Math.cos(normAngle) * offset;
+        const drawY = p.y + Math.sin(normAngle) * offset;
+        
+        ctx.beginPath();
+        ctx.arc(drawX, drawY, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 6;
+        ctx.fill();
+        ctx.shadowBlur = 0; // reset
+    });
+    
+    // 2. Update & Draw Explosions (Confetti)
+    canvasExplosions.forEach((e, idx) => {
+        e.x += e.vx;
+        e.y += e.vy;
+        e.vy += e.gravity;
+        e.alpha -= e.decay;
+        
+        if (e.alpha <= 0) {
+            canvasExplosions.splice(idx, 1);
+            return;
+        }
+        
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
+        ctx.fillStyle = e.color;
+        ctx.globalAlpha = e.alpha;
+        ctx.shadowColor = e.color;
+        ctx.shadowBlur = 4;
+        ctx.fill();
+        ctx.shadowBlur = 0; // reset
+        ctx.globalAlpha = 1; // reset
+    });
+    
+    // 3. Update & Draw Floating Texts
+    canvasFloatingTexts.forEach((t, idx) => {
+        t.y += t.vy;
+        t.alpha -= t.decay;
+        
+        if (t.alpha <= 0) {
+            canvasFloatingTexts.splice(idx, 1);
+            return;
+        }
+        
+        ctx.font = "bold 14px 'Outfit', sans-serif";
+        ctx.fillStyle = t.color;
+        ctx.globalAlpha = t.alpha;
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#000000";
+        ctx.shadowBlur = 3;
+        ctx.fillText(t.text, t.x, t.y);
+        ctx.shadowBlur = 0; // reset
+        ctx.globalAlpha = 1; // reset
+    });
+    
+    // 4. Update & Draw Active Glow Portal Rings around processing nodes
+    const activePortalAngle = (Date.now() / 300) % (Math.PI * 2);
+    flows.forEach(flow => {
+        const stage = stages[flow.key] || {};
+        if (stage.status === 'processing') {
+            const nodeEl = document.getElementById(flow.from); // the source of processing flow
+            if (nodeEl) {
+                const r = nodeEl.getBoundingClientRect();
+                const x = r.left + r.width / 2 - canvasRect.left;
+                const y = r.top + r.height / 2 - canvasRect.top;
+                
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(activePortalAngle);
+                ctx.beginPath();
+                ctx.arc(0, 0, r.width / 2 + 10, 0, Math.PI * 2);
+                ctx.strokeStyle = flow.color;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([12, 8]);
+                ctx.shadowColor = flow.color;
+                ctx.shadowBlur = 10;
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    });
+    
+    // 5. Update & Draw Central Banner Popups
+    canvasBanners.forEach((b, idx) => {
+        b.life--;
+        if (b.life <= 0) {
+            canvasBanners.splice(idx, 1);
+            return;
+        }
+        
+        // Easing alpha
+        if (b.life > b.maxLife - 20) {
+            b.alpha = (b.maxLife - b.life) / 20;
+            b.scale = 0.8 + 0.2 * b.alpha;
+        } else if (b.life < 20) {
+            b.alpha = b.life / 20;
+            b.scale = 1.0 + 0.1 * (1 - b.alpha);
+        } else {
+            b.alpha = 1;
+            b.scale = 1;
+        }
+        
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.scale(b.scale, b.scale);
+        ctx.globalAlpha = b.alpha;
+        
+        // Card Background (Futuristic Dark Translucent)
+        ctx.beginPath();
+        const width = 360;
+        const height = 90;
+        ctx.roundRect(-width / 2, -height / 2, width, height, 15);
+        ctx.fillStyle = "rgba(10, 24, 30, 0.9)";
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 2;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        
+        // Title Text
+        ctx.font = "bold 20px 'Outfit', sans-serif";
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.fillText(b.title, 0, -8);
+        
+        // Subtitle Text
+        ctx.font = "500 12px 'Outfit', sans-serif";
+        ctx.fillStyle = b.color;
+        ctx.fillText(b.subtitle, 0, 16);
+        
+        ctx.restore();
+        ctx.globalAlpha = 1;
+    });
+    
+    animFrameId = requestAnimationFrame(canvasAnimationLoop);
+}

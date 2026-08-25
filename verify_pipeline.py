@@ -206,6 +206,70 @@ def run_e2e_test():
     print(logs_query_data["response"])
     assert "process logs" in logs_query_data["response"].lower() or "log" in logs_query_data["response"].lower()
     
+    # 7. Cleanup E2E Test data from database and filesystem
+    print("\n--- Cleaning up E2E Test batch data and files ---")
+    from sqlalchemy.orm import sessionmaker
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db = SessionLocal()
+    try:
+        from sqlalchemy import text
+        bids = list(batch_ids.values())
+        if bids:
+            bids_str = ", ".join(f"'{b}'" for b in bids)
+            pids = [f"pipe_{b}" for b in bids]
+            pids_str = ", ".join(f"'{p}'" for p in pids)
+            
+            # Clean up production tables (respecting FK constraints: sales -> orders -> customers)
+            db.execute(text(f"DELETE FROM sales WHERE sale_id IN (SELECT sale_id FROM staging_sales WHERE batch_id IN ({bids_str}))"))
+            db.execute(text(f"DELETE FROM orders WHERE order_id IN (SELECT order_id FROM staging_orders WHERE batch_id IN ({bids_str}))"))
+            db.execute(text(f"DELETE FROM customers WHERE customer_id IN (SELECT customer_id FROM staging_customers WHERE batch_id IN ({bids_str}))"))
+            
+            # Clean up staging tables
+            db.execute(text(f"DELETE FROM staging_customers WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM staging_orders WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM staging_sales WHERE batch_id IN ({bids_str})"))
+            
+            # Clean up other metadata tables
+            db.execute(text(f"DELETE FROM raw_uploads WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM generated_reports WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM pipeline_logs WHERE pipeline_id IN ({pids_str})"))
+            db.execute(text(f"DELETE FROM agent_logs WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM quality_reports WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM root_cause_reports WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM transformation_logs WHERE batch_id IN ({bids_str})"))
+            db.execute(text(f"DELETE FROM validation_logs WHERE batch_id IN ({bids_str})"))
+            db.commit()
+            print("Database records for E2E test runs deleted successfully.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error cleaning database test data: {e}")
+    finally:
+        db.close()
+
+    # Cleanup generated files
+    for filename, bid in batch_ids.items():
+        # Delete raw file
+        raw_p = os.path.join("data/raw", filename)
+        if os.path.exists(raw_p):
+            os.remove(raw_p)
+        
+        # Delete cleaned file
+        clean_p = os.path.join("cleaned data", filename)
+        if os.path.exists(clean_p):
+            os.remove(clean_p)
+            
+        # Delete logs file
+        log_p = os.path.join("logs", f"{bid}.log")
+        if os.path.exists(log_p):
+            os.remove(log_p)
+            
+        # Delete reports directory
+        report_dir = os.path.join("reports", filename)
+        if os.path.exists(report_dir):
+            shutil.rmtree(report_dir, ignore_errors=True)
+            
+    print("Filesystem cleanup for E2E test runs completed.")
+    
     print("\n=== E2E PIPELINE RUN COMPLETED SUCCESSFULLY! ===")
 
 

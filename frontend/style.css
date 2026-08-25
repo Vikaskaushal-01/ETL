@@ -4614,5 +4614,41 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     transform: translateY(-1px) !important;
 }
 
+/* Step Card Links for Main Dashboard completed flow cards */
+.step-card-links {
+    margin-top: 8px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    font-size: 11px;
+}
+.step-card-links a {
+    color: var(--color-blue) !important;
+    text-decoration: none;
+    background: rgba(0, 240, 255, 0.1) !important;
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 240, 255, 0.2) !important;
+    transition: var(--transition-smooth);
+    font-weight: 600;
+}
+.step-card-links a:hover {
+    background: rgba(0, 240, 255, 0.25) !important;
+    border-color: rgba(0, 240, 255, 0.5) !important;
+    transform: scale(1.06) translateY(-1px);
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+/* Gamification Canvas layer styling */
+#gamification-canvas {
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 4;
+}
+
 
 

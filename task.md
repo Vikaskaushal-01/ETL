@@ -1,4 +1,4 @@
-- [x] 1. Update Database Models & Repository to include batch_id in RawUpload
+- [/] 1. Update Database Models & Repository to include batch_id in RawUpload
 - [x] 2. Update File Upload endpoint to save files using exact input name
 - [x] 3. Update Transformation Agent to save clean files using exact input name
 - [x] 4. Update Pipeline engine to cache successful run metadata to .last_cleaned_backup.json
