@@ -1216,41 +1216,65 @@
                 <div class="monitor-canvas-area card-glass">
                     <svg id="monitor-connection-svg" class="monitor-connection-svg"></svg>
                     <div class="monitor-nodes-flow">
-                        <!-- Raw Node -->
+                        <!-- Raw Node (styled as profile headshot squircle) -->
                         <div class="monitor-node-card raw-node" id="mnode-raw">
-                            <div class="node-head"><i class="fa-solid fa-file-code"></i> Raw Input</div>
+                            <div class="node-avatar-container">
+                                <img src="./profile_data_engineer.jpg" class="node-avatar-img">
+                            </div>
+                            <div class="node-label-title">Raw Input</div>
                             <div class="node-desc" id="mnode-raw-file">-</div>
                         </div>
                         
-                        <!-- Intake Node -->
-                        <div class="monitor-node-card waiting" id="mnode-intake">
-                            <div class="node-head"><i class="fa-solid fa-inbox"></i> Iris Ingest</div>
+                        <!-- Intake Node (yellow squircle lightbulb) -->
+                        <div class="monitor-node-card yellow-squircle waiting" id="mnode-intake">
+                            <div class="node-squircle-icon yellow">
+                                <i class="fa-solid fa-lightbulb"></i>
+                            </div>
+                            <div class="node-label-title">Iris Ingest</div>
                             <div class="node-desc">Profiling schema...</div>
                         </div>
 
-                        <!-- Cleanser Node -->
-                        <div class="monitor-node-card waiting" id="mnode-transformation">
-                            <div class="node-head"><i class="fa-solid fa-wand-magic-sparkles"></i> Data Cleanser</div>
+                        <!-- Cleanser Node (blue squircle wand/bubbles) -->
+                        <div class="monitor-node-card blue-squircle waiting" id="mnode-transformation">
+                            <div class="node-squircle-icon blue">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            </div>
+                            <div class="node-label-title">Data Cleanser</div>
                             <div class="node-desc">Waiting</div>
                         </div>
 
-                        <!-- SQL Storage Node -->
-                        <div class="monitor-node-card waiting" id="mnode-storage">
-                            <div class="node-head"><i class="fa-solid fa-database"></i> SQL Staging</div>
+                        <!-- SQL Storage Node (purple squircle checkmark - central) -->
+                        <div class="monitor-node-card purple-squircle waiting" id="mnode-storage">
+                            <div class="node-squircle-icon purple">
+                                <i class="fa-solid fa-circle-check"></i>
+                            </div>
+                            <div class="node-label-title">SQL Staging</div>
                             <div class="node-desc">Waiting</div>
                         </div>
 
-                        <!-- Report Node -->
-                        <div class="monitor-node-card waiting" id="mnode-report">
-                            <div class="node-head"><i class="fa-solid fa-file-pdf"></i> PDF Exporter</div>
+                        <!-- Report Node (red squircle shield/alert) -->
+                        <div class="monitor-node-card red-squircle waiting" id="mnode-report">
+                            <div class="node-squircle-icon red">
+                                <i class="fa-solid fa-shield-halved"></i>
+                            </div>
+                            <div class="node-label-title">PDF Exporter</div>
                             <div class="node-desc">Waiting</div>
                         </div>
 
-                        <!-- PBI Gateway Node -->
-                        <div class="monitor-node-card waiting" id="mnode-pbi">
-                            <div class="node-head"><i class="fa-solid fa-chart-column"></i> PBI Gateway</div>
+                        <!-- PBI Gateway Node (white squircle double-eyes) -->
+                        <div class="monitor-node-card white-squircle waiting" id="mnode-pbi">
+                            <div class="node-squircle-icon white">
+                                <i class="fa-solid fa-eye"></i>
+                            </div>
+                            <div class="node-label-title">PBI Gateway</div>
                             <div class="node-desc">Waiting</div>
                         </div>
+                    </div>
+                    
+                    <!-- Canvas Branding Title matching the reference image -->
+                    <div class="monitor-canvas-branding">
+                        <h1>All-in-one ETL platform</h1>
+                        <p>Control AI is a modern, all-in-one data automation platform designed to perfectly fit your business needs.</p>
                     </div>
                 </div>
 
