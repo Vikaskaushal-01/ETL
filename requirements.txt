@@ -23,4 +23,5 @@ lxml>=4.9.0
 pypdf>=3.9.0
 pymupdf>=1.22.0
 xlrd>=2.0.1
+beautifulsoup4>=4.12.0
 

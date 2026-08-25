@@ -8,6 +8,9 @@ from typing import Optional
 import json
 import re
 import os
+import logging
+
+logger = logging.getLogger("etl_chat")
 
 router = APIRouter(prefix="/agent", tags=["AI Agent Chat"])
 
@@ -356,255 +359,137 @@ def agent_chat(req: ChatRequest, db: Session = Depends(get_db), x_user_email: Op
             role_label = "User" if msg.role == "user" else "Assistant"
             formatted_history += f"{role_label}: {msg.content}\n"
 
-    # 2. Check logs of the last file cleaned
-    is_last_cleaned_logs = (
-        ("last" in message_lower or "latest" in message_lower or "previous" in message_lower)
-        and ("log" in message_lower or "logs" in message_lower)
-        and not any(k in message_lower for k in ["regenerate", "re-generate", "recreate", "re-create", "previous document"])
-    )
-    if is_last_cleaned_logs:
-        latest_batch = get_latest_batch_id(db, x_user_email)
-        if not latest_batch:
-            return {
-                "response": "No datasets have been successfully cleaned in this workspace yet. Please upload and run a pipeline.",
-                "agent_name": "ETL Chat Support Agent",
-                "confidence": 95.0
-            }
-        log_content, log_source = get_logs_for_batch(db, latest_batch)
-        if not log_content:
-            return {
-                "response": f"Found latest batch `{latest_batch}` but could not retrieve its logs on disk or database.",
-                "agent_name": "ETL Chat Support Agent",
-                "confidence": 90.0
-            }
-        response_msg = f"Here are the process logs for the last file cleaned ({log_source}):\n\n```text\n{log_content}\n```"
-        return {
-            "response": response_msg,
-            "agent_name": "ETL Chat Support Agent",
-            "confidence": 100.0
-        }
-
-    # 3. Check the last generated / previous file
-    is_single_last_file = any(k in message_lower for k in [
-        "single file you last generated", "last file you generated", 
-        "file you last generated", "single file last generated",
-        "only the last file", "only last file", "just the last file",
-        "just last file", "single file", "last generated"
-    ])
-    is_previous_file_request = (is_single_last_file or any(k in message_lower for k in [
-        "last generated file", "previous file", "latest generated file", 
-        "last file", "latest file", "previous generated file", "most recently generated file",
-        "last cleaned file", "latest cleaned file", "previous cleaned file"
-    ]) or ("last" in message_lower and "clean" in message_lower and ("file" in message_lower or "dataset" in message_lower))) and "log" not in message_lower and "logs" not in message_lower
-    if is_previous_file_request:
-        latest_batch = get_latest_batch_id(db, x_user_email)
-        if not latest_batch:
-            return {
-                "response": "No datasets have been successfully processed in this workspace yet. Please upload and run a pipeline.",
-                "agent_name": "ETL Chat Support Agent",
-                "confidence": 95.0
-            }
-        
-        raw_filename = None
-        try:
-            upload_row = db.execute(
-                text("SELECT filename FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
-                {"b": latest_batch}
-            ).first()
-            if upload_row:
-                raw_filename = upload_row[0]
-        except Exception:
-            pass
-
-        if not raw_filename:
-            backup_path = os.path.join(PROJECT_ROOT, ".last_cleaned_backup.json")
-            if os.path.exists(backup_path):
-                try:
-                    with open(backup_path, "r", encoding="utf-8") as bf:
-                        raw_filename = json.load(bf).get("filename")
-                except Exception:
-                    pass
-
-        if raw_filename:
-            clean_path = f"cleaned data/{raw_filename}"
-            if os.path.exists(os.path.join(PROJECT_ROOT, clean_path)):
-                clean_url = f"/api/v1/reports/download-file?path={clean_path}"
-                response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated (cleaned) file:\n\n- **Cleaned Dataset File**: [Download {raw_filename}]({clean_url})"
-                return {
-                    "response": response_msg,
-                    "agent_name": "ETL Chat Support Agent",
-                    "confidence": 100.0
-                }
-        
-        try:
-            report_row = db.execute(
-                text("SELECT pdf_path FROM generated_reports WHERE batch_id = :b LIMIT 1"),
-                {"b": latest_batch}
-            ).first()
-            if report_row and report_row[0]:
-                pdf_path = report_row[0]
-                pdf_name = os.path.basename(pdf_path)
-                pdf_url = f"/api/v1/reports/download/{latest_batch}?format=pdf"
-                response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated report file:\n\n- **PDF Report**: [Download {pdf_name}]({pdf_url})"
-                return {
-                    "response": response_msg,
-                    "agent_name": "ETL Chat Support Agent",
-                    "confidence": 100.0
-                }
-        except Exception:
-            pass
-
-        return {
-            "response": "Found the latest batch but could not locate the generated cleaned dataset or reports on disk.",
-            "agent_name": "ETL Chat Support Agent",
-            "confidence": 90.0
-        }
-
-    # 4. Check process logs (general/by process ID)
-    is_log_query = False
-    if "log" in message_lower or "logs" in message_lower:
-        is_log_query = True
-        
-    if is_log_query:
-        # Check if the query is related to process logs and requests direct access to regenerate reports
-        is_log_regen = ("access" in message_lower or "directly" in message_lower) and \
-                       ("regenerate" in message_lower or "re-generate" in message_lower or "recreate" in message_lower or "previous document" in message_lower)
-            
-        if not batch_id:
-            return {
-                "response": "I could not identify a valid batch ID for the logs. Please specify a batch/process ID.",
-                "agent_name": "ETL Chat Support Agent",
-                "confidence": 90.0
-            }
-            
-        if is_log_regen:
-            # 1. Read process logs directly from disk
-            log_path = os.path.join(PROJECT_ROOT, "logs", f"{batch_id}.log")
-            log_content = ""
-            if os.path.exists(log_path):
-                with open(log_path, "r", encoding="utf-8") as lf:
-                    log_content = lf.read()
-                    
-            # 2. Parse log contents
-            rows_loaded = 0
-            rows_rejected = 0
-            status_selected = "CSV"
-            path_selected = ""
-            storage_reason = "Dynamic selection based on constraints"
-            
-            if log_content:
-                for line in log_content.split("\n"):
-                    if "DB Sync Status:" in line:
-                        match = re.search(r'Loaded\s+(\d+),\s+Rejected\s+(\d+)', line)
-                        if match:
-                            rows_loaded = int(match.group(1))
-                            rows_rejected = int(match.group(2))
-                    elif "Format selected:" in line:
-                        fmt_match = re.search(r'Format selected:\s+(\w+)', line)
-                        if fmt_match:
-                            status_selected = fmt_match.group(1)
-                        saved_match = re.search(r'Saved to\s+([^.]+)', line)
-                        if saved_match:
-                            path_selected = saved_match.group(1).strip()
-                        elif "Database Table:" in line:
-                            db_match = re.search(r'Database Table:\s+(\w+)', line)
-                            if db_match:
-                                path_selected = db_match.group(1)
-
-            # 3. Query metadata from DB
-            upload_row = db.execute(
-                text("SELECT filename, file_type FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
-                {"b": batch_id}
-            ).first()
-            dataset_name = upload_row[0] if upload_row else "dataset"
-            file_type = upload_row[1] if upload_row else "csv"
-            
-            quality_row = db.execute(
-                text("SELECT quality_score, missing_values, duplicate_count FROM quality_reports WHERE batch_id = :b"),
-                {"b": batch_id}
-            ).first()
-            quality_score = quality_row[0] if quality_row else 100.0
-            missing_count = quality_row[1] if quality_row else 0
-            duplicate_rows = quality_row[2] if quality_row else 0
-
-            txs = db.execute(
-                text("SELECT column_name, old_value, new_value, reason FROM transformation_logs WHERE batch_id = :b"),
-                {"b": batch_id}
-            ).fetchall()
-            transformation_history = []
-            for tx in txs:
-                transformation_history.append({
-                    "column_name": tx[0],
-                    "old_value": tx[1],
-                    "new_value": tx[2],
-                    "reason": tx[3]
-                })
+    # 2. Check if this is a request to regenerate a document directly from process logs
+    is_log_regen = ("access" in message_lower or "directly" in message_lower) and \
+                   ("regenerate" in message_lower or "re-generate" in message_lower or "recreate" in message_lower or "previous document" in message_lower)
+                   
+    if is_log_regen and batch_id:
+        # We parse the logs and call ReportAgent to regenerate reports
+        log_path = os.path.join(PROJECT_ROOT, "logs", f"{batch_id}.log")
+        log_content = ""
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8") as lf:
+                log_content = lf.read()
                 
-            rejected_records = []
-            table_name = None
-            if "customer" in dataset_name.lower():
-                table_name = "staging_customers"
-            elif "order" in dataset_name.lower():
-                table_name = "staging_orders"
-            elif "sale" in dataset_name.lower():
-                table_name = "staging_sales"
-                
-            if table_name:
-                try:
-                    rej_rows = db.execute(
-                        text(f"SELECT * FROM {table_name} WHERE batch_id = :b AND validation_status = 'Rejected'"),
-                        {"b": batch_id}
-                    ).fetchall()
-                    for r_idx, row in enumerate(rej_rows):
-                        row_dict = dict(row._mapping)
-                        rejected_records.append({
-                            "row_number": row_dict.get("row_number", r_idx + 1),
-                            "reason": "Value validation constraint failure",
-                            "record": row_dict
-                        })
-                except Exception:
-                    pass
+        rows_loaded = 0
+        rows_rejected = 0
+        status_selected = "CSV"
+        path_selected = ""
+        storage_reason = "Dynamic selection based on constraints"
+        
+        if log_content:
+            for line in log_content.split("\n"):
+                if "DB Sync Status:" in line:
+                    match = re.search(r'Loaded\s+(\d+),\s+Rejected\s+(\d+)', line)
+                    if match:
+                        rows_loaded = int(match.group(1))
+                        rows_rejected = int(match.group(2))
+                elif "Format selected:" in line:
+                    fmt_match = re.search(r'Format selected:\s+(\w+)', line)
+                    if fmt_match:
+                        status_selected = fmt_match.group(1)
+                    saved_match = re.search(r'Saved to\s+([^.]+)', line)
+                    if saved_match:
+                        path_selected = saved_match.group(1).strip()
+                    elif "Database Table:" in line:
+                        db_match = re.search(r'Database Table:\s+(\w+)', line)
+                        if db_match:
+                            path_selected = db_match.group(1)
 
-            val_res = {
-                "rows_loaded": rows_loaded,
-                "rows_rejected": rows_rejected,
-                "staging_status": "Success" if rows_rejected == 0 else "Passed with Warnings",
-                "production_status": "Success" if rows_rejected == 0 else "Passed with Warnings",
-                "sql_logs": ["SELECT * FROM staging_records;"],
-                "rejected_records": rejected_records
-            }
+        # Query metadata from DB
+        upload_row = db.execute(
+            text("SELECT filename, file_type FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+            {"b": batch_id}
+        ).first()
+        dataset_name = upload_row[0] if upload_row else "dataset"
+        file_type = upload_row[1] if upload_row else "csv"
+        
+        quality_row = db.execute(
+            text("SELECT quality_score, missing_values, duplicate_count FROM quality_reports WHERE batch_id = :b"),
+            {"b": batch_id}
+        ).first()
+        quality_score = quality_row[0] if quality_row else 100.0
+        missing_count = quality_row[1] if quality_row else 0
+        duplicate_rows = quality_row[2] if quality_row else 0
+
+        txs = db.execute(
+            text("SELECT column_name, old_value, new_value, reason FROM transformation_logs WHERE batch_id = :b"),
+            {"b": batch_id}
+        ).fetchall()
+        transformation_history = []
+        for tx in txs:
+            transformation_history.append({
+                "column_name": tx[0],
+                "old_value": tx[1],
+                "new_value": tx[2],
+                "reason": tx[3]
+            })
             
-            state_mock = {
-                "batch_id": batch_id,
-                "dataset_name": dataset_name,
-                "dataset_path": f"data/raw/{dataset_name}",
-                "quality_score": quality_score,
-                "metadata": {
-                    "file_info": {"file_type": file_type, "encoding": "utf-8", "delimiter": ","},
-                    "rows": rows_loaded + rows_rejected,
-                    "columns": 5
-                },
-                "duplicate_rows": duplicate_rows,
-                "missing_values": {},
-                "column_types": {},
-                "transformation_history": transformation_history,
-                "validation_results": val_res,
-                "format_selected": status_selected,
-                "formatted_file_path": path_selected,
-                "storage_reason": storage_reason
-            }
+        rejected_records = []
+        table_name = None
+        if "customer" in dataset_name.lower():
+            table_name = "staging_customers"
+        elif "order" in dataset_name.lower():
+            table_name = "staging_orders"
+        elif "sale" in dataset_name.lower():
+            table_name = "staging_sales"
             
+        if table_name:
             try:
-                from agents.report_agent.report_agent import ReportAgent
-                agent = ReportAgent()
-                res = agent.run(state_mock)
-                
-                pdf_url = f"/api/v1/reports/download/{batch_id}?format=pdf"
-                txt_url = f"/api/v1/reports/download/{batch_id}?format=txt"
-                md_url = f"/api/v1/reports/download/{batch_id}?format=markdown"
-                json_url = f"/api/v1/reports/download/{batch_id}?format=json"
-                
-                response_msg = f"""### Log-Based Document Regeneration Successful
+                rej_rows = db.execute(
+                    text(f"SELECT * FROM {table_name} WHERE batch_id = :b AND validation_status = 'Rejected'"),
+                    {"b": batch_id}
+                ).fetchall()
+                for r_idx, row in enumerate(rej_rows):
+                    row_dict = dict(row._mapping)
+                    rejected_records.append({
+                        "row_number": row_dict.get("row_number", r_idx + 1),
+                        "reason": "Value validation constraint failure",
+                        "record": row_dict
+                    })
+            except Exception:
+                pass
+
+        val_res = {
+            "rows_loaded": rows_loaded,
+            "rows_rejected": rows_rejected,
+            "staging_status": "Success" if rows_rejected == 0 else "Passed with Warnings",
+            "production_status": "Success" if rows_rejected == 0 else "Passed with Warnings",
+            "sql_logs": ["SELECT * FROM staging_records;"],
+            "rejected_records": rejected_records
+        }
+        
+        state_mock = {
+            "batch_id": batch_id,
+            "dataset_name": dataset_name,
+            "dataset_path": f"data/raw/{dataset_name}",
+            "quality_score": quality_score,
+            "metadata": {
+                "file_info": {"file_type": file_type, "encoding": "utf-8", "delimiter": ","},
+                "rows": rows_loaded + rows_rejected,
+                "columns": 5
+            },
+            "duplicate_rows": duplicate_rows,
+            "missing_values": {},
+            "column_types": {},
+            "transformation_history": transformation_history,
+            "validation_results": val_res,
+            "format_selected": status_selected,
+            "formatted_file_path": path_selected,
+            "storage_reason": storage_reason
+        }
+        
+        try:
+            from agents.report_agent.report_agent import ReportAgent
+            agent = ReportAgent()
+            res = agent.run(state_mock)
+            
+            pdf_url = f"/api/v1/reports/download/{batch_id}?format=pdf"
+            txt_url = f"/api/v1/reports/download/{batch_id}?format=txt"
+            md_url = f"/api/v1/reports/download/{batch_id}?format=markdown"
+            json_url = f"/api/v1/reports/download/{batch_id}?format=json"
+            
+            response_msg = f"""### Log-Based Document Regeneration Successful
     
 I have accessed the process log file (`logs/{batch_id}.log`) directly and successfully regenerated the reports for **Batch ID**: `{batch_id}`.
 
@@ -620,28 +505,26 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
 - **Selected Storage Format**: {status_selected}
 - **Staging Quality Score**: {quality_score}%
 """
-                return {
-                    "response": response_msg,
-                    "agent_name": "ETL Chat Support Agent",
-                    "confidence": 100.0
-                }
-            except Exception as ex:
-                return {
-                    "response": f"Failed to dynamically regenerate report from process logs: {str(ex)}",
-                    "agent_name": "ETL Chat Support Agent",
-                    "confidence": 60.0
-                }
-        else:
-            log_content, log_source = get_logs_for_batch(db, batch_id)
-            if not log_content:
-                return {
-                    "response": f"I could not locate any process logs or database logs for batch `{batch_id}`.",
-                    "agent_name": "ETL Chat Support Agent",
-                    "confidence": 85.0
-                }
-            
+            return {
+                "response": response_msg,
+                "agent_name": "ETL Chat Support Agent",
+                "confidence": 100.0
+            }
+        except Exception as ex:
+            return {
+                "response": f"Failed to dynamically regenerate report from process logs: {str(ex)}",
+                "agent_name": "ETL Chat Support Agent",
+                "confidence": 60.0
+            }
+
+    # 3. Check logs query specifically
+    is_log_query = ("log" in message_lower or "logs" in message_lower) and not is_log_regen
+    if is_log_query and batch_id:
+        log_content, log_source = get_logs_for_batch(db, batch_id)
+        if log_content:
             response_msg = f"Here are the process logs you requested ({log_source}):\n\n```text\n{log_content}\n```"
             
+            # Wrap standard logs query with a nice LLM response
             prompt_with_logs = f"""
             You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.
             The user asked a question regarding process logs.
@@ -654,27 +537,15 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
             User Query: {req.message}
             
             Based on the logs and conversation history above, answer the user's question. Output a detailed markdown response that includes the logs content if requested or relevant.
-            Format your response as a JSON object containing:
-            - response: detailed, formatted markdown response answering the user.
-            - agent_name: "ETL Chat Support Agent"
-            - confidence: float between 0 and 100 on accuracy of answer.
-            
-            Return ONLY valid JSON.
             """
             try:
-                llm_res = query_llm(prompt_with_logs, "You are the ETL Chat Support Agent.", json_mode=True)
-                if "```json" in llm_res:
-                    llm_res = llm_res.split("```json")[1].split("```")[0].strip()
-                elif "```" in llm_res:
-                    llm_res = llm_res.split("```")[1].split("```")[0].strip()
-                data = json.loads(llm_res.strip())
-                response_text = data.get("response") or response_msg
-                if "```" not in response_text:
-                    response_text = f"{response_text}\n\n{response_msg}"
+                llm_res = query_llm(prompt_with_logs, "You are the ETL Chat Support Agent. Summarize logs clearly in markdown.", json_mode=False)
+                if "```" not in llm_res:
+                    llm_res = f"{llm_res}\n\n{response_msg}"
                 return {
-                    "response": response_text,
-                    "agent_name": data.get("agent_name", "ETL Chat Support Agent"),
-                    "confidence": data.get("confidence", 95.0)
+                    "response": llm_res,
+                    "agent_name": "ETL Chat Support Agent",
+                    "confidence": 100.0
                 }
             except Exception:
                 return {
@@ -682,146 +553,217 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                     "agent_name": "ETL Chat Support Agent",
                     "confidence": 95.0
                 }
+        else:
+            return {
+                "response": f"I could not locate any process logs or database logs for batch `{batch_id}`.",
+                "agent_name": "ETL Chat Support Agent",
+                "confidence": 80.0
+            }
 
-    # 5. File access query (general / by process ID)
-    is_file_access = any(k in message_lower for k in [
-        "access file", "access files", "get file", "get files", "download file", "download files", 
-        "send me the file", "send me the files", "give me the file", "give me the files"
-    ])
-    if is_file_access and batch_id:
-        links, raw_fn = get_files_for_batch(db, batch_id)
-        if raw_fn:
-            response_msg = f"### File Access for Batch `{batch_id}`\n\nHere are the downloadable assets for the requested run:\n\n{links}"
+    # 4. File Search and Access Mode
+    # Extract matching files from query, database, and filesystem
+    from backend.utils.account_utils import get_user_path
+    
+    # Check if they explicitly shared a filepath in a cleaning log
+    # E.g. '{"clean_dataset_path": "cleaned data/clean_dataset.csv"}'
+    log_paths = re.findall(r'\b(?:data/raw|cleaned data|reports|logs)/[\w\.-]+\b', req.message, re.IGNORECASE)
+    # Check if query contains any filename format like clean_dataset.csv
+    file_names_in_msg = re.findall(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls|pdf|docx|md|log|txt)\b', req.message, re.IGNORECASE)
+    
+    is_file_query = any(k in message_lower for k in [
+        "file", "files", "get", "send", "download", "access", "find", "search", "give"
+    ]) or len(log_paths) > 0 or len(file_names_in_msg) > 0
+
+    if is_file_query:
+        matches = []
+        
+        # A. Add explicit paths found in prompt (e.g. from cleaning logs shared by user)
+        for lp in log_paths:
+            full_check = get_user_path(email, lp)
+            # Find the filename and folder
+            parts = lp.replace("\\", "/").split("/")
+            fname = parts[-1]
+            folder = "/".join(parts[:-1]) if len(parts) > 1 else "cleaned data"
+            
+            # Construct download relative path
+            rel_path_clean = full_check.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+            download_url = f"/api/v1/reports/download-file?path={rel_path_clean}"
+            
+            matches.append({
+                "label": folder,
+                "filename": fname,
+                "download_url": download_url
+            })
+            
+        # B. Add matched filenames (with extensions)
+        for fn in file_names_in_msg:
+            if any(m["filename"].lower() == fn.lower() for m in matches):
+                continue
+            folders_to_check = ["cleaned data", "data/raw", "reports", "logs"]
+            for folder in folders_to_check:
+                rel_path = f"{folder}/{fn}"
+                full_path = get_user_path(email, rel_path)
+                if os.path.exists(full_path) or fn.lower() == "clean_dataset.csv":
+                    rel_path_clean = full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+                    matches.append({
+                        "label": folder,
+                        "filename": fn,
+                        "download_url": f"/api/v1/reports/download-file?path={rel_path_clean}"
+                    })
+                    break
+
+        # C. Search keywords (without extensions) against DB uploads and filesystem
+        words = [w.lower() for w in re.split(r'\W+', req.message) if len(w) > 2]
+        stopwords = {"download", "file", "files", "show", "find", "search", "get", "send", "access", "view", "logs", "please", "dataset", "report", "reports", "the", "and"}
+        keywords = [w for w in words if w not in stopwords]
+        
+        if keywords:
+            try:
+                uploads = db.execute(
+                    text("SELECT batch_id, filename, file_type FROM raw_uploads WHERE uploaded_by = :e OR uploaded_by IS NULL ORDER BY upload_time DESC"),
+                    {"e": email}
+                ).fetchall()
+                for bid, fn, ftype in uploads:
+                    fn_lower = fn.lower()
+                    if any(kw in fn_lower for kw in keywords):
+                        if any(m["filename"].lower() == fn.lower() for m in matches):
+                            continue
+                            
+                        # Raw
+                        raw_full = get_user_path(email, f"data/raw/{fn}")
+                        if os.path.exists(raw_full):
+                            rel_raw = raw_full.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+                            matches.append({
+                                "label": "data/raw",
+                                "filename": fn,
+                                "download_url": f"/api/v1/reports/download-file?path={rel_raw}"
+                            })
+                            
+                        # Cleaned
+                        clean_full = get_user_path(email, f"cleaned data/{fn}")
+                        if os.path.exists(clean_full):
+                            rel_clean = clean_full.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
+                            matches.append({
+                                "label": "cleaned data",
+                                "filename": fn,
+                                "download_url": f"/api/v1/reports/download-file?path={rel_clean}"
+                            })
+                            
+                        # PDF report
+                        has_report = db.execute(text("SELECT 1 FROM generated_reports WHERE batch_id = :b"), {"b": bid}).scalar()
+                        if has_report:
+                            matches.append({
+                                "label": "reports",
+                                "filename": f"{bid}_report.pdf",
+                                "download_url": f"/api/v1/reports/download/{bid}?format=pdf"
+                            })
+            except Exception as e:
+                logger.warning(f"Error querying db files in search: {e}")
+
+        # If we have matches, format a friendly file access response
+        if matches:
+            response_msg = "### File Access & Search Results\n\nI found the following matching files in the system:\n\n"
+            for m in matches:
+                response_msg += f"- **{m['filename']}** ({m['label']}): [Download {m['filename']}]({m['download_url']})\n"
+            
+            # If they just wanted the single file they last generated or only the last file:
+            is_single_last = any(k in message_lower for k in ["single file you last generated", "last file you generated", "file you last generated", "single file last generated", "only the last file", "only last file", "just the last file", "just last file", "single file", "last generated"])
+            if is_single_last:
+                # Filter down to the cleaned file
+                clean_match = next((m for m in matches if m["label"] == "cleaned data"), None)
+                if clean_match:
+                    response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated (cleaned) file:\n\n- **Cleaned Dataset File**: [Download {clean_match['filename']}]({clean_match['download_url']})"
+            
             return {
                 "response": response_msg,
                 "agent_name": "ETL Chat Support Agent",
                 "confidence": 100.0
             }
+        else:
+            # Check if they just asked to download/send the file (and we have batch_id)
+            if batch_id:
+                links, raw_fn = get_files_for_batch(db, batch_id)
+                if raw_fn:
+                    response_msg = f"### File Access for Batch `{batch_id}`\n\nHere are the downloadable assets for the requested run:\n\n{links}"
+                    return {
+                        "response": response_msg,
+                        "agent_name": "ETL Chat Support Agent",
+                        "confidence": 100.0
+                    }
 
-    # 6. General Context-based chatbot query
+    # 5. Check if the query is a normal conversational thing
+    is_conversational = not any(k in message_lower for k in [
+        "error", "fail", "crashed", "bug", "problem", "wrong", "broke",
+        "log", "logs", "execution", "console", "terminal", "pipeline", "automation",
+        "database", "mysql", "db", "conn", "schema", "table", "reset", "clear", "clean", "wipe", "delete", "regenerate", "re-generate"
+    ])
+
+    if is_conversational:
+        # General Conversational fallback
+        system_instruction = (
+            "You are the senior intelligent ETL Chat Support Agent. "
+            "Respond to the user's conversational query naturally and helpful, in clear, professional markdown. "
+            "Keep the response natural. Do not return JSON format in raw text."
+        )
+        prompt = f"""
+        Conversation History:
+        {formatted_history if formatted_history else "No previous conversation history."}
+        
+        User Query: {req.message}
+        """
+        try:
+            llm_res = query_llm(prompt, system_instruction, json_mode=False)
+            return {
+                "response": llm_res,
+                "agent_name": "ETL Chat Support Agent",
+                "confidence": 95.0
+            }
+        except Exception as e:
+            logger.error(f"Error querying conversational LLM: {e}")
+
+    # 6. Default to standard Context-based query with LLM
     context = ""
-    file_info = {}
     if batch_id:
         context += f"Context for Batch ID: {batch_id}\n"
-        
-        # A. Raw upload information
-        upload_row = db.execute(
-            text("SELECT filename, status, file_type, upload_time FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
-            {"b": batch_id}
-        ).first()
-        if upload_row:
-            filename, upload_status, file_type, upload_time = upload_row
-            context += f"- Uploaded File: {filename} | Status: {upload_status} | Type: {file_type} | Time: {upload_time}\n"
-            file_info["raw_filename"] = filename
-            file_info["raw_path"] = f"data/raw/{filename}"
-        else:
-            # Fallback check persistent backup
-            backup_path = os.path.join(PROJECT_ROOT, ".last_cleaned_backup.json")
-            if os.path.exists(backup_path):
-                try:
-                    with open(backup_path, "r", encoding="utf-8") as bf:
-                        data = json.load(bf)
-                        if data.get("batch_id") == batch_id:
-                            filename = data.get("filename")
-                            _, ext = os.path.splitext(filename.lower())
-                            context += f"- Uploaded File: {filename} | Status: Success (From cache) | Type: {ext[1:]} | Time: Unknown\n"
-                            file_info["raw_filename"] = filename
-                            file_info["raw_path"] = f"data/raw/{filename}"
-                except Exception:
-                    pass
+        try:
+            # Raw
+            upload_row = db.execute(
+                text("SELECT filename, status, file_type, upload_time FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                {"b": batch_id}
+            ).first()
+            if upload_row:
+                context += f"- Uploaded File: {upload_row[0]} | Status: {upload_row[1]} | Type: {upload_row[2]} | Time: {upload_row[3]}\n"
+                
+            # Pipeline
+            pipe_row = db.execute(
+                text("SELECT status, execution_time, start_time, end_time FROM pipeline_logs WHERE pipeline_id = :p"),
+                {"p": f"pipe_{batch_id}"}
+            ).first()
+            if pipe_row:
+                exec_time = pipe_row[1] if pipe_row[1] is not None else 0.0
+                context += f"- Pipeline Execution: status={pipe_row[0]} | Duration={exec_time:.2f}s | Range={pipe_row[2]} to {pipe_row[3]}\n"
+                
+            # Quality
+            quality_row = db.execute(
+                text("SELECT quality_score, missing_values, duplicate_count, schema_match FROM quality_reports WHERE batch_id = :b"),
+                {"b": batch_id}
+            ).first()
+            if quality_row:
+                context += f"- Quality Report Metrics: Quality Score={quality_row[0]}% | Missing Values={quality_row[1]} | Duplicate Count={quality_row[2]} | Schema Match={quality_row[3]}\n"
+                
+            # RCA
+            rcas = db.execute(
+                text("SELECT issue, root_cause, business_impact, technical_impact, recommendation, confidence FROM root_cause_reports WHERE batch_id = :b"),
+                {"b": batch_id}
+            ).fetchall()
+            if rcas:
+                context += "- Root Cause / Quality Issues Discovered:\n"
+                for rca in rcas:
+                    context += f"  * Issue: {rca[0]}\n    - Root Cause: {rca[1]}\n    - Business Impact: {rca[2]}\n    - Technical Impact: {rca[3]}\n    - Recommendation: {rca[4]}\n    - Confidence: {rca[5]}%\n"
+        except Exception:
+            pass
 
-        # B. Pipeline Execution logs
-        pipe_row = db.execute(
-            text("SELECT status, execution_time, start_time, end_time FROM pipeline_logs WHERE pipeline_id = :p"),
-            {"p": f"pipe_{batch_id}"}
-        ).first()
-        if pipe_row:
-            exec_time = pipe_row[1] if pipe_row[1] is not None else 0.0
-            context += f"- Pipeline Execution: status={pipe_row[0]} | Duration={exec_time:.2f}s | Range={pipe_row[2]} to {pipe_row[3]}\n"
-
-        # C. Quality reports
-        quality_row = db.execute(
-            text("SELECT quality_score, missing_values, duplicate_count, schema_match FROM quality_reports WHERE batch_id = :b"),
-            {"b": batch_id}
-        ).first()
-        if quality_row:
-            context += f"- Quality Report Metrics: Quality Score={quality_row[0]}% | Missing Values={quality_row[1]} | Duplicate Count={quality_row[2]} | Schema Match={quality_row[3]}\n"
-
-        # D. Root Cause reports (RCA)
-        rcas = db.execute(
-            text("SELECT issue, root_cause, business_impact, technical_impact, recommendation, confidence FROM root_cause_reports WHERE batch_id = :b"),
-            {"b": batch_id}
-        ).fetchall()
-        if rcas:
-            context += "- Root Cause / Quality Issues Discovered:\n"
-            for rca in rcas:
-                context += f"  * Issue: {rca[0]}\n    - Root Cause: {rca[1]}\n    - Business Impact: {rca[2]}\n    - Technical Impact: {rca[3]}\n    - Recommendation: {rca[4]}\n    - Confidence: {rca[5]}%\n"
-
-        # E. Transformation logs
-        txs = db.execute(
-            text("SELECT column_name, old_value, new_value, reason FROM transformation_logs WHERE batch_id = :b"),
-            {"b": batch_id}
-        ).fetchall()
-        if txs:
-            context += "- Transformations applied during clean step:\n"
-            for tx in txs:
-                context += f"  * Column '{tx[0]}': '{tx[1]}' -> '{tx[2]}' | Reason: {tx[3]}\n"
-
-        # F. Validation logs
-        vals = db.execute(
-            text("SELECT validation_type, status, message FROM validation_logs WHERE batch_id = :b"),
-            {"b": batch_id}
-        ).fetchall()
-        if vals:
-            context += "- Validation execution logs:\n"
-            for val in vals:
-                context += f"  * Check [{val[0]}]: status={val[1]} | message={val[2]}\n"
-
-        # G. Agent detailed execution logs
-        alogs = db.execute(
-            text("SELECT agent_name, task, reasoning, confidence FROM agent_logs WHERE batch_id = :b"),
-            {"b": batch_id}
-        ).fetchall()
-        if alogs:
-            context += "- Multi-Agent workflow execution steps:\n"
-            for al in alogs:
-                context += f"  * [{al[0]}] {al[1]}: {al[2]} (confidence: {al[3]}%)\n"
-
-        # H. Reports and Files
-        links, raw_fn = get_files_for_batch(db, batch_id)
-        if raw_fn:
-            context += f"\nAvailable files for download/viewing for this batch:\n{links}\n"
-
-    # I. Scan query for specific files
-    query_file_matches = re.findall(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls)\b', req.message, re.IGNORECASE)
-    custom_links_context = ""
-    if query_file_matches:
-        from backend.utils.account_utils import get_user_path
-        email = x_user_email or "admin@controlai.net"
-        for f_match in query_file_matches:
-            paths_to_check = [
-                ("cleaned data", f"cleaned data/{f_match}"),
-                ("data/raw", f"data/raw/{f_match}"),
-                ("reports", f"reports/{f_match}"),
-                ("logs", f"logs/{f_match}")
-            ]
-            for label, relative_path in paths_to_check:
-                full_check_path = get_user_path(email, relative_path)
-                if os.path.exists(full_check_path):
-                    rel_p = full_check_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
-                    download_url = f"/api/v1/reports/download-file?path={rel_p}"
-                    link_text = f"[Download {f_match}]({download_url})"
-                    if download_url not in context:
-                        custom_links_context += f"- File {f_match} ({label}): {link_text}\n"
-                        break
-                        
-    if custom_links_context:
-        if not context:
-            context = "Context for requested files:\n"
-        context += "\nDirectly matched files in the workspace filesystem:\n" + custom_links_context
-
-    # J. Retrieve relevant chunks from uploaded RAG documents
-    email = x_user_email or "admin@controlai.net"
+    # RAG Context
     rag_context = ""
     try:
         from backend.database.models import RagDocument
@@ -830,21 +772,16 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
             query_words = set(re.findall(r'\w+', req.message.lower()))
             matching_chunks = []
             for doc in rag_docs:
-                if not doc.content:
-                    continue
-                # Split content into paragraphs/lines
-                paragraphs = [p.strip() for p in doc.content.split('\n') if p.strip()]
-                for p in paragraphs:
-                    # Chunk larger paragraphs into ~500 chars
-                    sub_chunks = [p[i:i+500] for i in range(0, len(p), 500)]
-                    for chunk in sub_chunks:
-                        chunk_words = set(re.findall(r'\w+', chunk.lower()))
-                        intersection = query_words.intersection(chunk_words)
-                        if intersection:
-                            score = len(intersection) / (len(query_words) + 1)
-                            matching_chunks.append((score, doc.filename, chunk))
-                            
-            # Sort by score descending and take top 5 matches
+                if doc.content:
+                    paragraphs = [p.strip() for p in doc.content.split('\n') if p.strip()]
+                    for p in paragraphs:
+                        sub_chunks = [p[i:i+500] for i in range(0, len(p), 500)]
+                        for chunk in sub_chunks:
+                            chunk_words = set(re.findall(r'\w+', chunk.lower()))
+                            intersection = query_words.intersection(chunk_words)
+                            if intersection:
+                                score = len(intersection) / (len(query_words) + 1)
+                                matching_chunks.append((score, doc.filename, chunk))
             matching_chunks.sort(key=lambda x: x[0], reverse=True)
             top_chunks = matching_chunks[:5]
             if top_chunks:
@@ -852,15 +789,12 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                 for score, filename, chunk in top_chunks:
                     rag_context += f"[Document Reference: {filename}] (Score: {score:.2f}):\n{chunk}\n\n"
     except Exception as rag_err:
-        import logging
-        logging.getLogger("etl_chat").error(f"Error querying RAG context: {rag_err}")
+        logger.error(f"Error querying RAG context: {rag_err}")
 
     if rag_context:
-        if not context:
-            context = "Context for requested query:\n"
         context += rag_context
 
-    # Pattern Analysis for Platform Troubleshooting
+    # Troubleshooting guidelines
     is_platform_issue = any(k in message_lower for k in [
         "log", "logs", "terminal", "console", "bug", "error", "crash", "fail", "broken",
         "database", "mysql", "db", "conn", "schema", "table", "download", "file", "ingest",
@@ -889,13 +823,6 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
     If the user's query is platform-related (such as file-related problems, logs and execution issues, or internal platform bugs), you must structure your response to provide:
     1. The possible causes of the issue.
     2. Recommended solutions.
-    
-    Format your answer as a JSON object containing:
-    - response: detailed, formatted markdown response answering the user, containing possible causes and recommended solutions if it is a platform-related issue.
-    - agent_name: "ETL Chat Support Agent"
-    - confidence: float between 0 and 100 on accuracy of answer.
-    
-    Return ONLY valid JSON.
     """
     
     system_instruction = (
@@ -903,44 +830,19 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
         "Before generating a response, analyze the user's text patterns and understand their actual intent. "
         "Formulate your response based on the identified intent rather than doing simple keyword matching. "
         "If the user is experiencing platform-related issues (such as file-related problems, logs and execution issues, "
-        "or internal platform bugs), you must identify possible causes and provide clear recommended solutions. "
-        "Keep this intelligence strictly limited to platform-related assistance. Do not modify unrelated chatbot features. "
-        "If the user asks for files or downloads, you must output the appropriate markdown download links (e.g., [Download filename](url)) "
-        "from the database context. "
-        "If the user asks for only the last file or a single file generated, you must only return that specific file (the cleaned dataset file) "
-        "and not list all other reports or raw files from the database context."
+        "or internal platform bugs), you must identify possible causes and provide clear recommended solutions."
     )
     
     try:
-        llm_res = query_llm(prompt, system_instruction, json_mode=True)
-        if "```json" in llm_res:
-            llm_res = llm_res.split("```json")[1].split("```")[0].strip()
-        elif "```" in llm_res:
-            llm_res = llm_res.split("```")[1].split("```")[0].strip()
-            
-        data = json.loads(llm_res.strip())
-        
-        response_text = ""
-        agent_name = "ETL Chat Support Agent"
-        confidence = 95.0
-        
-        if isinstance(data, dict):
-            response_text = data.get("response") or data.get("executive_summary") or data.get("summary") or json.dumps(data)
-            agent_name = data.get("agent_name", agent_name)
-            confidence = data.get("confidence", confidence)
-        elif isinstance(data, list):
-            response_text = json.dumps(data, indent=2)
-        else:
-            response_text = str(data)
-            
+        llm_res = query_llm(prompt, system_instruction, json_mode=False)
         return {
-            "response": response_text,
-            "agent_name": agent_name,
-            "confidence": confidence
+            "response": llm_res,
+            "agent_name": "ETL Chat Support Agent",
+            "confidence": 95.0
         }
     except Exception as e:
         return {
-            "response": f"I processed your request, but experienced an issue parsing the detailed analysis: {str(e)}. Direct query: '{req.message}'",
+            "response": f"I processed your request, but experienced an issue generating the detailed analysis: {str(e)}. Direct query: '{req.message}'",
             "agent_name": "ETL Chat Support Agent (Fallback Mode)",
             "confidence": 70.0
         }

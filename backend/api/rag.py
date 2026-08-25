@@ -225,7 +225,12 @@ async def upload_rag_url(
     url = str(req.url)
     
     import httpx
-    from bs4 import BeautifulSoup
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+        has_bs4 = True
+    except ImportError:
+        BeautifulSoup = None
+        has_bs4 = False
     
     # Fetch content
     try:
@@ -239,24 +244,30 @@ async def upload_rag_url(
          
     # Parse text from HTML
     try:
+        text_content = ""
         # Use simple BeautifulSoup if bs4 is installed, otherwise standard regex strip
-        try:
-            soup = BeautifulSoup(html_content, "lxml")
-            # remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
-            text_content = soup.get_text(separator="\n")
-        except Exception:
+        if has_bs4 and BeautifulSoup:
             try:
-                soup = BeautifulSoup(html_content, "html.parser")
+                soup = BeautifulSoup(html_content, "lxml")
+                # remove script and style elements
                 for script in soup(["script", "style"]):
                     script.decompose()
                 text_content = soup.get_text(separator="\n")
             except Exception:
-                # Regex fallback
-                import re
-                text_content = re.sub(r'<[^>]+>', '\n', html_content)
-                
+                try:
+                    soup = BeautifulSoup(html_content, "html.parser")
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                    text_content = soup.get_text(separator="\n")
+                except Exception:
+                    # Regex fallback
+                    import re
+                    text_content = re.sub(r'<[^>]+>', '\n', html_content)
+        else:
+            # Regex fallback
+            import re
+            text_content = re.sub(r'<[^>]+>', '\n', html_content)
+            
         # Clean up whitespace
         lines = (line.strip() for line in text_content.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
