@@ -150,13 +150,14 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
 @router.get("/datasets")
 def list_datasets(x_user_email: Optional[str] = Header(None)):
     """
-    Scans the user-specific clean data directory and returns a list of processed files.
+    Scans the user-specific clean data and reports directories and returns a list of processed files.
     """
     files_list = []
     from backend.utils.account_utils import get_user_path
+    active_email = x_user_email or "admin@controlai.net"
     
-    clean_dir = os.path.dirname(get_user_path(x_user_email or "admin@controlai.net", "cleaned data/dummy.txt"))
-    
+    # 1. Cleaned Data folder
+    clean_dir = os.path.dirname(get_user_path(active_email, "cleaned data/dummy.txt"))
     if os.path.exists(clean_dir):
         for file in os.listdir(clean_dir):
             file_path = os.path.join(clean_dir, file)
@@ -165,7 +166,7 @@ def list_datasets(x_user_email: Optional[str] = Header(None)):
                     stat_res = os.stat(file_path)
                     _, ext = os.path.splitext(file.lower())
                     fmt = ext[1:].upper()
-                    if fmt == "XLSX" or fmt == "XLS":
+                    if fmt in ["XLSX", "XLS"]:
                         fmt = "EXCEL"
                     files_list.append({
                         "name": file,
@@ -177,6 +178,38 @@ def list_datasets(x_user_email: Optional[str] = Header(None)):
                     })
                 except Exception as e:
                     logger.error(f"Failed stating file {file}: {e}")
+
+    # 2. Reports folder (per-file subfolders)
+    reports_base_dir = os.path.dirname(get_user_path(active_email, "reports/dummy.txt"))
+    if os.path.exists(reports_base_dir):
+        for root, dirs, filenames in os.walk(reports_base_dir):
+            for file in filenames:
+                file_path = os.path.join(root, file)
+                if os.path.isfile(file_path):
+                    try:
+                        stat_res = os.stat(file_path)
+                        _, ext = os.path.splitext(file.lower())
+                        fmt = ext[1:].upper()
+                        if fmt == "DOCX":
+                            fmt = "WORD"
+                        elif fmt == "MD":
+                            fmt = "MARKDOWN"
+                        rel_dir = os.path.relpath(root, reports_base_dir).replace("\\", "/")
+                        if rel_dir == ".":
+                            dir_label = "reports/"
+                        else:
+                            dir_label = f"reports/{rel_dir}/"
+                            
+                        files_list.append({
+                            "name": file,
+                            "directory": dir_label,
+                            "path": file_path.replace("\\", "/"),
+                            "format": fmt,
+                            "size": stat_res.st_size,
+                            "modified_time": stat_res.st_mtime * 1000
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed stating report file {file}: {e}")
                         
     return {"files": files_list}
 

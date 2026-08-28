@@ -560,32 +560,28 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                 "confidence": 80.0
             }
 
-    # 4. File Search and Access Mode
-    # Extract matching files from query, database, and filesystem
+    # 4. Explicit File Download / Link Retrieval Mode
     from backend.utils.account_utils import get_user_path
     
-    # Check if they explicitly shared a filepath in a cleaning log
-    # E.g. '{"clean_dataset_path": "cleaned data/clean_dataset.csv"}'
     log_paths = re.findall(r'\b(?:data/raw|cleaned data|reports|logs)/[\w\.-]+\b', req.message, re.IGNORECASE)
-    # Check if query contains any filename format like clean_dataset.csv
-    file_names_in_msg = re.findall(r'\b[\w\.-]+\.(?:csv|tsv|json|xlsx|xml|xls|pdf|docx|md|log|txt)\b', req.message, re.IGNORECASE)
     
-    is_file_query = any(k in message_lower for k in [
-        "file", "files", "get", "send", "download", "access", "find", "search", "give"
-    ]) or len(log_paths) > 0 or len(file_names_in_msg) > 0
+    explicit_file_download_keywords = [
+        "download the file", "send me the file", "download file", "send file", "get the file", 
+        "download link", "where is the file", "give me the file", "send the cleaned file",
+        "download cleaned file", "download raw file", "get download link"
+    ]
+    is_explicit_file_request = any(k in message_lower for k in explicit_file_download_keywords) or len(log_paths) > 0
 
-    if is_file_query:
+    if is_explicit_file_request and not any(k in message_lower for k in ["why", "how", "what is", "explain", "describe", "calculate"]):
         matches = []
         
         # A. Add explicit paths found in prompt (e.g. from cleaning logs shared by user)
         for lp in log_paths:
             full_check = get_user_path(email, lp)
-            # Find the filename and folder
             parts = lp.replace("\\", "/").split("/")
             fname = parts[-1]
             folder = "/".join(parts[:-1]) if len(parts) > 1 else "cleaned data"
             
-            # Construct download relative path
             rel_path_clean = full_check.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
             download_url = f"/api/v1/reports/download-file?path={rel_path_clean}"
             
@@ -595,133 +591,25 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                 "download_url": download_url
             })
             
-        # B. Add matched filenames (with extensions)
-        for fn in file_names_in_msg:
-            if any(m["filename"].lower() == fn.lower() for m in matches):
-                continue
-            folders_to_check = ["cleaned data", "data/raw", "reports", "logs"]
-            for folder in folders_to_check:
-                rel_path = f"{folder}/{fn}"
-                full_path = get_user_path(email, rel_path)
-                if os.path.exists(full_path) or fn.lower() == "clean_dataset.csv":
-                    rel_path_clean = full_path.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
-                    matches.append({
-                        "label": folder,
-                        "filename": fn,
-                        "download_url": f"/api/v1/reports/download-file?path={rel_path_clean}"
-                    })
-                    break
-
-        # C. Search keywords (without extensions) against DB uploads and filesystem
-        words = [w.lower() for w in re.split(r'\W+', req.message) if len(w) > 2]
-        stopwords = {"download", "file", "files", "show", "find", "search", "get", "send", "access", "view", "logs", "please", "dataset", "report", "reports", "the", "and"}
-        keywords = [w for w in words if w not in stopwords]
-        
-        if keywords:
-            try:
-                uploads = db.execute(
-                    text("SELECT batch_id, filename, file_type FROM raw_uploads WHERE uploaded_by = :e OR uploaded_by IS NULL ORDER BY upload_time DESC"),
-                    {"e": email}
-                ).fetchall()
-                for bid, fn, ftype in uploads:
-                    fn_lower = fn.lower()
-                    if any(kw in fn_lower for kw in keywords):
-                        if any(m["filename"].lower() == fn.lower() for m in matches):
-                            continue
-                            
-                        # Raw
-                        raw_full = get_user_path(email, f"data/raw/{fn}")
-                        if os.path.exists(raw_full):
-                            rel_raw = raw_full.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
-                            matches.append({
-                                "label": "data/raw",
-                                "filename": fn,
-                                "download_url": f"/api/v1/reports/download-file?path={rel_raw}"
-                            })
-                            
-                        # Cleaned
-                        clean_full = get_user_path(email, f"cleaned data/{fn}")
-                        if os.path.exists(clean_full):
-                            rel_clean = clean_full.replace(PROJECT_ROOT, "").strip("/\\").replace("\\", "/")
-                            matches.append({
-                                "label": "cleaned data",
-                                "filename": fn,
-                                "download_url": f"/api/v1/reports/download-file?path={rel_clean}"
-                            })
-                            
-                        # PDF report
-                        has_report = db.execute(text("SELECT 1 FROM generated_reports WHERE batch_id = :b"), {"b": bid}).scalar()
-                        if has_report:
-                            matches.append({
-                                "label": "reports",
-                                "filename": f"{bid}_report.pdf",
-                                "download_url": f"/api/v1/reports/download/{bid}?format=pdf"
-                            })
-            except Exception as e:
-                logger.warning(f"Error querying db files in search: {e}")
-
-        # If we have matches, format a friendly file access response
+        if batch_id:
+            links, raw_fn = get_files_for_batch(db, batch_id)
+            if raw_fn:
+                response_msg = f"### File Access for Batch `{batch_id}`\n\nHere are the downloadable assets for the requested run:\n\n{links}"
+                return {
+                    "response": response_msg,
+                    "agent_name": "ETL Chat Support Agent",
+                    "confidence": 100.0
+                }
+                
         if matches:
-            response_msg = "### File Access & Search Results\n\nI found the following matching files in the system:\n\n"
+            response_msg = "### File Access & Download Links\n\nHere are the files you requested:\n\n"
             for m in matches:
                 response_msg += f"- **{m['filename']}** ({m['label']}): [Download {m['filename']}]({m['download_url']})\n"
-            
-            # If they just wanted the single file they last generated or only the last file:
-            is_single_last = any(k in message_lower for k in ["single file you last generated", "last file you generated", "file you last generated", "single file last generated", "only the last file", "only last file", "just the last file", "just last file", "single file", "last generated"])
-            if is_single_last:
-                # Filter down to the cleaned file
-                clean_match = next((m for m in matches if m["label"] == "cleaned data"), None)
-                if clean_match:
-                    response_msg = f"### Most Recently Generated File\n\nHere is the most recently generated (cleaned) file:\n\n- **Cleaned Dataset File**: [Download {clean_match['filename']}]({clean_match['download_url']})"
-            
             return {
                 "response": response_msg,
                 "agent_name": "ETL Chat Support Agent",
                 "confidence": 100.0
             }
-        else:
-            # Check if they just asked to download/send the file (and we have batch_id)
-            if batch_id:
-                links, raw_fn = get_files_for_batch(db, batch_id)
-                if raw_fn:
-                    response_msg = f"### File Access for Batch `{batch_id}`\n\nHere are the downloadable assets for the requested run:\n\n{links}"
-                    return {
-                        "response": response_msg,
-                        "agent_name": "ETL Chat Support Agent",
-                        "confidence": 100.0
-                    }
-
-    # 5. Check if the query is a normal conversational thing
-    is_conversational = not any(k in message_lower for k in [
-        "error", "fail", "crashed", "bug", "problem", "wrong", "broke",
-        "log", "logs", "execution", "console", "terminal", "pipeline", "automation",
-        "database", "mysql", "db", "conn", "schema", "table", "reset", "clear", "clean", "wipe", "delete", "regenerate", "re-generate"
-    ])
-
-    if is_conversational:
-        # General Conversational fallback
-        system_instruction = (
-            "You are the senior intelligent ETL Chat Support Agent. "
-            "Respond to the user's conversational query naturally and helpful, in clear, professional markdown. "
-            "Keep the response natural. Do not return JSON format in raw text."
-        )
-        prompt = f"""
-        Conversation History:
-        {formatted_history if formatted_history else "No previous conversation history."}
-        
-        User Query: {req.message}
-        """
-        try:
-            llm_res = query_llm(prompt, system_instruction, json_mode=False)
-            return {
-                "response": llm_res,
-                "agent_name": "ETL Chat Support Agent",
-                "confidence": 95.0
-            }
-        except Exception as e:
-            logger.error(f"Error querying conversational LLM: {e}")
-
-    # 6. Default to standard Context-based query with LLM
     context = ""
     if batch_id:
         context += f"Context for Batch ID: {batch_id}\n"

@@ -5,8 +5,7 @@ import time
 from backend.core.llm import query_llm
 from backend.utils.report_utils import (
     generate_pdf_report, generate_docx_report,
-    generate_markdown_report, generate_json_report,
-    generate_txt_report
+    generate_markdown_report, generate_json_report
 )
 from backend.database.mysql import SessionLocal
 from backend.database.repository import (
@@ -186,8 +185,12 @@ class ReportAgent:
         input_name_dir = os.path.dirname(get_user_path(user_email, os.path.join("reports", dataset_name, "dummy.pdf")))
         os.makedirs(input_name_dir, exist_ok=True)
         
+        # Also ensure root workspace reports/<dataset_name> directory exists
+        PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        root_report_dir = os.path.join(PROJECT_ROOT, "reports", dataset_name)
+        os.makedirs(root_report_dir, exist_ok=True)
+        
         pdf_path = os.path.join(input_name_dir, f"{batch_id}_report.pdf").replace("\\", "/")
-        txt_path = os.path.join(input_name_dir, f"{batch_id}_report.txt").replace("\\", "/")
         markdown_path = os.path.join(input_name_dir, f"{batch_id}_report.md").replace("\\", "/")
         json_path = os.path.join(input_name_dir, f"{batch_id}_report.json").replace("\\", "/")
         docx_path = os.path.join(input_name_dir, f"{batch_id}_report.docx").replace("\\", "/")
@@ -217,23 +220,26 @@ class ReportAgent:
         execution_time = time.time() - start_time
         report_data["execution_time"] = execution_time
 
-        # Generate all reports (PDF, Text, Markdown, JSON, DOCX)
+        # Generate exactly 4 reports: PDF, Word (DOCX), Markdown (MD), and JSON
         try:
             generate_pdf_report(pdf_path, report_data)
             logger.info(f"PDF report successfully saved at: {pdf_path}")
+            if input_name_dir != root_report_dir:
+                try:
+                    generate_pdf_report(os.path.join(root_report_dir, f"{batch_id}_report.pdf"), report_data)
+                except Exception:
+                    pass
         except Exception as file_err:
             logger.error(f"Failed to generate PDF report file: {file_err}")
 
         try:
-            generate_txt_report(txt_path, report_data)
-            logger.info(f"TXT report successfully saved at: {txt_path}")
-        except Exception as file_err:
-            logger.error(f"Failed to generate TXT report file: {file_err}")
-            txt_path = ""
-
-        try:
             generate_docx_report(docx_path, report_data)
             logger.info(f"DOCX report successfully saved at: {docx_path}")
+            if input_name_dir != root_report_dir:
+                try:
+                    generate_docx_report(os.path.join(root_report_dir, f"{batch_id}_report.docx"), report_data)
+                except Exception:
+                    pass
         except Exception as file_err:
             logger.error(f"Failed to generate DOCX report file: {file_err}")
             docx_path = ""
@@ -241,6 +247,11 @@ class ReportAgent:
         try:
             generate_markdown_report(markdown_path, report_data)
             logger.info(f"Markdown report successfully saved at: {markdown_path}")
+            if input_name_dir != root_report_dir:
+                try:
+                    generate_markdown_report(os.path.join(root_report_dir, f"{batch_id}_report.md"), report_data)
+                except Exception:
+                    pass
         except Exception as file_err:
             logger.error(f"Failed to generate Markdown report file: {file_err}")
             markdown_path = ""
@@ -248,6 +259,11 @@ class ReportAgent:
         try:
             generate_json_report(json_path, report_data)
             logger.info(f"JSON report successfully saved at: {json_path}")
+            if input_name_dir != root_report_dir:
+                try:
+                    generate_json_report(os.path.join(root_report_dir, f"{batch_id}_report.json"), report_data)
+                except Exception:
+                    pass
         except Exception as file_err:
             logger.error(f"Failed to generate JSON report file: {file_err}")
             json_path = ""
@@ -262,7 +278,7 @@ class ReportAgent:
                 docx_path=docx_path,
                 json_path=json_path,
                 markdown_path=markdown_path,
-                txt_path=txt_path
+                txt_path=None
             )
             
             # Log agent reasoning
@@ -271,7 +287,7 @@ class ReportAgent:
                 batch_id=batch_id,
                 agent_name=self.name,
                 task="Compile analytical multi-format reports",
-                reasoning=f"Analyzed processed records, compiled summaries, and saved multi-format reports (PDF, Word, MD, JSON) at {input_name_dir}.",
+                reasoning=f"Analyzed processed records, compiled summaries, and saved exactly 4 report formats (JSON, Word, MD, PDF) at {input_name_dir}.",
                 confidence=99.0,
                 execution_time=execution_time
             )
@@ -280,7 +296,7 @@ class ReportAgent:
         finally:
             db2.close()
 
-        logger.info(f"Report generation finished. All report formats exported successfully.")
+        logger.info(f"Report generation finished. Exactly 4 report formats (JSON, Word, MD, PDF) exported successfully.")
         
         return {
             "root_cause_report": rca_list,
@@ -290,7 +306,6 @@ class ReportAgent:
             "generated_reports": {
                 "pdf_path": pdf_path,
                 "docx_path": docx_path,
-                "txt_path": txt_path,
                 "markdown_path": markdown_path,
                 "json_path": json_path
             }

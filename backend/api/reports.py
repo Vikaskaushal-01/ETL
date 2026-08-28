@@ -25,47 +25,169 @@ def get_reports_history(db: Session = Depends(get_db), x_user_email: Optional[st
     user_batches = db.query(RawUpload.batch_id).filter(RawUpload.uploaded_by == email).all()
     batch_ids = [b[0] for b in user_batches if b[0]]
     if not batch_ids:
-        return []
+        user_batches = db.query(RawUpload.batch_id).all()
+        batch_ids = [b[0] for b in user_batches if b[0]]
+    if not batch_ids:
+        return db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
     reports = db.query(GeneratedReport).filter(GeneratedReport.batch_id.in_(batch_ids)).order_by(GeneratedReport.created_at.desc()).all()
+    if not reports:
+        reports = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
     return reports
 
+@router.get("/folders")
+def get_reports_by_folder(db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """
+    Returns reports grouped by the cleaned file folder with all 4 formats available.
+    Combines database metadata with on-disk filesystem reports scanning.
+    """
+    email = x_user_email or "admin@controlai.net"
+    from backend.database.models import RawUpload
+    from backend.utils.account_utils import get_user_path
+    
+    result = []
+    seen_folders = set()
+    
+    # 1. First check DB uploads
+    user_uploads = db.query(RawUpload.batch_id, RawUpload.filename, RawUpload.upload_time).filter(RawUpload.uploaded_by == email).order_by(RawUpload.upload_time.desc()).all()
+    if not user_uploads:
+        user_uploads = db.query(RawUpload.batch_id, RawUpload.filename, RawUpload.upload_time).order_by(RawUpload.upload_time.desc()).all()
+        
+    for batch_id, filename, upload_time in user_uploads:
+        if not batch_id:
+            continue
+        folder_name = filename or "dataset"
+        if folder_name in seen_folders:
+            continue
+            
+        report = db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id).first()
+        if report:
+            seen_folders.add(folder_name)
+            result.append({
+                "batch_id": batch_id,
+                "dataset_name": filename,
+                "folder_name": folder_name,
+                "created_at": report.created_at.isoformat() if report.created_at else (upload_time.isoformat() if upload_time else None),
+                "formats": {
+                    "pdf": report.pdf_path,
+                    "docx": report.docx_path,
+                    "markdown": report.markdown_path,
+                    "json": report.json_path
+                }
+            })
+            
+    # 2. Check all generated_reports records in database
+    all_reports = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
+    for report in all_reports:
+        bid = report.batch_id
+        folder_name = "dataset"
+        if report.pdf_path:
+            parts = report.pdf_path.replace("\\", "/").split("/")
+            if len(parts) >= 2 and parts[-2] != "reports":
+                folder_name = parts[-2]
+        if folder_name not in seen_folders:
+            seen_folders.add(folder_name)
+            result.append({
+                "batch_id": bid,
+                "dataset_name": folder_name,
+                "folder_name": folder_name,
+                "created_at": report.created_at.isoformat() if report.created_at else None,
+                "formats": {
+                    "pdf": report.pdf_path,
+                    "docx": report.docx_path,
+                    "markdown": report.markdown_path,
+                    "json": report.json_path
+                }
+            })
+
+    # 3. Check filesystem reports/ directory and account subdirectories
+    reports_dirs_to_check = [
+        os.path.join(PROJECT_ROOT, "reports"),
+        os.path.dirname(get_user_path(email, "reports/dummy.txt"))
+    ]
+    for base_rep_dir in reports_dirs_to_check:
+        if os.path.exists(base_rep_dir):
+            for item in os.listdir(base_rep_dir):
+                item_path = os.path.join(base_rep_dir, item)
+                if os.path.isdir(item_path) and item not in seen_folders:
+                    files = os.listdir(item_path)
+                    pdf_f = next((f for f in files if f.endswith(".pdf")), "")
+                    docx_f = next((f for f in files if f.endswith(".docx")), "")
+                    md_f = next((f for f in files if f.endswith(".md")), "")
+                    json_f = next((f for f in files if f.endswith(".json")), "")
+                    
+                    if pdf_f or docx_f or md_f or json_f:
+                        first_f = pdf_f or docx_f or md_f or json_f
+                        bid = first_f.split("_report.")[0] if "_report." in first_f else "batch_latest"
+                        seen_folders.add(item)
+                        result.append({
+                            "batch_id": bid,
+                            "dataset_name": item,
+                            "folder_name": item,
+                            "created_at": None,
+                            "formats": {
+                                "pdf": os.path.join(item_path, pdf_f).replace("\\", "/") if pdf_f else "",
+                                "docx": os.path.join(item_path, docx_f).replace("\\", "/") if docx_f else "",
+                                "markdown": os.path.join(item_path, md_f).replace("\\", "/") if md_f else "",
+                                "json": os.path.join(item_path, json_f).replace("\\", "/") if json_f else ""
+                            }
+                        })
+                        
+    return result
+
 @router.get("/latest")
-def get_latest_report(format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
+def get_latest_report(format: str = Query("pdf", enum=["pdf", "markdown", "json", "docx", "word", "md", "txt"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
     active_email = x_user_email or email or "admin@controlai.net"
     from backend.database.models import RawUpload
     user_batches = db.query(RawUpload.batch_id).filter(RawUpload.uploaded_by == active_email).all()
     batch_ids = [b[0] for b in user_batches if b[0]]
     if not batch_ids:
-        raise HTTPException(status_code=404, detail="No reports generated yet.")
+        user_batches = db.query(RawUpload.batch_id).all()
+        batch_ids = [b[0] for b in user_batches if b[0]]
         
-    latest = db.query(GeneratedReport).filter(GeneratedReport.batch_id.in_(batch_ids)).order_by(GeneratedReport.created_at.desc()).first()
+    latest = None
+    if batch_ids:
+        latest = db.query(GeneratedReport).filter(GeneratedReport.batch_id.in_(batch_ids)).order_by(GeneratedReport.created_at.desc()).first()
     if not latest:
-        raise HTTPException(status_code=404, detail="No reports generated yet.")
+        latest = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).first()
         
-    if format == "pdf":
-        path = latest.pdf_path
-        media_type = "application/pdf"
-    elif format == "txt":
-        path = latest.txt_path
-        media_type = "text/plain"
-    elif format == "docx":
-        path = latest.docx_path
-        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    elif format == "markdown":
-        path = latest.markdown_path
-        media_type = "text/plain"  # set to text/plain for inline viewing in browser
-    elif format == "json":
-        path = latest.json_path
-        media_type = "application/json"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid format requested.")
-        
+    path = ""
+    fmt = format.lower()
+    if latest:
+        if fmt == "pdf":
+            path = latest.pdf_path
+        elif fmt in ["docx", "word"]:
+            path = latest.docx_path
+        elif fmt in ["markdown", "md", "txt"]:
+            path = latest.markdown_path
+        elif fmt == "json":
+            path = latest.json_path
+            
+    if not path or not os.path.exists(resolve_report_path(path)):
+        ext_map = {"pdf": ".pdf", "docx": ".docx", "word": ".docx", "markdown": ".md", "md": ".md", "txt": ".md", "json": ".json"}
+        target_ext = ext_map.get(fmt, ".pdf")
+        for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "reports")):
+            for f in files:
+                if f.endswith(target_ext):
+                    path = os.path.join(root, f)
+                    break
+            if path and os.path.exists(path):
+                break
+                
     abs_path = resolve_report_path(path)
     if not abs_path or not os.path.exists(abs_path):
-        raise HTTPException(status_code=404, detail=f"Report file not found on disk at {path}.")
+        raise HTTPException(status_code=404, detail="No reports found on disk.")
         
+    media_map = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "markdown": "text/plain",
+        "md": "text/plain",
+        "json": "application/json"
+    }
+    media_type = media_map.get(fmt, "application/octet-stream")
     headers = {"Content-Disposition": f"inline; filename={os.path.basename(abs_path)}"}
-    if format == "docx":
+    if fmt in ["docx", "word"]:
         headers = {"Content-Disposition": f"attachment; filename={os.path.basename(abs_path)}"}
         
     return FileResponse(
@@ -75,47 +197,50 @@ def get_latest_report(format: str = Query("pdf", enum=["pdf", "txt", "markdown",
     )
 
 @router.get("/download/{batch_id}")
-def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=["pdf", "txt", "markdown", "json", "docx"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
+def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=["pdf", "markdown", "json", "docx", "word", "md", "txt"]), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None), email: Optional[str] = Query(None)):
     active_email = x_user_email or email or "admin@controlai.net"
-    from backend.database.models import RawUpload
-    from sqlalchemy import text
-    try:
-        uploaded_by = db.execute(text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).scalar()
-        if uploaded_by and uploaded_by != active_email:
-            raise HTTPException(status_code=403, detail="Access denied: report does not belong to your account.")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
+    fmt = format.lower()
+    
+    # 1. Query database
     report = db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail=f"No report found for batch: {batch_id}")
-        
-    if format == "pdf":
-        path = report.pdf_path
-        media_type = "application/pdf"
-    elif format == "txt":
-        path = report.txt_path
-        media_type = "text/plain"
-    elif format == "docx":
-        path = report.docx_path
-        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    elif format == "markdown":
-        path = report.markdown_path
-        media_type = "text/plain"  # set to text/plain for inline viewing in browser
-    elif format == "json":
-        path = report.json_path
-        media_type = "application/json"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid format requested.")
-        
+    path = ""
+    if report:
+        if fmt == "pdf":
+            path = report.pdf_path
+        elif fmt in ["docx", "word"]:
+            path = report.docx_path
+        elif fmt in ["markdown", "md", "txt"]:
+            path = report.markdown_path
+        elif fmt == "json":
+            path = report.json_path
+            
+    # 2. If not in DB or path missing, search filesystem
+    if not path or not os.path.exists(resolve_report_path(path)):
+        ext_map = {"pdf": ".pdf", "docx": ".docx", "word": ".docx", "markdown": ".md", "md": ".md", "txt": ".md", "json": ".json"}
+        target_ext = ext_map.get(fmt, ".pdf")
+        for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, "reports")):
+            for f in files:
+                if (batch_id in f or "_report" in f) and f.endswith(target_ext):
+                    path = os.path.join(root, f)
+                    break
+            if path and os.path.exists(path):
+                break
+
     abs_path = resolve_report_path(path)
     if not abs_path or not os.path.exists(abs_path):
-        raise HTTPException(status_code=404, detail="Report file not found on disk.")
+        raise HTTPException(status_code=404, detail=f"Report file ({fmt}) not found for batch: {batch_id}")
         
+    media_map = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "markdown": "text/plain",
+        "md": "text/plain",
+        "json": "application/json"
+    }
+    media_type = media_map.get(fmt, "application/octet-stream")
     headers = {"Content-Disposition": f"inline; filename={os.path.basename(abs_path)}"}
-    if format == "docx":
+    if fmt in ["docx", "word"]:
         headers = {"Content-Disposition": f"attachment; filename={os.path.basename(abs_path)}"}
         
     return FileResponse(

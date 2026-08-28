@@ -411,14 +411,16 @@ def report_node(state: PipelineState) -> dict:
             "report",
             "completed",
             output={
-                "pdf_path": res.get("generated_reports", {}).get("pdf"),
-                "docx_path": res.get("generated_reports", {}).get("docx"),
+                "pdf_path": res.get("generated_reports", {}).get("pdf_path"),
+                "docx_path": res.get("generated_reports", {}).get("docx_path"),
+                "markdown_path": res.get("generated_reports", {}).get("markdown_path"),
+                "json_path": res.get("generated_reports", {}).get("json_path"),
                 "rca_alerts_count": len(res.get("root_cause_report", []))
             },
             logs=[
                 "RCA analysis complete. Identified issues logged into database.",
-                f"Generated PDF Executive Summary Report at: {res.get('generated_reports', {}).get('pdf')}.",
-                f"Saved backup report copies in Word (.docx), Markdown, and JSON formats in reports folder."
+                f"Generated PDF Executive Summary Report at: {res.get('generated_reports', {}).get('pdf_path')}.",
+                f"Saved reports in 4 formats: JSON, Word (.docx), Markdown (.md), and PDF (.pdf) in reports subfolder."
             ],
             metadata={
                 "executive_summary": res.get("business_summary"),
