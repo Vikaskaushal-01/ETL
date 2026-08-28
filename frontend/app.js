@@ -1493,29 +1493,56 @@ async function fetchSelectedBatchInsights(batchId) {
                 }
             }
 
-            const repRes = await fetch('/api/v1/reports/history');
+            const repRes = await fetch('/api/v1/reports/folders');
             const container = document.getElementById('pdf-reports-container');
             container.innerHTML = '';
             
             if (repRes.ok) {
-                const reports = await repRes.json();
-                const batchReport = reports.find(r => r.batch_id === batchId);
-                if (batchReport) {
-                    const pdfName = batchReport.pdf_path.split('/').pop();
-                    const dateStr = batchReport.created_at ? parseUTCDate(batchReport.created_at).toLocaleDateString() : 'N/A';
+                const folders = await repRes.json();
+                if (folders && folders.length > 0) {
+                    const batchFolder = folders.find(r => r.batch_id === batchId) || folders[0];
+                    const reportId = batchFolder.batch_id;
+                    const folderName = batchFolder.folder_name || 'dataset';
+                    const dateStr = batchFolder.created_at ? parseUTCDate(batchFolder.created_at).toLocaleDateString() : 'Active';
                     
-                    const reportId = batchReport.batch_id;
-                    container.innerHTML = `
-                        <div class="report-item-download" style="flex-direction: column; align-items: stretch; gap: 8px;">
-                            <div class="report-info-text" style="margin-bottom: 4px;">
-                                <h4>Batch Report: ${reportId}</h4>
-                                <span>Created: ${dateStr}</span>
+                    let switcherHtml = '';
+                    if (folders.length > 1) {
+                        switcherHtml = `
+                            <div style="margin-bottom: 8px;">
+                                <label style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Switch Report Folder:</label>
+                                <select id="reports-folder-switcher" style="width: 100%; margin-top: 3px; padding: 5px 8px; font-size: 11px; background: #0f172a; color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; cursor: pointer;" onchange="fetchSelectedBatchInsights(this.value)">
+                                    ${folders.map(f => `<option value="${f.batch_id}" ${f.batch_id === reportId ? 'selected' : ''}>📁 reports/${f.folder_name}/ (${f.batch_id})</option>`).join('')}
+                                </select>
                             </div>
-                            <div class="report-download-buttons-row" style="display: flex; gap: 6px; flex-wrap: wrap;">
-                                <button class="btn-download-pdf" style="flex: 1; padding: 6px; font-size: 11px;" onclick="downloadReport('${reportId}', 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-                                <button class="btn-download-word" style="flex: 1; padding: 6px; font-size: 11px; background: linear-gradient(135deg, #2b5797 0%, #1e3f7a 100%); color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: opacity 0.2s;" onclick="downloadReport('${reportId}', 'docx')"><i class="fa-solid fa-file-word"></i> Word</button>
-                                <button class="btn-download-markdown" style="flex: 1; padding: 6px; font-size: 11px; background: linear-gradient(135deg, #333 0%, #111 100%); color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: opacity 0.2s;" onclick="downloadReport('${reportId}', 'markdown')"><i class="fa-solid fa-file-code"></i> MD</button>
-                                <button class="btn-download-json" style="flex: 1; padding: 6px; font-size: 11px; background: linear-gradient(135deg, #d2691e 0%, #b22222 100%); color: #fff; border: none; border-radius: 4px; cursor: pointer; transition: opacity 0.2s;" onclick="downloadReport('${reportId}', 'json')"><i class="fa-solid fa-braces"></i> JSON</button>
+                        `;
+                    }
+                    
+                    container.innerHTML = `
+                        <div class="report-item-download" style="flex-direction: column; align-items: stretch; gap: 10px; background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                            ${switcherHtml}
+                            <div class="report-info-text" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+                                <div>
+                                    <h4 style="color: #60a5fa; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-folder-open text-yellow"></i> reports/${folderName}/
+                                    </h4>
+                                    <span style="font-size: 11px; color: #94a3b8;">Batch: <code>${reportId}</code> | ${dateStr}</span>
+                                </div>
+                                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 10px; padding: 2px 6px;">4 Formats</span>
+                            </div>
+                            <p style="font-size: 11px; color: #cbd5e1; margin: 0;">Multi-format executive reports ready for download:</p>
+                            <div class="report-download-buttons-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <button class="btn-download-pdf" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(225,29,72,0.2);" onclick="downloadReport('${reportId}', 'pdf')">
+                                    <i class="fa-solid fa-file-pdf"></i> PDF (.pdf)
+                                </button>
+                                <button class="btn-download-word" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(37,99,235,0.2);" onclick="downloadReport('${reportId}', 'docx')">
+                                    <i class="fa-solid fa-file-word"></i> Word (.docx)
+                                </button>
+                                <button class="btn-download-markdown" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(14,165,233,0.2);" onclick="downloadReport('${reportId}', 'markdown')">
+                                    <i class="fa-solid fa-file-code"></i> Markdown (.md)
+                                </button>
+                                <button class="btn-download-json" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);" onclick="downloadReport('${reportId}', 'json')">
+                                    <i class="fa-solid fa-braces"></i> JSON (.json)
+                                </button>
                             </div>
                         </div>
                     `;
@@ -1523,7 +1550,7 @@ async function fetchSelectedBatchInsights(batchId) {
                     container.innerHTML = `
                         <div class="no-data-card text-center">
                             <i class="fa-solid fa-file-pdf"></i>
-                            <p>No analytical report generated for this batch.</p>
+                            <p>No analytical report generated yet. Run pipeline to generate reports.</p>
                         </div>`;
                 }
             }
@@ -1778,12 +1805,22 @@ function downloadDataFile(filePath) {
 // PDF Reports List Operations
 async function loadReportsList() {
     try {
-        const response = await fetch('/api/v1/reports/history');
+        const response = await fetch('/api/v1/reports/folders');
         if (!response.ok) return;
-        const reports = await response.json();
+        const folders = await response.json();
         
-        if (reports.length > 0 && !state.currentBatchId) {
-            fetchSelectedBatchInsights(reports[0].batch_id);
+        if (folders && folders.length > 0) {
+            const targetBatch = state.currentBatchId || folders[0].batch_id;
+            fetchSelectedBatchInsights(targetBatch);
+        } else {
+            const repRes = await fetch('/api/v1/reports/history');
+            if (repRes.ok) {
+                const reports = await repRes.json();
+                if (reports && reports.length > 0) {
+                    const targetBatch = state.currentBatchId || reports[0].batch_id;
+                    fetchSelectedBatchInsights(targetBatch);
+                }
+            }
         }
     } catch (e) {
         loggerError('loadReportsList', e);
@@ -1798,31 +1835,65 @@ window.downloadReport = function(batchId, format) {
 // AI Assistant Chat operations
 async function loadChatBatchContexts() {
     try {
-        const response = await fetch('/api/v1/reports/history');
+        const response = await fetch('/api/v1/reports/folders');
         if (!response.ok) return;
-        const reports = await response.json();
+        const folders = await response.json();
         
         const selectEl = document.getElementById('chat-batch-select');
         selectEl.innerHTML = '<option value="">No Batch Context</option>';
         
-        reports.forEach(report => {
+        folders.forEach(item => {
             const opt = document.createElement('option');
-            opt.value = report.batch_id;
-            opt.textContent = report.batch_id;
-            if (state.chatContextBatchId === report.batch_id) {
+            opt.value = item.batch_id;
+            opt.textContent = `📁 ${item.folder_name || item.dataset_name} (${item.batch_id})`;
+            if (state.chatContextBatchId === item.batch_id) {
                 opt.selected = true;
             }
             selectEl.appendChild(opt);
         });
+        
+        renderChatSuggestions();
     } catch (e) {
         loggerError('loadChatBatchContexts', e);
     }
 }
 
+function renderChatSuggestions() {
+    const container = document.getElementById('chat-messages-container');
+    if (!container || container.children.length > 0) return;
+    
+    const suggestionsDiv = document.createElement('div');
+    suggestionsDiv.className = 'chat-suggestions-wrapper';
+    suggestionsDiv.style = 'padding: 12px; margin: 10px 0; background: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px dashed rgba(59, 130, 246, 0.3);';
+    suggestionsDiv.innerHTML = `
+        <p style="font-size: 11px; color: #94a3b8; margin: 0 0 8px 0; font-weight: 600;">
+            <i class="fa-solid fa-wand-magic-sparkles text-blue"></i> Quick Questions:
+        </p>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <button class="chat-chip" onclick="quickAskChat('Why were records rejected during validation?')">🔍 Root Causes & Rejections</button>
+            <button class="chat-chip" onclick="quickAskChat('What transformations were applied to this dataset?')">🧹 Transformations Applied</button>
+            <button class="chat-chip" onclick="quickAskChat('Explain the columns and schema data types')">📊 Schema & Data Types</button>
+            <button class="chat-chip" onclick="quickAskChat('Generate SQL queries for staging and production tables')">💻 SQL Queries</button>
+            <button class="chat-chip" onclick="quickAskChat('Provide executive summary and recommendations')">📈 Executive Summary</button>
+        </div>
+    `;
+    container.appendChild(suggestionsDiv);
+}
+
+window.quickAskChat = function(query) {
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        chatInput.value = query;
+        const sendBtn = document.getElementById('chat-send-btn');
+        if (sendBtn) sendBtn.click();
+    }
+};
+
 document.getElementById('chat-batch-select').addEventListener('change', (e) => {
     state.chatContextBatchId = e.target.value;
     state.chatHistory = [];
     document.getElementById('chat-messages-container').innerHTML = '';
+    renderChatSuggestions();
     if (state.chatContextBatchId) {
         fetchSelectedBatchInsights(state.chatContextBatchId);
     } else {

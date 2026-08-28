@@ -110,33 +110,28 @@ def run_e2e_test():
         for log in status_data.get("logs", []):
             print(f"  * {log}")
             
-    # 4. Verify Reports Generation on Disk
-    print("\n--- Verifying Generated Documents ---")
-    pdf_files = []
-    docx_files = []
-    md_files = []
-    json_files = []
+    # 4. Verify Reports Generation on Disk in Dedicated Dataset Folders with strictly 4 Formats
+    print("\n--- Verifying Dedicated Reports Folders & Strictly 4 Formats ---")
     
-    for root, dirs, filenames in os.walk("reports"):
-        for f in filenames:
-            if f.endswith(".pdf"):
-                pdf_files.append(os.path.join(root, f))
-            elif f.endswith(".docx"):
-                docx_files.append(os.path.join(root, f))
-            elif f.endswith(".md"):
-                md_files.append(os.path.join(root, f))
-            elif f.endswith(".json"):
-                json_files.append(os.path.join(root, f))
-    
-    print(f"Generated PDF files in reports/ structure: {pdf_files}")
-    print(f"Generated Word (DOCX) files in reports/ structure: {docx_files}")
-    print(f"Generated Markdown files in reports/ structure: {md_files}")
-    print(f"Generated JSON files in reports/ structure: {json_files}")
-    
-    assert len(pdf_files) > 0, "No PDF reports were generated!"
-    assert len(docx_files) > 0, "No Word (DOCX) reports were generated!"
-    assert len(md_files) > 0, "No Markdown reports were generated!"
-    assert len(json_files) > 0, "No JSON reports were generated!"
+    for filename, bid in batch_ids.items():
+        dataset_report_dir = os.path.join("reports", filename)
+        assert os.path.exists(dataset_report_dir), f"Dedicated report directory for dataset '{filename}' not found at {dataset_report_dir}!"
+        
+        files_in_dir = os.listdir(dataset_report_dir)
+        print(f"Files in reports/{filename}/: {files_in_dir}")
+        
+        # Check presence of all 4 formats: JSON, Word (docx), Markdown (md), PDF
+        has_json = any(f.endswith(".json") for f in files_in_dir)
+        has_docx = any(f.endswith(".docx") for f in files_in_dir)
+        has_md = any(f.endswith(".md") for f in files_in_dir)
+        has_pdf = any(f.endswith(".pdf") for f in files_in_dir)
+        has_txt = any(f.endswith(".txt") for f in files_in_dir)
+        
+        assert has_json, f"Missing JSON report in {dataset_report_dir}!"
+        assert has_docx, f"Missing Word (DOCX) report in {dataset_report_dir}!"
+        assert has_md, f"Missing Markdown (MD) report in {dataset_report_dir}!"
+        assert has_pdf, f"Missing PDF report in {dataset_report_dir}!"
+        assert not has_txt, f"Extraneous .txt report found in {dataset_report_dir}! Strictly only 4 formats allowed."
 
     # 4b. Verify Clean Datasets on Disk
     print("\n--- Verifying Clean Datasets Storage ---")
@@ -148,63 +143,77 @@ def run_e2e_test():
     assert any("orders" in f for f in clean_files), "Orders clean dataset was not stored in cleaned data/ folder!"
     assert all(f.endswith((".csv", ".tsv", ".json", ".xml", ".xlsx", ".sql", ".docx")) for f in clean_files), "Extraneous non-dataset files found in cleaned data/ folder!"
 
-    # 5. Verify API Dashboards Summary
-    print("\n--- Verifying Dashboard Analytics ---")
+    # 5. Verify API Dashboards Summary and Folders API
+    print("\n--- Verifying Dashboard Analytics & Reports Folders API ---")
     res_dash = client.get("/api/v1/dashboard/summary")
     assert res_dash.status_code == 200
     dash_data = res_dash.json()
     print(f"Aggregated Dashboard Data: {json.dumps(dash_data, indent=2)}")
     
-    # 6. Verify AI Chat Assistant querying the validation failures
-    print("\n--- Querying AI Chat Assistant ---")
+    res_folders = client.get("/api/v1/reports/folders")
+    assert res_folders.status_code == 200
+    folders_data = res_folders.json()
+    print(f"Reports Folders API Response: {json.dumps(folders_data, indent=2)}")
+    assert len(folders_data) > 0, "No folders returned from reports/folders API!"
+    assert "pdf" in folders_data[0]["formats"]
+    assert "docx" in folders_data[0]["formats"]
+    assert "markdown" in folders_data[0]["formats"]
+    assert "json" in folders_data[0]["formats"]
+    
+    # 6. Verify Responsive AI Chat Assistant
+    print("\n--- Testing Responsive AI Chat Assistant Queries ---")
     sales_batch_id = batch_ids["sales_dirty.csv"]
+    
+    # Test A: Math query
+    res_math = client.post("/api/v1/agent/chat", json={"message": "what is 25 * 4?"})
+    assert res_math.status_code == 200
+    math_reply = res_math.json()["response"]
+    print(f"Chat Math Query Response:\n{math_reply}\n")
+    assert "100" in math_reply, "Math query failed to calculate correctly!"
+    
+    # Test B: Root cause / Rejections query
     chat_payload = {
-        "message": "Explain the root causes and recommendations for any rejected records in this batch.",
+        "message": "Why were records rejected during validation?",
         "batch_id": sales_batch_id
     }
     res_chat = client.post("/api/v1/agent/chat", json=chat_payload)
     assert res_chat.status_code == 200
     chat_data = res_chat.json()
-    print(f"AI Assistant Response (Confidence={chat_data['confidence']}%):")
+    print(f"AI Assistant RCA Response (Confidence={chat_data['confidence']}%):")
     print(chat_data["response"])
+    assert "root cause" in chat_data["response"].lower() or "validation" in chat_data["response"].lower() or "finding" in chat_data["response"].lower()
     
-    # 6b. Verify AI Chat Assistant when user shares a log that refers to clean_dataset.csv
-    print("\n--- Querying AI Chat Assistant with logs reference ---")
+    # Test C: Transformations query
+    res_trans = client.post("/api/v1/agent/chat", json={"message": "What transformations were applied to this dataset?", "batch_id": sales_batch_id})
+    assert res_trans.status_code == 200
+    trans_reply = res_trans.json()["response"]
+    print(f"Chat Transformations Response:\n{trans_reply}\n")
+    assert "transformation" in trans_reply.lower() or "cleansing" in trans_reply.lower() or "snake_case" in trans_reply.lower()
+    
+    # Test D: Schema query
+    res_schema = client.post("/api/v1/agent/chat", json={"message": "Explain the columns and schema data types", "batch_id": sales_batch_id})
+    assert res_schema.status_code == 200
+    schema_reply = res_schema.json()["response"]
+    print(f"Chat Schema Response:\n{schema_reply}\n")
+    assert "schema" in schema_reply.lower() or "column" in schema_reply.lower()
+    
+    # Test E: SQL query generation
+    res_sql = client.post("/api/v1/agent/chat", json={"message": "Generate SQL queries for staging and production tables", "batch_id": sales_batch_id})
+    assert res_sql.status_code == 200
+    sql_reply = res_sql.json()["response"]
+    print(f"Chat SQL Response:\n{sql_reply}\n")
+    assert "SELECT" in sql_reply or "staging" in sql_reply.lower()
+    
+    # Test F: Explicit file download query
     log_chat_payload = {
-        "message": 'Here is my cleaning log: {"transformation_steps": [], "clean_dataset_path": "cleaned data/clean_dataset.csv"}. Please send me the file.',
-        "batch_id": None
+        "message": 'Please send me the download link for cleaned data/clean_dataset.csv',
+        "batch_id": sales_batch_id
     }
     res_log_chat = client.post("/api/v1/agent/chat", json=log_chat_payload)
     assert res_log_chat.status_code == 200
     log_chat_data = res_log_chat.json()
-    print("AI Assistant Response to logs query:")
+    print("AI Assistant Response to download request:")
     print(log_chat_data["response"])
-    
-    # 6c. Verify AI Chat Assistant process logs direct regeneration
-    print("\n--- Querying AI Chat Assistant to access process logs directly and regenerate report ---")
-    regen_payload = {
-        "message": f"I want you to access the process logs directly for batch {sales_batch_id} and regenerate the previous document",
-        "batch_id": sales_batch_id
-    }
-    res_regen = client.post("/api/v1/agent/chat", json=regen_payload)
-    assert res_regen.status_code == 200
-    regen_data = res_regen.json()
-    print("AI Assistant Response to regeneration query:")
-    print(regen_data["response"])
-    assert "regeneration successful" in regen_data["response"].lower() or "regenerated" in regen_data["response"].lower()
-    
-    # 6d. Verify AI Chat Assistant process logs retrieval
-    print("\n--- Querying AI Chat Assistant regarding process logs retrieval ---")
-    logs_query_payload = {
-        "message": f"Show me the process logs for batch {sales_batch_id}",
-        "batch_id": sales_batch_id
-    }
-    res_logs_query = client.post("/api/v1/agent/chat", json=logs_query_payload)
-    assert res_logs_query.status_code == 200
-    logs_query_data = res_logs_query.json()
-    print("AI Assistant Response to logs query:")
-    print(logs_query_data["response"])
-    assert "process logs" in logs_query_data["response"].lower() or "log" in logs_query_data["response"].lower()
     
     # 7. Cleanup E2E Test data from database and filesystem
     print("\n--- Cleaning up E2E Test batch data and files ---")

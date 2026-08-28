@@ -4650,5 +4650,34 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     z-index: 4;
 }
 
+/* Chat Quick Suggestion Chips */
+.chat-chip {
+    background: rgba(30, 58, 138, 0.4) !important;
+    border: 1px solid rgba(96, 165, 250, 0.3) !important;
+    color: #93c5fd !important;
+    border-radius: 16px !important;
+    padding: 4px 10px !important;
+    font-size: 11px !important;
+    font-family: inherit !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+}
 
+.chat-chip:hover {
+    background: rgba(59, 130, 246, 0.35) !important;
+    border-color: #60a5fa !important;
+    color: #ffffff !important;
+    transform: translateY(-1px) scale(1.02) !important;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25) !important;
+}
 
+/* Report Action Buttons */
+.btn-download-pdf:hover, .btn-download-word:hover, .btn-download-markdown:hover, .btn-download-json:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+    transition: all 0.2s ease;
+}
