@@ -220,11 +220,16 @@ class ReportAgent:
         execution_time = time.time() - start_time
         report_data["execution_time"] = execution_time
 
+        # Check if root workspace directory differs from user account dir
+        norm_input_dir = os.path.normcase(os.path.normpath(os.path.abspath(input_name_dir)))
+        norm_root_dir = os.path.normcase(os.path.normpath(os.path.abspath(root_report_dir)))
+        need_root_copy = (norm_input_dir != norm_root_dir)
+
         # Generate exactly 4 reports: PDF, Word (DOCX), Markdown (MD), and JSON
         try:
             generate_pdf_report(pdf_path, report_data)
             logger.info(f"PDF report successfully saved at: {pdf_path}")
-            if input_name_dir != root_report_dir:
+            if need_root_copy:
                 try:
                     generate_pdf_report(os.path.join(root_report_dir, f"{batch_id}_report.pdf"), report_data)
                 except Exception:
@@ -235,7 +240,7 @@ class ReportAgent:
         try:
             generate_docx_report(docx_path, report_data)
             logger.info(f"DOCX report successfully saved at: {docx_path}")
-            if input_name_dir != root_report_dir:
+            if need_root_copy:
                 try:
                     generate_docx_report(os.path.join(root_report_dir, f"{batch_id}_report.docx"), report_data)
                 except Exception:
@@ -247,7 +252,7 @@ class ReportAgent:
         try:
             generate_markdown_report(markdown_path, report_data)
             logger.info(f"Markdown report successfully saved at: {markdown_path}")
-            if input_name_dir != root_report_dir:
+            if need_root_copy:
                 try:
                     generate_markdown_report(os.path.join(root_report_dir, f"{batch_id}_report.md"), report_data)
                 except Exception:
@@ -259,7 +264,7 @@ class ReportAgent:
         try:
             generate_json_report(json_path, report_data)
             logger.info(f"JSON report successfully saved at: {json_path}")
-            if input_name_dir != root_report_dir:
+            if need_root_copy:
                 try:
                     generate_json_report(os.path.join(root_report_dir, f"{batch_id}_report.json"), report_data)
                 except Exception:
