@@ -9,6 +9,8 @@ from agents.report_agent.report_agent import ReportAgent
 
 logger = logging.getLogger("etl_nodes")
 
+PIPELINE_STEP_DELAY = float(os.getenv("PIPELINE_STEP_DELAY", "0.0"))
+
 def intake_node(state: PipelineState) -> dict:
     """
     Executes the Intake Agent (Agent 1) to profile file format and validate readability.
@@ -53,8 +55,9 @@ def intake_node(state: PipelineState) -> dict:
         }
     )
     
-    # Controlled delay for UI visibility
-    time.sleep(1.2)
+    # Controlled delay for UI visibility if enabled
+    if PIPELINE_STEP_DELAY > 0:
+        time.sleep(PIPELINE_STEP_DELAY)
     
     agent = IntakeAgent()
     try:
@@ -169,7 +172,8 @@ def transformation_node(state: PipelineState) -> dict:
         }
     )
     
-    time.sleep(1.2)
+    if PIPELINE_STEP_DELAY > 0:
+        time.sleep(PIPELINE_STEP_DELAY)
     
     try:
         from backend.utils.account_utils import get_user_path
@@ -303,7 +307,8 @@ def storage_node(state: PipelineState) -> dict:
         }
     )
     
-    time.sleep(1.2)
+    if PIPELINE_STEP_DELAY > 0:
+        time.sleep(PIPELINE_STEP_DELAY)
     
     try:
         res = agent.run(dataset_path, batch_id, metadata)
@@ -400,7 +405,8 @@ def report_node(state: PipelineState) -> dict:
         }
     )
     
-    time.sleep(1.2)
+    if PIPELINE_STEP_DELAY > 0:
+        time.sleep(PIPELINE_STEP_DELAY)
     
     try:
         res = agent.run(state)
