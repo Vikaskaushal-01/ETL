@@ -47,6 +47,10 @@ def get_reports_by_folder(db: Session = Depends(get_db), x_user_email: Optional[
     result = []
     seen_folders = set()
     
+    # Preload all reports once into a lookup dict to eliminate N+1 queries
+    all_reports = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
+    reports_by_batch = {r.batch_id: r for r in all_reports if r.batch_id}
+    
     # 1. First check DB uploads
     user_uploads = db.query(RawUpload.batch_id, RawUpload.filename, RawUpload.upload_time).filter(RawUpload.uploaded_by == email).order_by(RawUpload.upload_time.desc()).all()
     if not user_uploads:
@@ -59,7 +63,7 @@ def get_reports_by_folder(db: Session = Depends(get_db), x_user_email: Optional[
         if folder_name in seen_folders:
             continue
             
-        report = db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id).first()
+        report = reports_by_batch.get(batch_id)
         if report:
             seen_folders.add(folder_name)
             result.append({
@@ -75,8 +79,7 @@ def get_reports_by_folder(db: Session = Depends(get_db), x_user_email: Optional[
                 }
             })
             
-    # 2. Check all generated_reports records in database
-    all_reports = db.query(GeneratedReport).order_by(GeneratedReport.created_at.desc()).all()
+    # 2. Check all remaining generated_reports records in database
     for report in all_reports:
         bid = report.batch_id
         folder_name = "dataset"
