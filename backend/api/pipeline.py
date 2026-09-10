@@ -268,14 +268,6 @@ def start_pipeline(req: PipelineStartRequest, background_tasks: BackgroundTasks,
     if stale_runs:
         db.commit()
     
-    # Check if any pipeline is currently running globally (sequential processing)
-    running_pipeline = db.query(PipelineLog).filter(PipelineLog.status == "Running").first()
-    if running_pipeline:
-        # Auto-reset if stuck
-        running_pipeline.status = "Failed"
-        running_pipeline.end_time = datetime.utcnow()
-        db.commit()
-        
     # Check if this specific pipeline already exists/running
     existing = db.query(PipelineLog).filter(PipelineLog.pipeline_id == pipeline_id).first()
     if existing and existing.status == "Running":
