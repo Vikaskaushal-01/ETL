@@ -1,7 +1,9 @@
 import os
 import json
+import shutil
 import logging
 import time
+from sqlalchemy import text
 from backend.core.llm import query_llm
 from backend.utils.report_utils import (
     generate_pdf_report, generate_docx_report,
@@ -116,7 +118,7 @@ class ReportAgent:
                 ]
         }
 
-        # 3. Save to database for dashboard/analytical visual sync
+        # 3. Save to database and compile reports
         db = SessionLocal()
         
         # Calculate dynamic quality score adjusting for load validation rejections
@@ -155,8 +157,6 @@ class ReportAgent:
                 )
         except Exception as err:
             logger.error(f"Error inserting quality reports/RCA into DB: {err}")
-        finally:
-            db.close()
 
         # Determine input name from dataset name or path
         dataset_name = state.get("dataset_name", "")
@@ -168,19 +168,15 @@ class ReportAgent:
 
         # Build paths for report organized by exact input name
         from backend.utils.account_utils import get_user_path
-        from sqlalchemy import text
         
-        db_user = SessionLocal()
         user_email = None
         try:
-            user_email = db_user.execute(
+            user_email = db.execute(
                 text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
                 {"b": batch_id}
             ).scalar()
         except Exception as e:
             logger.warning(f"ReportAgent failed to query uploaded_by: {e}")
-        finally:
-            db_user.close()
 
         input_name_dir = os.path.dirname(get_user_path(user_email, os.path.join("reports", dataset_name, "dummy.pdf")))
         os.makedirs(input_name_dir, exist_ok=True)
@@ -229,22 +225,22 @@ class ReportAgent:
         try:
             generate_pdf_report(pdf_path, report_data)
             logger.info(f"PDF report successfully saved at: {pdf_path}")
-            if need_root_copy:
+            if need_root_copy and os.path.exists(pdf_path):
                 try:
-                    generate_pdf_report(os.path.join(root_report_dir, f"{batch_id}_report.pdf"), report_data)
-                except Exception:
-                    pass
+                    shutil.copy2(pdf_path, os.path.join(root_report_dir, f"{batch_id}_report.pdf"))
+                except Exception as copy_err:
+                    logger.debug(f"Failed copying PDF report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate PDF report file: {file_err}")
 
         try:
             generate_docx_report(docx_path, report_data)
             logger.info(f"DOCX report successfully saved at: {docx_path}")
-            if need_root_copy:
+            if need_root_copy and os.path.exists(docx_path):
                 try:
-                    generate_docx_report(os.path.join(root_report_dir, f"{batch_id}_report.docx"), report_data)
-                except Exception:
-                    pass
+                    shutil.copy2(docx_path, os.path.join(root_report_dir, f"{batch_id}_report.docx"))
+                except Exception as copy_err:
+                    logger.debug(f"Failed copying DOCX report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate DOCX report file: {file_err}")
             docx_path = ""
@@ -252,11 +248,11 @@ class ReportAgent:
         try:
             generate_markdown_report(markdown_path, report_data)
             logger.info(f"Markdown report successfully saved at: {markdown_path}")
-            if need_root_copy:
+            if need_root_copy and os.path.exists(markdown_path):
                 try:
-                    generate_markdown_report(os.path.join(root_report_dir, f"{batch_id}_report.md"), report_data)
-                except Exception:
-                    pass
+                    shutil.copy2(markdown_path, os.path.join(root_report_dir, f"{batch_id}_report.md"))
+                except Exception as copy_err:
+                    logger.debug(f"Failed copying Markdown report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate Markdown report file: {file_err}")
             markdown_path = ""
@@ -264,20 +260,19 @@ class ReportAgent:
         try:
             generate_json_report(json_path, report_data)
             logger.info(f"JSON report successfully saved at: {json_path}")
-            if need_root_copy:
+            if need_root_copy and os.path.exists(json_path):
                 try:
-                    generate_json_report(os.path.join(root_report_dir, f"{batch_id}_report.json"), report_data)
-                except Exception:
-                    pass
+                    shutil.copy2(json_path, os.path.join(root_report_dir, f"{batch_id}_report.json"))
+                except Exception as copy_err:
+                    logger.debug(f"Failed copying JSON report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate JSON report file: {file_err}")
             json_path = ""
 
-        # Update generated reports database table
-        db2 = SessionLocal()
+        # Update generated reports database table using existing session
         try:
             save_generated_reports(
-                db2,
+                db,
                 batch_id=batch_id,
                 pdf_path=pdf_path,
                 docx_path=docx_path,
@@ -288,7 +283,7 @@ class ReportAgent:
             
             # Log agent reasoning
             log_agent_decision(
-                db2,
+                db,
                 batch_id=batch_id,
                 agent_name=self.name,
                 task="Compile analytical multi-format reports",
@@ -296,10 +291,12 @@ class ReportAgent:
                 confidence=99.0,
                 execution_time=execution_time
             )
+            db.commit()
         except Exception as db_err2:
+            db.rollback()
             logger.error(f"Failed logging reports metadata or agent decision to DB: {db_err2}")
         finally:
-            db2.close()
+            db.close()
 
         logger.info(f"Report generation finished. Exactly 4 report formats (JSON, Word, MD, PDF) exported successfully.")
         
