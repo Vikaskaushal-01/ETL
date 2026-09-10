@@ -22,11 +22,11 @@ SessionLocal = None
 Base = declarative_base()
 
 try:
-    # Try connecting to MySQL with a short timeout
+    # Try connecting to MySQL with a short timeout (2s) to prevent startup freezing
     engine = create_engine(
         DATABASE_URL, 
         pool_pre_ping=True,
-        connect_args={"connect_timeout": 5}
+        connect_args={"connect_timeout": 2}
     )
     # Test connection
     with engine.connect() as conn:
@@ -34,9 +34,19 @@ try:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 except Exception as e:
     logger.warning(f"MySQL connection failed: {e}. Falling back to local SQLite database.")
-    # Fallback to local SQLite
+    # Fallback to local SQLite with WAL mode for fast concurrent operations
     SQLITE_URL = "sqlite:///./agentic_ai_etl.db"
-    engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+    engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False, "timeout": 30})
+    from sqlalchemy import event
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+        except Exception:
+            pass
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
