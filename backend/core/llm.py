@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import logging
 import httpx
 from dotenv import load_dotenv
@@ -261,52 +262,79 @@ if LLM_PROVIDER == "gemini" and GEMINI_API_KEY and not GEMINI_API_KEY.startswith
         logger.warning(f"Failed to initialize Gemini model: {e}")
         gemini_model = None
 
-_ollama_available = True
+_gemini_circuit_open_until = 0.0
+_ollama_circuit_open_until = 0.0
 
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
     """
-    Unified LLM query function. Falls back from Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
+    Unified LLM query function with circuit breaker protection.
+    Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
     """
-    global _ollama_available
-    logger.info(f"Querying LLM (provider={LLM_PROVIDER})...")
+    global _gemini_circuit_open_until, _ollama_circuit_open_until
 
-    # 1. Try Gemini
+    # Fast-path: Explicit mock or offline mode
+    if LLM_PROVIDER in ["mock", "offline"]:
+        return run_mock_engine(prompt, system_instruction, json_mode)
+
+    now = time.time()
+
+    # 1. Try Gemini (if configured, model initialized, and circuit is closed)
     if LLM_PROVIDER == "gemini" and gemini_model:
-        try:
-            messages = []
-            if system_instruction:
-                messages.append(("system", system_instruction))
-            messages.append(("user", prompt))
-            response = gemini_model.invoke(messages)
-            if response and response.content:
-                return response.content
-        except Exception as e:
-            logger.error(f"Gemini API execution failed: {e}. Trying Ollama...")
+        if now >= _gemini_circuit_open_until:
+            try:
+                logger.info("Querying LLM (provider=gemini)...")
+                messages = []
+                if system_instruction:
+                    messages.append(("system", system_instruction))
+                messages.append(("user", prompt))
+                response = gemini_model.invoke(messages)
+                if response and response.content:
+                    _gemini_circuit_open_until = 0.0
+                    return response.content
+            except Exception as e:
+                err_str = str(e)
+                # Check for permanent or blocked API credentials
+                if any(x in err_str for x in ["API_KEY_SERVICE_BLOCKED", "PERMISSION_DENIED", "API key not valid", "has not been used in project", "is disabled", "403"]):
+                    # Cooldown for 5 minutes for blocked/disabled key to prevent hammering
+                    _gemini_circuit_open_until = time.time() + 300
+                    logger.warning(f"Gemini API blocked or disabled: {e}. Opening circuit breaker for 300s. Trying Ollama/Local fallback...")
+                else:
+                    # Transient error, cooldown 30s
+                    _gemini_circuit_open_until = time.time() + 30
+                    logger.warning(f"Gemini API error: {e}. Cooldown 30s. Trying Ollama/Local fallback...")
+        else:
+            logger.debug("Gemini circuit breaker active, skipping to Ollama/Local fallback.")
 
-    # 2. Try Ollama
-    if _ollama_available and LLM_PROVIDER in ["gemini", "ollama"]:
-        try:
-            payload = {
-                "model": "llama3",
-                "messages": [],
-                "stream": False
-            }
-            if json_mode:
-                payload["format"] = "json"
-            if system_instruction:
-                payload["messages"].append({"role": "system", "content": system_instruction})
-            payload["messages"].append({"role": "user", "content": prompt})
+    # 2. Try Ollama (if configured and circuit is closed)
+    if LLM_PROVIDER in ["gemini", "ollama"]:
+        if now >= _ollama_circuit_open_until:
+            try:
+                payload = {
+                    "model": "llama3",
+                    "messages": [],
+                    "stream": False
+                }
+                if json_mode:
+                    payload["format"] = "json"
+                if system_instruction:
+                    payload["messages"].append({"role": "system", "content": system_instruction})
+                payload["messages"].append({"role": "user", "content": prompt})
 
-            response = httpx.post(
-                f"{OLLAMA_HOST}/api/chat", 
-                json=payload, 
-                timeout=httpx.Timeout(4.0, connect=1.0)
-            )
-            if response.status_code == 200:
-                result_json = response.json()
-                return result_json["message"]["content"]
-        except Exception as e:
-            logger.error(f"Ollama execution note: {e}. Using responsive dynamic engine.")
+                response = httpx.post(
+                    f"{OLLAMA_HOST}/api/chat", 
+                    json=payload, 
+                    timeout=httpx.Timeout(2.0, connect=0.5)
+                )
+                if response.status_code == 200:
+                    result_json = response.json()
+                    _ollama_circuit_open_until = 0.0
+                    return result_json["message"]["content"]
+            except Exception as e:
+                # Ollama is offline or unreachable - open circuit for 60s
+                _ollama_circuit_open_until = time.time() + 60
+                logger.info(f"Ollama execution note: {e}. Opening circuit breaker for 60s. Using responsive dynamic engine.")
+        else:
+            logger.debug("Ollama circuit breaker active, skipping directly to responsive dynamic engine.")
 
     # 3. Fallback: Dynamic Responsive Reasoning Engine
     return run_mock_engine(prompt, system_instruction, json_mode)
