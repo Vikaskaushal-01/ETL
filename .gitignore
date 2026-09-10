@@ -17,6 +17,8 @@ __pycache__/
 # Local SQLite databases
 *.db
 *.sqlite3
+*.db-wal
+*.db-shm
 
 # Node dependencies (if any)
 node_modules/
