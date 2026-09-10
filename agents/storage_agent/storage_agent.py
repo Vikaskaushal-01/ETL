@@ -150,9 +150,9 @@ class StorageAgent:
         missing_customers_to_stub = set()
         missing_orders_to_stub = set()
 
-        for idx, row in df.iterrows():
+        for idx, raw_record in enumerate(df.to_dict(orient='records')):
             row_num = idx + 1
-            row_dict = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
+            row_dict = {k: (None if pd.isna(v) else v) for k, v in raw_record.items()}
             is_valid = True
             reject_reason = ""
             
