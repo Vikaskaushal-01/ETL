@@ -112,9 +112,6 @@ class StorageAgent:
             else:
                 dataset_type = "dataset"
 
-        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df, batch_id)
-        logger.info(f"Storage agent saved formatted dataset ({format_selected}) to clean folder: {formatted_file_path}")
-
         db = SessionLocal()
         user_email = None
         try:
@@ -124,6 +121,10 @@ class StorageAgent:
             ).scalar()
         except Exception as e:
             logger.warning(f"Failed to query uploaded_by in StorageAgent: {e}")
+
+        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df, batch_id, user_email=user_email)
+        logger.info(f"Storage agent saved formatted dataset ({format_selected}) to clean folder: {formatted_file_path}")
+
         sql_logs = []
         rejected_records = []
         rows_loaded = 0
@@ -408,11 +409,10 @@ class StorageAgent:
 
         execution_time = time.time() - start_time
         
-        # Log agent decision in DB
-        db_log = SessionLocal()
+        # Log agent decision in DB using existing session
         try:
             log_agent_decision(
-                db_log,
+                db,
                 batch_id=batch_id,
                 agent_name=self.name,
                 task="Format dataset and synchronize DB",
@@ -420,10 +420,11 @@ class StorageAgent:
                 confidence=95.0,
                 execution_time=execution_time
             )
+            db.commit()
         except Exception as e:
             logger.error(f"Failed logging agent decision: {e}")
         finally:
-            db_log.close()
+            db.close()
 
         logger.info(f"Storage agent processing complete. Format: {format_selected}. Saved at: {formatted_file_path}")
 
@@ -447,21 +448,21 @@ class StorageAgent:
             }
         }
 
-    def _save_formatted_file_to_clean_folder(self, clean_file_path: str, format_selected: str, dataset_type: str, df: pd.DataFrame, batch_id: str) -> str:
+    def _save_formatted_file_to_clean_folder(self, clean_file_path: str, format_selected: str, dataset_type: str, df: pd.DataFrame, batch_id: str, user_email: str = None) -> str:
         try:
             from backend.utils.account_utils import get_user_path
-            from backend.database.mysql import SessionLocal
-            db_user = SessionLocal()
-            user_email = None
-            try:
-                user_email = db_user.execute(
-                    text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
-                    {"b": batch_id}
-                ).scalar()
-            except Exception as e:
-                logger.warning(f"StorageAgent failed to query uploaded_by: {e}")
-            finally:
-                db_user.close()
+            if user_email is None:
+                from backend.database.mysql import SessionLocal
+                db_user = SessionLocal()
+                try:
+                    user_email = db_user.execute(
+                        text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"),
+                        {"b": batch_id}
+                    ).scalar()
+                except Exception as e:
+                    logger.warning(f"StorageAgent failed to query uploaded_by: {e}")
+                finally:
+                    db_user.close()
                 
             clean_dir = os.path.dirname(get_user_path(user_email, "cleaned data/dummy.txt"))
             os.makedirs(clean_dir, exist_ok=True)
@@ -525,7 +526,8 @@ class StorageAgent:
                 create_stmt = f"CREATE TABLE IF NOT EXISTS `{dataset_type}` (\n" + ",\n".join(col_defs) + "\n);\n\n"
                 sql_statements.append(create_stmt)
                 
-                for _, row in df.iterrows():
+                col_names_str = '`, `'.join(df.columns)
+                for row in df.itertuples(index=False):
                     val_strs = []
                     for v in row:
                         if pd.isna(v) or v is None:
@@ -535,7 +537,7 @@ class StorageAgent:
                         else:
                             safe_val = str(v).replace("'", "''")
                             val_strs.append(f"'{safe_val}'")
-                    stmt = f"INSERT INTO `{dataset_type}` (`{'`, `'.join(df.columns)}`) VALUES ({', '.join(val_strs)});\n"
+                    stmt = f"INSERT INTO `{dataset_type}` (`{col_names_str}`) VALUES ({', '.join(val_strs)});\n"
                     sql_statements.append(stmt)
                     
                 with open(target_path, "w", encoding="utf-8") as sf:
