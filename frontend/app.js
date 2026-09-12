@@ -645,7 +645,7 @@ function initDrawers() {
     const consoleDrawer = document.getElementById('console-drawer');
 
     const btnToggleGraph = document.getElementById('btn-toggle-graph');
-    const workspace = document.querySelector('.network-workspace');
+    const workspace = document.querySelector('.network-workspace') || document.getElementById('pipeline-monitor-page');
 
     const btnTogglePowerBI = document.getElementById('btn-toggle-powerbi');
     const btnClosePowerBI = document.getElementById('btn-close-powerbi');
@@ -653,7 +653,10 @@ function initDrawers() {
     const btnTriggerPbiRefresh = document.getElementById('btn-trigger-pbi-refresh');
 
     const updateWorkspaceBlur = () => {
-        if (explorerDrawer.classList.contains('active') || consoleDrawer.classList.contains('active') || (powerbiDrawer && powerbiDrawer.classList.contains('active'))) {
+        if (!workspace) return;
+        if ((explorerDrawer && explorerDrawer.classList.contains('active')) || 
+            (consoleDrawer && consoleDrawer.classList.contains('active')) || 
+            (powerbiDrawer && powerbiDrawer.classList.contains('active'))) {
             workspace.classList.add('blur-bg');
         } else {
             workspace.classList.remove('blur-bg');
@@ -661,16 +664,18 @@ function initDrawers() {
     };
 
     const closeAllMenus = () => {
-        document.getElementById('btn-toggle-graph').classList.remove('active');
+        if (btnToggleGraph) btnToggleGraph.classList.remove('active');
         const pbiBtn = document.getElementById('btn-toggle-powerbi');
         if (pbiBtn) pbiBtn.classList.remove('active');
-        document.getElementById('btn-toggle-explorer').classList.remove('active');
-        document.getElementById('btn-toggle-logs').classList.remove('active');
+        const expBtn = document.getElementById('btn-toggle-explorer');
+        if (expBtn) expBtn.classList.remove('active');
+        const logBtn = document.getElementById('btn-toggle-logs');
+        if (logBtn) logBtn.classList.remove('active');
         const profBtn = document.getElementById('btn-toggle-profile');
         if (profBtn) profBtn.classList.remove('active');
 
-        explorerDrawer.classList.remove('active');
-        consoleDrawer.classList.remove('active');
+        if (explorerDrawer) explorerDrawer.classList.remove('active');
+        if (consoleDrawer) consoleDrawer.classList.remove('active');
         if (powerbiDrawer) powerbiDrawer.classList.remove('active');
 
         const settingsOverlay = document.getElementById('settings-page-overlay');
@@ -678,7 +683,7 @@ function initDrawers() {
             settingsOverlay.style.display = 'none';
             settingsOverlay.classList.remove('active');
         }
-        workspace.classList.remove('blur-bg');
+        if (workspace) workspace.classList.remove('blur-bg');
     };
     window.closeAllMenus = closeAllMenus;
 
@@ -690,9 +695,9 @@ function initDrawers() {
                 powerbiDrawer.classList.add('active');
                 btnTogglePowerBI.classList.add('active');
                 fetchPowerBIStatus();
-                workspace.classList.add('blur-bg');
+                if (workspace) workspace.classList.add('blur-bg');
             } else {
-                btnToggleGraph.classList.add('active');
+                if (btnToggleGraph) btnToggleGraph.classList.add('active');
             }
         });
     }
@@ -700,7 +705,7 @@ function initDrawers() {
     if (btnClosePowerBI && powerbiDrawer) {
         btnClosePowerBI.addEventListener('click', () => {
             closeAllMenus();
-            btnToggleGraph.classList.add('active');
+            if (btnToggleGraph) btnToggleGraph.classList.add('active');
         });
     }
 
@@ -725,56 +730,69 @@ function initDrawers() {
         });
     }
 
-    btnToggleExplorer.addEventListener('click', () => {
-        const wasActive = explorerDrawer.classList.contains('active');
-        closeAllMenus();
-        if (!wasActive) {
-            explorerDrawer.classList.add('active');
-            btnToggleExplorer.classList.add('active');
-            loadExplorerFiles();
-            loadDashboardStats();
-            workspace.classList.add('blur-bg');
-        } else {
+    if (btnToggleExplorer && explorerDrawer) {
+        btnToggleExplorer.addEventListener('click', () => {
+            const wasActive = explorerDrawer.classList.contains('active');
+            closeAllMenus();
+            if (!wasActive) {
+                explorerDrawer.classList.add('active');
+                btnToggleExplorer.classList.add('active');
+                loadExplorerFiles();
+                loadDashboardStats();
+                if (workspace) workspace.classList.add('blur-bg');
+            } else {
+                if (btnToggleGraph) btnToggleGraph.classList.add('active');
+            }
+        });
+    }
+
+    if (btnCloseExplorer) {
+        btnCloseExplorer.addEventListener('click', () => {
+            closeAllMenus();
+            if (btnToggleGraph) btnToggleGraph.classList.add('active');
+        });
+    }
+
+    if (btnToggleLogs && consoleDrawer) {
+        btnToggleLogs.addEventListener('click', () => {
+            const wasActive = consoleDrawer.classList.contains('active');
+            closeAllMenus();
+            if (!wasActive) {
+                consoleDrawer.classList.add('active');
+                btnToggleLogs.classList.add('active');
+                if (workspace) workspace.classList.add('blur-bg');
+            } else {
+                if (btnToggleGraph) btnToggleGraph.classList.add('active');
+            }
+        });
+    }
+
+    if (btnCloseLogs) {
+        btnCloseLogs.addEventListener('click', () => {
+            closeAllMenus();
+            if (btnToggleGraph) btnToggleGraph.classList.add('active');
+        });
+    }
+
+    if (btnToggleGraph) {
+        btnToggleGraph.addEventListener('click', () => {
+            closeAllMenus();
             btnToggleGraph.classList.add('active');
-        }
-    });
-
-    btnCloseExplorer.addEventListener('click', () => {
-        closeAllMenus();
-        btnToggleGraph.classList.add('active');
-    });
-
-    btnToggleLogs.addEventListener('click', () => {
-        const wasActive = consoleDrawer.classList.contains('active');
-        closeAllMenus();
-        if (!wasActive) {
-            consoleDrawer.classList.add('active');
-            btnToggleLogs.classList.add('active');
-            workspace.classList.add('blur-bg');
-        } else {
-            btnToggleGraph.classList.add('active');
-        }
-    });
-
-    btnCloseLogs.addEventListener('click', () => {
-        closeAllMenus();
-        btnToggleGraph.classList.add('active');
-    });
-
-    btnToggleGraph.addEventListener('click', () => {
-        closeAllMenus();
-        btnToggleGraph.classList.add('active');
-    });
+        });
+    }
 
     const toggleManualInput = document.getElementById('toggle-manual-input');
-    const boxBody = toggleManualInput.nextElementSibling;
-    const arrowIcon = toggleManualInput.querySelector('.arrow-icon');
+    if (toggleManualInput) {
+        const boxBody = toggleManualInput.nextElementSibling;
+        const arrowIcon = toggleManualInput.querySelector('.arrow-icon');
 
-    toggleManualInput.addEventListener('click', () => {
-        const isHidden = boxBody.style.display === 'none';
-        boxBody.style.display = isHidden ? 'block' : 'none';
-        arrowIcon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-    });
+        toggleManualInput.addEventListener('click', () => {
+            if (!boxBody) return;
+            const isHidden = boxBody.style.display === 'none';
+            boxBody.style.display = isHidden ? 'block' : 'none';
+            if (arrowIcon) arrowIcon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        });
+    }
 }
 
 // Power BI status fetcher
@@ -1652,7 +1670,8 @@ async function loadDashboardStats() {
 
 window.selectBatchDetail = function(batchId) {
     if (window.closeAllMenus) window.closeAllMenus();
-    document.getElementById('btn-toggle-graph').classList.add('active');
+    const btnGraph = document.getElementById('btn-toggle-graph');
+    if (btnGraph) btnGraph.classList.add('active');
     
     fetchSelectedBatchInsights(batchId);
     showToast('info', `Loaded insights: ${batchId}`);
@@ -1660,14 +1679,19 @@ window.selectBatchDetail = function(batchId) {
 
 function viewRunLogs(pipelineId) {
     if (window.closeAllMenus) window.closeAllMenus();
-    document.getElementById('console-drawer').classList.add('active');
-    document.getElementById('btn-toggle-logs').classList.add('active');
-    document.querySelector('.network-workspace').classList.add('blur-bg');
+    const cDrawer = document.getElementById('console-drawer');
+    if (cDrawer) cDrawer.classList.add('active');
+    const tLogs = document.getElementById('btn-toggle-logs');
+    if (tLogs) tLogs.classList.add('active');
+    const ws = document.querySelector('.network-workspace') || document.getElementById('pipeline-monitor-page');
+    if (ws) ws.classList.add('blur-bg');
     startPipelinePolling(pipelineId);
 }
 
 function renderCharts(recentRuns) {
-    const ctxHistory = document.getElementById('executionHistoryChart').getContext('2d');
+    const canvas = document.getElementById('executionHistoryChart');
+    if (!canvas) return;
+    const ctxHistory = canvas.getContext('2d');
     if (state.historyChart) state.historyChart.destroy();
     
     const labels = recentRuns.map(r => r.pipeline_id.replace('pipe_batch_', '')).reverse();
