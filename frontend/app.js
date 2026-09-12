@@ -1250,6 +1250,7 @@ function startEqualizerPulsing() {
     if (state.equalizerInterval) clearInterval(state.equalizerInterval);
     
     const equalizer = document.getElementById('quality-equalizer');
+    if (!equalizer) return;
     const bars = equalizer.querySelectorAll('.eq-bar');
     
     state.equalizerInterval = setInterval(() => {
