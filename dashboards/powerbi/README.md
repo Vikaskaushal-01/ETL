@@ -111,3 +111,4 @@ In a production deployment, this node is configured to call the Power BI REST AP
 POST https://api.powerbi.com/v1.0/myorg/groups/{group_id}/datasets/{dataset_id}/refreshes
 ```
 Authentication is handled via OAuth 2.0 Azure AD Client Credentials.
+
