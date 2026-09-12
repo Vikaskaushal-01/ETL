@@ -3538,9 +3538,6 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     text-transform: uppercase;
 }
 
-/* ==========================================================================
-   Real-Time Ingestion Pipeline Monitor Styles
-   ========================================================================== */
 .pipeline-monitor-overlay-page,
 .pipeline-monitor-main-page,
 #pipeline-monitor-page {
@@ -3595,6 +3592,84 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     color: #ffffff;
     border-color: #8b5cf6;
     box-shadow: 0 4px 15px rgba(139, 92, 246, 0.35);
+}
+
+/* Sidebar Dataset Upload Zone */
+.sidebar-upload-card {
+    background: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 14px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.sidebar-upload-card:hover,
+.sidebar-upload-card.dragover {
+    border-color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.04);
+    transform: translateY(-2px);
+}
+
+.sidebar-upload-card .upload-icon {
+    font-size: 26px;
+    color: #8b5cf6;
+    margin-bottom: 6px;
+    transition: transform 0.2s ease;
+}
+
+.sidebar-upload-card:hover .upload-icon {
+    transform: scale(1.15);
+}
+
+.sidebar-upload-card .upload-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+}
+
+.sidebar-upload-card .upload-sub {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 2px;
+    display: block;
+}
+
+.btn-run-pipeline {
+    width: 100%;
+    padding: 11px 16px;
+    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    letter-spacing: 0.3px;
+    font-family: inherit;
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-run-pipeline:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.45);
+    filter: brightness(1.05);
+}
+
+.btn-run-pipeline:active {
+    transform: translateY(0);
 }
 
 .monitor-header {
