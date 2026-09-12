@@ -62,10 +62,20 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardStats();
     loadReportsList();
     
-    document.getElementById('refresh-dashboard-btn').addEventListener('click', () => {
-        loadDashboardStats();
-        loadExplorerFiles();
-    });
+    const refreshBtn = document.getElementById('refresh-dashboard-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadDashboardStats();
+            loadExplorerFiles();
+        });
+    }
+
+    // Initialize permanent Data Flow Pipeline
+    setTimeout(() => {
+        setupMonitorSvg();
+        updateMonitorPaths();
+        initGamificationCanvas();
+    }, 200);
 });
 
 // Authentication and Session Flow Control
@@ -85,7 +95,12 @@ function initAuth() {
         if (isLoggedIn) {
             loginScreen.classList.add('fade-out');
             mainApp.classList.remove('app-hidden');
-            setTimeout(drawNetworkConnections, 600); // Redraw SVG curves when dimensions mount
+            setTimeout(() => {
+                drawNetworkConnections();
+                setupMonitorSvg();
+                updateMonitorPaths();
+                initGamificationCanvas();
+            }, 300);
         } else {
             loginScreen.classList.remove('fade-out');
             mainApp.classList.add('app-hidden');
@@ -2300,7 +2315,8 @@ function initSettingsPage() {
         overlay.style.display = 'none';
         overlay.classList.remove('active');
         if (window.closeAllMenus) window.closeAllMenus();
-        document.getElementById('btn-toggle-graph').classList.add('active');
+        const btnGraph = document.getElementById('btn-toggle-graph');
+        if (btnGraph) btnGraph.classList.add('active');
     };
 
     // Bind Back to Dashboard
@@ -3399,7 +3415,7 @@ function updateMonitorPaths() {
 
 // 4. Update visualizer from stage data
 function updatePipelineMonitorUI(data) {
-    if (document.getElementById('pipeline-monitor-page').style.display !== 'flex') return;
+    if (!data || !document.getElementById('pipeline-monitor-page')) return;
     
     const stages = data.stages || {};
     let progress = 0;
