@@ -621,9 +621,10 @@ function initAuth() {
     });
 }
 
-// Live Clock in Topbar
+// // Live Clock in Topbar
 function initClock() {
     const clockEl = document.getElementById('live-clock');
+    if (!clockEl) return;
     const updateClock = () => {
         const now = new Date();
         const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
