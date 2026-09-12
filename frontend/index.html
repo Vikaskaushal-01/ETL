@@ -225,6 +225,30 @@
                 <div class="monitor-main-content">
                     <!-- Left panel: Ingestion Intake & Performance Stats -->
                     <div class="monitor-sidebar card-glass">
+                        <!-- Ingest Dataset Card -->
+                        <div class="sidebar-section">
+                            <h3><i class="fa-solid fa-cloud-arrow-up text-blue"></i> Raw Dataset Intake</h3>
+                            <div class="sidebar-upload-card" id="file-drop-zone">
+                                <div class="upload-drop-content">
+                                    <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                                    <p class="upload-title">Drop CSV / JSON / Excel</p>
+                                    <span class="upload-sub">or click to browse local files</span>
+                                </div>
+                                <input type="file" id="file-input" style="display:none;" accept=".csv,.json,.xlsx,.tsv,.txt">
+                                <div class="selected-file-banner" id="file-banner" style="display:none;">
+                                    <i class="fa-solid fa-file-code file-icon"></i>
+                                    <div class="file-details">
+                                        <span class="file-name" id="selected-file-name">-</span>
+                                        <span class="file-size" id="selected-file-size">-</span>
+                                    </div>
+                                    <button class="btn-remove-file" id="btn-clear-file" type="button"><i class="fa-solid fa-times"></i></button>
+                                </div>
+                            </div>
+                            <button class="btn-run-pipeline" id="btn-run-pipeline" type="button">
+                                <i class="fa-solid fa-play"></i> Run Data Flow
+                            </button>
+                        </div>
+
                         <!-- Ingestion Performance -->
                         <div class="sidebar-section">
                             <h3><i class="fa-solid fa-chart-pie"></i> Ingestion Performance</h3>
