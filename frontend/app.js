@@ -589,22 +589,6 @@ function initAuth() {
         }
     });
 
-    // Dropdown Actions Toasts
-    const actions = [
-        { id: 'btn-dropdown-security', text: 'Retrieving API Keys...' },
-        { id: 'btn-dropdown-preferences', text: 'Loading Client Preferences...' }
-    ];
-    actions.forEach(act => {
-        const el = document.getElementById(act.id);
-        if (el) {
-            el.addEventListener('click', (e) => {
-                e.preventDefault();
-                profileDropdown.classList.remove('active');
-                showToast('info', act.text);
-            });
-        }
-    });
-
     // Logout account
     logoutBtn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -3120,8 +3104,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCloseMonitorPage = document.getElementById('btn-close-monitor-page');
     if (btnCloseMonitorPage) {
         btnCloseMonitorPage.addEventListener('click', () => {
-            document.getElementById('pipeline-monitor-page').style.display = 'none';
-            document.querySelector('.network-workspace').classList.remove('blur-bg');
             if (state.monitorTimerInterval) {
                 clearInterval(state.monitorTimerInterval);
                 state.monitorTimerInterval = null;
@@ -3417,7 +3399,7 @@ function updatePipelineMonitorUI(data) {
             if (labelEl) labelEl.className = 'active';
             progress = Math.max(progress, (index + 1) * 20);
 
-            // Confetti and floating text triggers on node completion transition
+            // Confetti triggers on node completion transition
             state.previousStageStatuses = state.previousStageStatuses || {};
             if (state.previousStageStatuses[key] !== 'completed') {
                 state.previousStageStatuses[key] = 'completed';
@@ -3437,7 +3419,6 @@ function updatePipelineMonitorUI(data) {
                         else if (key === 'pbi') flowColor = '#10b981';
                         
                         spawnExplosion(x, y, flowColor);
-                        spawnFloatingText(x, y - 50, `+200 XP`, flowColor);
                     }
                 }, 100);
             }
