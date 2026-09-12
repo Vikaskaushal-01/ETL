@@ -999,7 +999,7 @@ function initNodeHoverEffects() {
     });
 }
 
-// Drag & Drop Ingestion
+// // Drag & Drop Ingestion
 function initDragAndDrop() {
     const dropZone = document.getElementById('file-drop-zone');
     const fileInput = document.getElementById('file-input');
@@ -1008,56 +1008,93 @@ function initDragAndDrop() {
     const fileSizeEl = document.getElementById('selected-file-size');
     const clearFileBtn = document.getElementById('btn-clear-file');
     
-    dropZone.addEventListener('click', (e) => {
-        if (e.target.closest('#btn-clear-file')) return;
-        fileInput.click();
-    });
+    if (dropZone && fileInput) {
+        dropZone.addEventListener('click', (e) => {
+            if (e.target.closest('#btn-clear-file')) return;
+            fileInput.click();
+        });
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileSelection(e.dataTransfer.files[0]);
+            }
+        });
+        
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                handleFileSelection(fileInput.files[0]);
+            }
+        });
+    }
     
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('dragover');
-    });
-    
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('dragover');
-    });
-    
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) {
-            handleFileSelection(e.dataTransfer.files[0]);
-        }
-    });
-    
-    fileInput.addEventListener('change', () => {
-        if (fileInput.files.length > 0) {
-            handleFileSelection(fileInput.files[0]);
-        }
-    });
-    
-    clearFileBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.selectedFile = null;
-        fileInput.value = '';
-        fileBanner.style.display = 'none';
-        dropZone.querySelector('.node-card-header').style.display = 'block';
-        showToast('info', 'File cleared.');
-    });
+    if (clearFileBtn) {
+        clearFileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            state.selectedFile = null;
+            if (fileInput) fileInput.value = '';
+            if (fileBanner) fileBanner.style.display = 'none';
+            if (dropZone) {
+                const dropContent = dropZone.querySelector('.upload-drop-content') || dropZone.querySelector('.node-card-header');
+                if (dropContent) dropContent.style.display = 'block';
+            }
+            showToast('info', 'File cleared.');
+        });
+    }
+
+    // Allow clicking or dragging directly onto the Raw Input node
+    const mnodeRaw = document.getElementById('mnode-raw');
+    if (mnodeRaw && fileInput) {
+        mnodeRaw.addEventListener('click', (e) => {
+            if (e.target.closest('a')) return;
+            fileInput.click();
+        });
+        mnodeRaw.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            mnodeRaw.classList.add('dragover');
+        });
+        mnodeRaw.addEventListener('dragleave', () => {
+            mnodeRaw.classList.remove('dragover');
+        });
+        mnodeRaw.addEventListener('drop', (e) => {
+            e.preventDefault();
+            mnodeRaw.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileSelection(e.dataTransfer.files[0]);
+            }
+        });
+    }
     
     function handleFileSelection(file) {
         state.selectedFile = file;
-        fileNameEl.textContent = file.name;
+        if (fileNameEl) fileNameEl.textContent = file.name;
         
         let sizeStr = `${(file.size / 1024).toFixed(1)} KB`;
         if (file.size > 1024 * 1024) {
             sizeStr = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
         }
-        fileSizeEl.textContent = sizeStr;
+        if (fileSizeEl) fileSizeEl.textContent = sizeStr;
         
-        dropZone.querySelector('.node-card-header').style.display = 'none';
-        fileBanner.style.display = 'flex';
-        showToast('info', `Loaded file: ${file.name}`);
+        if (dropZone) {
+            const dropContent = dropZone.querySelector('.upload-drop-content') || dropZone.querySelector('.node-card-header');
+            if (dropContent) dropContent.style.display = 'none';
+        }
+        if (fileBanner) fileBanner.style.display = 'flex';
+        
+        const rawFileEl = document.getElementById('mnode-raw-file');
+        if (rawFileEl) rawFileEl.textContent = file.name;
+        
+        showToast('info', `Loaded dataset: ${file.name}`);
     }
 }
 
@@ -1068,19 +1105,23 @@ function osBasename(path) {
 // Pipeline controls trigger
 function initPipelineControls() {
     const runBtn = document.getElementById('btn-run-pipeline');
+    if (!runBtn) return;
     
     runBtn.addEventListener('click', async () => {
-        const hasVirtualInput = document.getElementById('manual-textarea').value.trim() !== '';
-        const urlVal = document.getElementById('ingest-url-input') ? document.getElementById('ingest-url-input').value.trim() : '';
+        const manualEl = document.getElementById('manual-textarea');
+        const hasVirtualInput = manualEl ? manualEl.value.trim() !== '' : false;
+        const urlEl = document.getElementById('ingest-url-input');
+        const urlVal = urlEl ? urlEl.value.trim() : '';
         let uploadResult = null;
         
         resetFlowVisual();
         clearConsole();
         
         if (window.closeAllMenus) window.closeAllMenus();
-        document.getElementById('console-drawer').classList.add('active');
-        document.getElementById('btn-toggle-logs').classList.add('active');
-        document.querySelector('.network-workspace').classList.add('blur-bg');
+        const conDrawer = document.getElementById('console-drawer');
+        if (conDrawer) conDrawer.classList.add('active');
+        const togLogs = document.getElementById('btn-toggle-logs');
+        if (togLogs) togLogs.classList.add('active');
 
         if (urlVal) {
             writeConsoleLog('[System] Fetching file from remote URL...');
@@ -1113,8 +1154,9 @@ function initPipelineControls() {
             writeConsoleLog('[System] Ingesting local file upload...');
             uploadResult = await uploadFile(state.selectedFile);
         } else {
-            const rawData = document.getElementById('manual-textarea').value.trim();
-            const filename = document.getElementById('manual-filename').value.trim() || 'adhoc_sales.csv';
+            const rawData = manualEl.value.trim();
+            const manualFileEl = document.getElementById('manual-filename');
+            const filename = (manualFileEl ? manualFileEl.value.trim() : '') || 'adhoc_sales.csv';
             
             writeConsoleLog('[System] Generating simulated file from text editor...');
             const blob = new Blob([rawData], { type: 'text/plain' });
@@ -1130,10 +1172,13 @@ function initPipelineControls() {
         
         const { file_path, batch_id } = uploadResult;
         state.currentBatchId = batch_id;
-        document.getElementById('batch-badge-id').textContent = `Batch: ${batch_id}`;
+        const bBadge = document.getElementById('batch-badge-id');
+        if (bBadge) bBadge.textContent = `Batch: ${batch_id}`;
         
-        document.getElementById('details-active-batch').textContent = batch_id;
-        document.getElementById('details-batch-meta').textContent = `Initiating file parsing...`;
+        const dab = document.getElementById('details-active-batch');
+        if (dab) dab.textContent = batch_id;
+        const dbm = document.getElementById('details-batch-meta');
+        if (dbm) dbm.textContent = `Initiating file parsing...`;
 
         writeConsoleLog(`[Intake] Preserved original raw file at: ${file_path}`);
         writeConsoleLog(`[System] Initializing autonomous agents graph for pipeline: pipe_${batch_id}`);
@@ -3292,66 +3337,68 @@ async function uploadRagFile(file) {
 
 // 3. Pipeline monitor page initialization
 window.openPipelineMonitorOverlay = function(batchId, filename) {
-    // Show overlay
-    document.getElementById('pipeline-monitor-page').style.display = 'flex';
-    document.querySelector('.network-workspace').classList.add('blur-bg');
+    const monPage = document.getElementById('pipeline-monitor-page');
+    if (monPage) monPage.style.display = 'flex';
     
     // Set Header Info
-    document.getElementById('monitor-batch-id').textContent = batchId;
-    document.getElementById('monitor-file-name').textContent = filename;
-    document.getElementById('mnode-raw-file').textContent = filename;
+    const bId = document.getElementById('monitor-batch-id');
+    if (bId) bId.textContent = batchId;
+    const fName = document.getElementById('monitor-file-name');
+    if (fName) fName.textContent = filename;
+    const rFile = document.getElementById('mnode-raw-file');
+    if (rFile) rFile.textContent = filename;
     
     // Reset Stats
-    document.getElementById('monitor-stat-rows').textContent = '0';
-    document.getElementById('monitor-stat-rejections').textContent = '0';
-    document.getElementById('monitor-stat-quality').textContent = '100%';
-    document.getElementById('monitor-stat-loss-rate').textContent = '0%';
-    document.getElementById('monitor-progress-bar-fill').style.width = '0%';
-    document.getElementById('monitor-overall-status').textContent = 'Initializing...';
-    document.getElementById('monitor-overall-status-pill').className = 'monitor-stat-pill success';
+    const mRows = document.getElementById('monitor-stat-rows');
+    if (mRows) mRows.textContent = '0';
+    const mRej = document.getElementById('monitor-stat-rejections');
+    if (mRej) mRej.textContent = '0';
+    const mQual = document.getElementById('monitor-stat-quality');
+    if (mQual) mQual.textContent = '100%';
+    const mLoss = document.getElementById('monitor-stat-loss-rate');
+    if (mLoss) mLoss.textContent = '0%';
+    const pFill = document.getElementById('monitor-progress-bar-fill');
+    if (pFill) pFill.style.width = '0%';
+    const mStatus = document.getElementById('monitor-overall-status');
+    if (mStatus) mStatus.textContent = 'Initializing...';
+    const mPill = document.getElementById('monitor-overall-status-pill');
+    if (mPill) mPill.className = 'monitor-stat-pill success';
     
     // Set all nodes to waiting
     const nodeIds = ['intake', 'transformation', 'storage', 'report', 'pbi'];
     nodeIds.forEach(id => {
         const el = document.getElementById(`mnode-${id}`);
         if (el) {
-            el.className = 'monitor-node-card waiting';
-            el.querySelector('.node-desc').textContent = 'Waiting';
+            el.className = `monitor-node-card ${id}-squircle waiting`;
+            const desc = el.querySelector('.node-desc');
+            if (desc) desc.textContent = 'Waiting';
         }
         
         const label = document.getElementById(`label-step-${id}`);
         if (label) label.className = '';
     });
-    document.getElementById('mnode-raw').className = 'monitor-node-card raw-node';
+    const rawEl = document.getElementById('mnode-raw');
+    if (rawEl) rawEl.className = 'monitor-node-card raw-node';
     
     // Clear inspector panel
-    document.getElementById('monitor-inspector-empty').style.display = 'flex';
-    document.getElementById('monitor-inspector-content').style.display = 'none';
+    const inspEmpty = document.getElementById('monitor-inspector-empty');
+    if (inspEmpty) inspEmpty.style.display = 'flex';
+    const inspContent = document.getElementById('monitor-inspector-content');
+    if (inspContent) inspContent.style.display = 'none';
 
     // Start timer clock
     state.monitorStartTime = Date.now();
     if (state.monitorTimerInterval) clearInterval(state.monitorTimerInterval);
     state.monitorTimerInterval = setInterval(() => {
         const elapsed = ((Date.now() - state.monitorStartTime) / 1000).toFixed(1);
-        document.getElementById('monitor-duration').textContent = `${elapsed}s`;
+        const mDur = document.getElementById('monitor-duration');
+        if (mDur) mDur.textContent = `${elapsed}s`;
     }, 100);
 
     // Render connecting lines
     setupMonitorSvg();
     
-    // Reset badges
-    document.getElementById('badge-dup-slayer').className = 'badge-item locked';
-    document.getElementById('badge-null-hunter').className = 'badge-item locked';
-    document.getElementById('badge-schema-shield').className = 'badge-item locked';
-    
-    // Retrieve stored XP
-    const currentXp = parseInt(localStorage.getItem('user_xp') || '350');
-    const currentLevel = parseInt(localStorage.getItem('user_xp_level') || '1');
-    document.getElementById('user-xp-current').textContent = currentXp;
-    document.getElementById('user-xp-level').textContent = currentLevel;
-    document.getElementById('xp-progress-bar').style.width = `${(currentXp % 1000) / 10}%`;
-    
-    // Initialize gamification canvas
+    // Initialize flow canvas
     state.previousStageStatuses = {};
     setTimeout(() => {
         initGamificationCanvas();
