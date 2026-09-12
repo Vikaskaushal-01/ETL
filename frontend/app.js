@@ -1444,12 +1444,16 @@ async function fetchSelectedBatchInsights(batchId) {
     if (!batchId) return;
     
     const wrapper = document.querySelector('.sidebar-scroll-wrapper');
-    wrapper.classList.add('fade-out'); 
+    if (wrapper) wrapper.classList.add('fade-out'); 
 
     setTimeout(async () => {
         state.currentBatchId = batchId;
-        document.getElementById('details-active-batch').textContent = batchId;
-        document.getElementById('details-batch-meta').textContent = `Showing analytics for selected run.`;
+        const dBatch = document.getElementById('details-active-batch');
+        if (dBatch) dBatch.textContent = batchId;
+        const dMeta = document.getElementById('details-batch-meta');
+        if (dMeta) dMeta.textContent = `Showing analytics for selected run.`;
+        const mBatch = document.getElementById('monitor-batch-id');
+        if (mBatch) mBatch.textContent = batchId;
 
         try {
             const qRes = await fetch(`/api/v1/data-quality?batch_id=${batchId}`);
@@ -1459,103 +1463,114 @@ async function fetchSelectedBatchInsights(batchId) {
                     const report = reports[0];
                     const score = report.quality_score;
                     
-                    document.getElementById('stat-quality-score').textContent = `${score}%`;
-                    document.getElementById('widget-quality-val').textContent = `${score}%`;
+                    const statScore = document.getElementById('stat-quality-score');
+                    if (statScore) statScore.textContent = `${score}%`;
+                    const widgScore = document.getElementById('widget-quality-val');
+                    if (widgScore) widgScore.textContent = `${score}%`;
+                    const monScore = document.getElementById('monitor-stat-quality');
+                    if (monScore) monScore.textContent = `${score}%`;
                     
                     const equalizer = document.getElementById('quality-equalizer');
-                    const bars = equalizer.querySelectorAll('.eq-bar');
-                    bars.forEach((bar, idx) => {
-                        const offset = (Math.sin(idx) * 6) + (score - 5);
-                        const clampedHeight = Math.min(100, Math.max(15, offset));
-                        bar.style.height = `${clampedHeight}%`;
-                    });
+                    if (equalizer) {
+                        const bars = equalizer.querySelectorAll('.eq-bar');
+                        bars.forEach((bar, idx) => {
+                            const offset = (Math.sin(idx) * 6) + (score - 5);
+                            const clampedHeight = Math.min(100, Math.max(15, offset));
+                            bar.style.height = `${clampedHeight}%`;
+                        });
+                    }
                     
                     const missingCount = report.missing_values ? Object.values(report.missing_values).reduce((a, b) => a + b, 0) : 0;
-                    document.getElementById('stat-failed-records').textContent = report.duplicate_count + missingCount;
+                    const statFail = document.getElementById('stat-failed-records');
+                    if (statFail) statFail.textContent = report.duplicate_count + missingCount;
                 }
             }
             
             const rcaRes = await fetch(`/api/v1/root-cause?batch_id=${batchId}`);
             const rcaBody = document.getElementById('rca-details-body');
-            rcaBody.innerHTML = '';
-            
-            if (rcaRes.ok) {
-                const rcas = await rcaRes.json();
-                if (rcas && rcas.length > 0) {
-                    rcas.forEach(rca => {
-                        const div = document.createElement('div');
-                        div.className = 'rca-item';
-                        div.innerHTML = `
-                            <div class="rca-title">${rca.issue}</div>
-                            <p class="text-secondary"><strong>Root Cause:</strong> ${rca.root_cause}</p>
-                            <p class="text-green"><strong>Recommendation:</strong> ${rca.recommendation}</p>
-                        `;
-                        rcaBody.appendChild(div);
-                    });
-                } else {
-                    rcaBody.innerHTML = `<p class="text-secondary text-center">Batch processed cleanly with no data quality alerts.</p>`;
+            if (rcaBody) {
+                rcaBody.innerHTML = '';
+                
+                if (rcaRes.ok) {
+                    const rcas = await rcaRes.json();
+                    if (rcas && rcas.length > 0) {
+                        rcas.forEach(rca => {
+                            const div = document.createElement('div');
+                            div.className = 'rca-item';
+                            div.innerHTML = `
+                                <div class="rca-title">${rca.issue}</div>
+                                <p class="text-secondary"><strong>Root Cause:</strong> ${rca.root_cause}</p>
+                                <p class="text-green"><strong>Recommendation:</strong> ${rca.recommendation}</p>
+                            `;
+                            rcaBody.appendChild(div);
+                        });
+                    } else {
+                        rcaBody.innerHTML = `<p class="text-secondary text-center">Batch processed cleanly with no data quality alerts.</p>`;
+                    }
                 }
             }
 
             const repRes = await fetch('/api/v1/reports/folders');
             const container = document.getElementById('pdf-reports-container');
-            container.innerHTML = '';
-            
-            if (repRes.ok) {
-                const folders = await repRes.json();
-                if (folders && folders.length > 0) {
-                    const batchFolder = folders.find(r => r.batch_id === batchId) || folders[0];
-                    const reportId = batchFolder.batch_id;
-                    const folderName = batchFolder.folder_name || 'dataset';
-                    const dateStr = batchFolder.created_at ? parseUTCDate(batchFolder.created_at).toLocaleDateString() : 'Active';
-                    
-                    let switcherHtml = '';
-                    if (folders.length > 1) {
-                        switcherHtml = `
-                            <div style="margin-bottom: 8px;">
-                                <label style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Switch Report Folder:</label>
-                                <select id="reports-folder-switcher" style="width: 100%; margin-top: 3px; padding: 5px 8px; font-size: 11px; background: #0f172a; color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; cursor: pointer;" onchange="fetchSelectedBatchInsights(this.value)">
-                                    ${folders.map(f => `<option value="${f.batch_id}" ${f.batch_id === reportId ? 'selected' : ''}>📁 reports/${f.folder_name}/ (${f.batch_id})</option>`).join('')}
-                                </select>
+            if (container) {
+                container.innerHTML = '';
+                
+                if (repRes.ok) {
+                    const folders = await repRes.json();
+                    if (folders && folders.length > 0) {
+                        const batchFolder = folders.find(r => r.batch_id === batchId) || folders[0];
+                        const reportId = batchFolder.batch_id;
+                        const folderName = batchFolder.folder_name || 'dataset';
+                        const dateStr = batchFolder.created_at ? parseUTCDate(batchFolder.created_at).toLocaleDateString() : 'Active';
+                        
+                        let switcherHtml = '';
+                        if (folders.length > 1) {
+                            switcherHtml = `
+                                <div style="margin-bottom: 8px;">
+                                    <label style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Switch Report Folder:</label>
+                                    <select id="reports-folder-switcher" style="width: 100%; margin-top: 3px; padding: 5px 8px; font-size: 11px; background: #0f172a; color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; cursor: pointer;" onchange="fetchSelectedBatchInsights(this.value)">
+                                        ${folders.map(f => `<option value="${f.batch_id}" ${f.batch_id === reportId ? 'selected' : ''}>📁 reports/${f.folder_name}/ (${f.batch_id})</option>`).join('')}
+                                    </select>
+                                </div>
+                            `;
+                        }
+                        
+                        container.innerHTML = `
+                            <div class="report-item-download" style="flex-direction: column; align-items: stretch; gap: 10px; background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
+                                ${switcherHtml}
+                                <div class="report-info-text" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+                                    <div>
+                                        <h4 style="color: #60a5fa; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                                            <i class="fa-solid fa-folder-open text-yellow"></i> reports/${folderName}/
+                                        </h4>
+                                        <span style="font-size: 11px; color: #94a3b8;">Batch: <code>${reportId}</code> | ${dateStr}</span>
+                                    </div>
+                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 10px; padding: 2px 6px;">4 Formats</span>
+                                </div>
+                                <p style="font-size: 11px; color: #cbd5e1; margin: 0;">Multi-format executive reports ready for download:</p>
+                                <div class="report-download-buttons-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <button class="btn-download-pdf" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(225,29,72,0.2);" onclick="downloadReport('${reportId}', 'pdf')">
+                                        <i class="fa-solid fa-file-pdf"></i> PDF (.pdf)
+                                    </button>
+                                    <button class="btn-download-word" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(37,99,235,0.2);" onclick="downloadReport('${reportId}', 'docx')">
+                                        <i class="fa-solid fa-file-word"></i> Word (.docx)
+                                    </button>
+                                    <button class="btn-download-markdown" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(14,165,233,0.2);" onclick="downloadReport('${reportId}', 'markdown')">
+                                        <i class="fa-solid fa-file-code"></i> Markdown (.md)
+                                    </button>
+                                    <button class="btn-download-json" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);" onclick="downloadReport('${reportId}', 'json')">
+                                        <i class="fa-solid fa-braces"></i> JSON (.json)
+                                    </button>
+                                </div>
                             </div>
                         `;
+                    } else {
+                        container.innerHTML = `
+                            <div class="no-data-card text-center">
+                                <i class="fa-solid fa-file-pdf"></i>
+                                <p>No analytical report generated yet. Run pipeline to generate reports.</p>
+                            </div>`;
                     }
-                    
-                    container.innerHTML = `
-                        <div class="report-item-download" style="flex-direction: column; align-items: stretch; gap: 10px; background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
-                            ${switcherHtml}
-                            <div class="report-info-text" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
-                                <div>
-                                    <h4 style="color: #60a5fa; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                                        <i class="fa-solid fa-folder-open text-yellow"></i> reports/${folderName}/
-                                    </h4>
-                                    <span style="font-size: 11px; color: #94a3b8;">Batch: <code>${reportId}</code> | ${dateStr}</span>
-                                </div>
-                                <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 10px; padding: 2px 6px;">4 Formats</span>
-                            </div>
-                            <p style="font-size: 11px; color: #cbd5e1; margin: 0;">Multi-format executive reports ready for download:</p>
-                            <div class="report-download-buttons-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <button class="btn-download-pdf" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(225,29,72,0.2);" onclick="downloadReport('${reportId}', 'pdf')">
-                                    <i class="fa-solid fa-file-pdf"></i> PDF (.pdf)
-                                </button>
-                                <button class="btn-download-word" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(37,99,235,0.2);" onclick="downloadReport('${reportId}', 'docx')">
-                                    <i class="fa-solid fa-file-word"></i> Word (.docx)
-                                </button>
-                                <button class="btn-download-markdown" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(14,165,233,0.2);" onclick="downloadReport('${reportId}', 'markdown')">
-                                    <i class="fa-solid fa-file-code"></i> Markdown (.md)
-                                </button>
-                                <button class="btn-download-json" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);" onclick="downloadReport('${reportId}', 'json')">
-                                    <i class="fa-solid fa-braces"></i> JSON (.json)
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = `
-                        <div class="no-data-card text-center">
-                            <i class="fa-solid fa-file-pdf"></i>
-                            <p>No analytical report generated yet. Run pipeline to generate reports.</p>
-                        </div>`;
                 }
             }
 
@@ -1576,13 +1591,15 @@ async function fetchSelectedBatchInsights(batchId) {
                         const rowsIngested = (pipeData.stages && pipeData.stages.intake && pipeData.stages.intake.output && typeof pipeData.stages.intake.output.rows === 'number') 
                             ? pipeData.stages.intake.output.rows 
                             : 0;
-                        document.getElementById('stat-total-processed').textContent = rowsIngested.toLocaleString();
+                        const stTot = document.getElementById('stat-total-processed');
+                        if (stTot) stTot.textContent = rowsIngested.toLocaleString();
                         
                         // 2. Rejections (stat-failed-records)
                         const rejections = (pipeData.stages && pipeData.stages.storage && pipeData.stages.storage.output && typeof pipeData.stages.storage.output.rows_rejected === 'number') 
                             ? pipeData.stages.storage.output.rows_rejected 
                             : 0;
-                        document.getElementById('stat-failed-records').textContent = rejections.toLocaleString();
+                        const stFail = document.getElementById('stat-failed-records');
+                        if (stFail) stFail.textContent = rejections.toLocaleString();
                         
                         // 3. Pipeline Duration (stat-avg-runtime)
                         let durationVal = 0;
@@ -1591,7 +1608,8 @@ async function fetchSelectedBatchInsights(batchId) {
                         } else if (pipeData.start_time && pipeData.end_time) {
                             durationVal = (parseUTCDate(pipeData.end_time) - parseUTCDate(pipeData.start_time)) / 1000;
                         }
-                        document.getElementById('stat-avg-runtime').textContent = `${durationVal.toFixed(1)}s`;
+                        const stAvg = document.getElementById('stat-avg-runtime');
+                        if (stAvg) stAvg.textContent = `${durationVal.toFixed(1)}s`;
                         
                         // 4. Success Rate (stat-success-rate)
                         let successRate = 100;
@@ -1601,7 +1619,8 @@ async function fetchSelectedBatchInsights(batchId) {
                             if (pipeData.status === 'Failed') successRate = 0;
                             else if (pipeData.status === 'Success' || pipeData.status === 'Passed with Warnings') successRate = 100;
                         }
-                        document.getElementById('stat-success-rate').textContent = `${successRate.toFixed(1)}%`;
+                        const stSucc = document.getElementById('stat-success-rate');
+                        if (stSucc) stSucc.textContent = `${successRate.toFixed(1)}%`;
                     }
                 }
             } catch (err) {
@@ -1609,14 +1628,16 @@ async function fetchSelectedBatchInsights(batchId) {
             }
 
             const chatSelect = document.getElementById('chat-batch-select');
-            chatSelect.value = batchId;
+            if (chatSelect) {
+                chatSelect.value = batchId;
+            }
             state.chatContextBatchId = batchId;
 
         } catch (e) {
             loggerError('fetchSelectedBatchInsights', e);
         }
 
-        wrapper.classList.remove('fade-out');
+        if (wrapper) wrapper.classList.remove('fade-out');
     }, 250);
 }
 
@@ -1627,43 +1648,56 @@ async function loadDashboardStats() {
         if (!response.ok) return;
         const stats = await response.json();
         
-        document.getElementById('stat-total-processed').textContent = stats.total_rows_processed.toLocaleString();
-        document.getElementById('stat-success-rate').textContent = `${stats.success_rate}%`;
-        document.getElementById('stat-avg-runtime').textContent = `${stats.processing_time_avg.toFixed(1)}s`;
-        document.getElementById('stat-failed-records').textContent = stats.failed_records.toLocaleString();
+        const elTotal = document.getElementById('stat-total-processed');
+        if (elTotal) elTotal.textContent = (stats.total_rows_processed || 0).toLocaleString();
+        const elSuccess = document.getElementById('stat-success-rate');
+        if (elSuccess) elSuccess.textContent = `${stats.success_rate || 100}%`;
+        const elRuntime = document.getElementById('stat-avg-runtime');
+        if (elRuntime) elRuntime.textContent = `${(stats.processing_time_avg || 0).toFixed(1)}s`;
+        const elFailed = document.getElementById('stat-failed-records');
+        if (elFailed) elFailed.textContent = (stats.failed_records || 0).toLocaleString();
         
-        const tableBody = document.querySelector('#recent-runs-table tbody');
-        tableBody.innerHTML = '';
-        
-        if (stats.recent_runs.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No runs logged yet.</td></tr>';
-            return;
+        // Also update monitor sidebar performance stats if present
+        const monRows = document.getElementById('monitor-stat-rows');
+        if (monRows && (monRows.textContent === '0' || !monRows.textContent) && stats.total_rows_processed) {
+            monRows.textContent = stats.total_rows_processed.toLocaleString();
         }
         
-        stats.recent_runs.forEach(run => {
-            const tr = document.createElement('tr');
-            let badgeClass = 'success';
-            if (run.status === 'Failed') badgeClass = 'failed';
-            else if (run.status === 'Passed with Warnings') badgeClass = 'warning';
-            else if (run.status === 'Running') badgeClass = 'running';
+        const tableBody = document.querySelector('#recent-runs-table tbody');
+        if (tableBody) {
+            tableBody.innerHTML = '';
             
-            const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleTimeString() : 'N/A';
-            const runtimeStr = run.execution_time ? `${run.execution_time.toFixed(1)}s` : '--';
-            
-            tr.innerHTML = `
-                <td><strong>${run.pipeline_id}</strong></td>
-                <td>${startStr}</td>
-                <td>${runtimeStr}</td>
-                <td><span class="badge ${badgeClass}">${run.status}</span></td>
-                <td>
-                    <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="viewRunLogs('${run.pipeline_id}')"><i class="fa-solid fa-code"></i> Logs</button>
-                    <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="selectBatchDetail('${run.pipeline_id.replace('pipe_', '')}')"><i class="fa-solid fa-eye"></i> Insights</button>
-                </td>
-            `;
-            tableBody.appendChild(tr);
-        });
+            if (!stats.recent_runs || stats.recent_runs.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No runs logged yet.</td></tr>';
+            } else {
+                stats.recent_runs.forEach(run => {
+                    const tr = document.createElement('tr');
+                    let badgeClass = 'success';
+                    if (run.status === 'Failed') badgeClass = 'failed';
+                    else if (run.status === 'Passed with Warnings') badgeClass = 'warning';
+                    else if (run.status === 'Running') badgeClass = 'running';
+                    
+                    const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleTimeString() : 'N/A';
+                    const runtimeStr = run.execution_time ? `${run.execution_time.toFixed(1)}s` : '--';
+                    
+                    tr.innerHTML = `
+                        <td><strong>${run.pipeline_id}</strong></td>
+                        <td>${startStr}</td>
+                        <td>${runtimeStr}</td>
+                        <td><span class="badge ${badgeClass}">${run.status}</span></td>
+                        <td>
+                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="viewRunLogs('${run.pipeline_id}')"><i class="fa-solid fa-code"></i> Logs</button>
+                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="selectBatchDetail('${run.pipeline_id.replace('pipe_', '')}')"><i class="fa-solid fa-eye"></i> Insights</button>
+                        </td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+            }
+        }
         
-        renderCharts(stats.recent_runs);
+        if (stats.recent_runs) {
+            renderCharts(stats.recent_runs);
+        }
     } catch (e) {
         loggerError('loadDashboardStats', e);
     }
@@ -3509,27 +3543,29 @@ function updatePipelineMonitorUI(data) {
         rowsCount = stages['storage'].output.rows_loaded || rowsCount;
     }
     
-    document.getElementById('monitor-stat-rows').textContent = rowsCount;
-    document.getElementById('monitor-stat-rejections').textContent = rejectionsCount;
-    document.getElementById('monitor-stat-quality').textContent = `${qualityScore}%`;
+    const stRows = document.getElementById('monitor-stat-rows');
+    if (stRows) stRows.textContent = rowsCount;
+    const stRej = document.getElementById('monitor-stat-rejections');
+    if (stRej) stRej.textContent = rejectionsCount;
+    const stQual = document.getElementById('monitor-stat-quality');
+    if (stQual) stQual.textContent = `${qualityScore}%`;
     
     const lossRate = rowsCount > 0 ? ((rejectionsCount / (rowsCount + rejectionsCount)) * 100).toFixed(1) : 0;
-    document.getElementById('monitor-stat-loss-rate').textContent = `${lossRate}%`;
+    const stLoss = document.getElementById('monitor-stat-loss-rate');
+    if (stLoss) stLoss.textContent = `${lossRate}%`;
     
-    document.getElementById('monitor-progress-bar-fill').style.width = `${progress}%`;
+    const pFill = document.getElementById('monitor-progress-bar-fill');
+    if (pFill) pFill.style.width = `${progress}%`;
 
     // Process general state status
     if (data.status === 'Success' || data.status === 'Passed with Warnings') {
         overallStatus = 'Finished';
         statusClass = 'monitor-stat-pill success';
-        document.getElementById('monitor-progress-bar-fill').style.width = '100%';
+        if (pFill) pFill.style.width = '100%';
         if (state.monitorTimerInterval) {
             clearInterval(state.monitorTimerInterval);
             state.monitorTimerInterval = null;
         }
-        
-        // Trigger gamification XP increment
-        awardXpPoints(rejectionsCount, qualityScore);
     } else if (data.status === 'Failed') {
         overallStatus = 'Execution Aborted';
         statusClass = 'monitor-stat-pill error';
@@ -3542,8 +3578,10 @@ function updatePipelineMonitorUI(data) {
         statusClass = 'monitor-stat-pill processing';
     }
     
-    document.getElementById('monitor-overall-status').textContent = overallStatus;
-    document.getElementById('monitor-overall-status-pill').className = statusClass;
+    const stOverall = document.getElementById('monitor-overall-status');
+    if (stOverall) stOverall.textContent = overallStatus;
+    const stPill = document.getElementById('monitor-overall-status-pill');
+    if (stPill) stPill.className = statusClass;
 }
 
 function getStageDesc(key, stage) {
