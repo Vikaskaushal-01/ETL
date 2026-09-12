@@ -197,142 +197,380 @@
 
     <!-- Main App Container (Hidden initially via auth check class) -->
     <div class="app-container app-hidden" id="main-app-container">
-        
-        <!-- Left Visualization and Network Flow Area -->
-        <main class="network-workspace">
-            
-            <!-- Sleek Top Header Navigation -->
-            <header class="topbar">
-                <div class="logo-area">
-                    <div class="logo-icon"><i class="fa-solid fa-compass-drafting"></i></div>
-                    <div class="logo-text">Control <span>AI</span><span class="sub-logo">ETL Platform</span></div>
-                </div>
-                
-                <!-- Center Controls (Floating Toggles) -->
-                <div class="center-controls">
-                    <button class="control-btn active" id="btn-toggle-graph" title="View Ingestion Network"><i class="fa-solid fa-diagram-project"></i></button>
-                    <button class="control-btn" id="btn-toggle-powerbi" title="Toggle Power BI Data Models & Refresh"><i class="fa-solid fa-chart-column"></i></button>
-                    <button class="control-btn" id="btn-toggle-explorer" title="Toggle Storage Explorer Drawer"><i class="fa-solid fa-database"></i></button>
-                    <button class="control-btn" id="btn-toggle-logs" title="Toggle Live Console Logs"><i class="fa-solid fa-terminal"></i></button>
-                    <button class="control-btn" id="btn-toggle-profile" title="Account Profile Settings"><i class="fa-solid fa-user-gear"></i></button>
-                </div>
-                
-                <!-- Right Action Bar -->
-                <div class="topbar-actions">
-                    <div class="status-indicator">
-                        <span class="pulse-dot green"></span>
-                        <span>System: Online</span>
-                    </div>
-                    <div class="date-time" id="live-clock"><i class="fa-solid fa-clock"></i> --:--:--</div>
-                    
-                    <!-- Profile Area with Dropdown Menu -->
-                    <div class="profile-container">
-                        <div class="profile-area" id="profile-avatar-trigger">
-                            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" alt="Profile" class="avatar" id="user-display-avatar">
-                            <i class="fa-solid fa-chevron-down profile-arrow"></i>
+        <!-- Permanent Data Flow Pipeline Main Workspace -->
+        <div id="pipeline-monitor-page" class="pipeline-monitor-main-page">
+            <canvas id="gamification-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4;"></canvas>
+            <div class="monitor-container">
+                <!-- Header section -->
+                <header class="monitor-header">
+                    <div class="monitor-title-area">
+                        <div class="monitor-icon pulse-blue"><i class="fa-solid fa-network-wired"></i></div>
+                        <div>
+                            <h2>Real-Time Ingestion Data Flow</h2>
+                            <p>Batch ID: <span id="monitor-batch-id" class="neon-text-blue">-</span> | Source File: <span id="monitor-file-name" class="neon-text-teal">-</span></p>
                         </div>
-                        <div class="profile-dropdown-menu" id="profile-dropdown">
-                            <div class="dropdown-user-info">
-                                <strong id="user-display-name">System Administrator</strong>
-                                <span id="user-display-email">admin@controlai.net</span>
+                    </div>
+                    <div class="monitor-header-actions" style="display:flex; align-items:center; gap:12px;">
+                        <div class="monitor-stat-pill">
+                            <i class="fa-solid fa-clock"></i> Duration: <span id="monitor-duration">0.0s</span>
+                        </div>
+                        <div class="monitor-stat-pill success" id="monitor-overall-status-pill">
+                            <span class="status-pulse-dot"></span>
+                            <span id="monitor-overall-status">Ready</span>
+                        </div>
+
+                </header>
+
+                <!-- Main view container split into 3 columns -->
+                <div class="monitor-main-content">
+                    <!-- Left panel: Ingestion Intake & Performance Stats -->
+                    <div class="monitor-sidebar card-glass">
+                        <!-- Ingestion Performance -->
+                        <div class="sidebar-section">
+                            <h3><i class="fa-solid fa-chart-pie"></i> Ingestion Performance</h3>
+                            <div class="sidebar-stat-row">
+                                <div class="sidebar-stat-card">
+                                    <strong>Rows Ingested</strong>
+                                    <span id="monitor-stat-rows">0</span>
+                                </div>
+                                <div class="sidebar-stat-card">
+                                    <strong>Data Loss / Rejections</strong>
+                                    <span id="monitor-stat-rejections" class="text-red">0</span>
+                                </div>
                             </div>
-                            <div class="dropdown-divider"></div>
-                            <a href="#" class="dropdown-item" id="btn-dropdown-profile"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
-                            <a href="#" class="dropdown-item" id="btn-dropdown-security"><i class="fa-solid fa-key"></i> API Keys</a>
-                            <a href="#" class="dropdown-item" id="btn-dropdown-preferences"><i class="fa-solid fa-sliders"></i> Preferences</a>
-                            <div class="dropdown-divider"></div>
-                            <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
+                            <div class="sidebar-stat-row" style="margin-top: 10px;">
+                                <div class="sidebar-stat-card">
+                                    <strong>Data Quality Score</strong>
+                                    <span id="monitor-stat-quality" class="text-teal">100%</span>
+                                </div>
+                                <div class="sidebar-stat-card">
+                                    <strong>Loss Rate</strong>
+                                    <span id="monitor-stat-loss-rate">0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Progress bar -->
+                        <div class="sidebar-section">
+                            <h3><i class="fa-solid fa-spinner"></i> Ingestion Progression</h3>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar-fill" id="monitor-progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-step-labels">
+                                <span id="label-step-intake" class="active">Read</span>
+                                <span id="label-step-transformation">Clean</span>
+                                <span id="label-step-storage">Stage</span>
+                                <span id="label-step-report">Report</span>
+                                <span id="label-step-pbi">Sync</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Center visualizer: Network flow -->
+                    <div class="monitor-canvas-area card-glass">
+                        <svg id="monitor-connection-svg" class="monitor-connection-svg"></svg>
+                        <div class="monitor-nodes-flow">
+                            <!-- Raw Node (styled as profile headshot squircle) -->
+                            <div class="monitor-node-card raw-node" id="mnode-raw" title="Click to select file or inspect raw input">
+                                <div class="node-avatar-container">
+                                    <img src="./profile_data_engineer.jpg" class="node-avatar-img">
+                                </div>
+                                <div class="node-label-title">Raw Input</div>
+                                <div class="node-desc" id="mnode-raw-file">-</div>
+                            </div>
+                            
+                            <!-- Intake Node (yellow squircle lightbulb) -->
+                            <div class="monitor-node-card yellow-squircle waiting" id="mnode-intake" title="Click to inspect Iris Ingest Snap">
+                                <div class="node-squircle-icon yellow">
+                                    <i class="fa-solid fa-lightbulb"></i>
+                                </div>
+                                <div class="node-label-title">Iris Ingest</div>
+                                <div class="node-desc">Waiting</div>
+                            </div>
+
+                            <!-- Cleanser Node (blue squircle wand/bubbles) -->
+                            <div class="monitor-node-card blue-squircle waiting" id="mnode-transformation" title="Click to inspect Data Cleanser Snap">
+                                <div class="node-squircle-icon blue">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                                </div>
+                                <div class="node-label-title">Data Cleanser</div>
+                                <div class="node-desc">Waiting</div>
+                            </div>
+
+                            <!-- SQL Storage Node (purple squircle checkmark - central) -->
+                            <div class="monitor-node-card purple-squircle waiting" id="mnode-storage" title="Click to inspect SQL Staging Snap">
+                                <div class="node-squircle-icon purple">
+                                    <i class="fa-solid fa-circle-check"></i>
+                                </div>
+                                <div class="node-label-title">SQL Staging</div>
+                                <div class="node-desc">Waiting</div>
+                            </div>
+
+                            <!-- Report Node (red squircle shield/alert) -->
+                            <div class="monitor-node-card red-squircle waiting" id="mnode-report" title="Click to inspect PDF Exporter Snap">
+                                <div class="node-squircle-icon red">
+                                    <i class="fa-solid fa-shield-halved"></i>
+                                </div>
+                                <div class="node-label-title">PDF Exporter</div>
+                                <div class="node-desc">Waiting</div>
+                            </div>
+
+                            <!-- PBI Gateway Node (white squircle double-eyes) -->
+                            <div class="monitor-node-card white-squircle waiting" id="mnode-pbi" title="Click to inspect Power BI Gateway">
+                                <div class="node-squircle-icon white">
+                                    <i class="fa-solid fa-eye"></i>
+                                </div>
+                                <div class="node-label-title">PBI Gateway</div>
+                                <div class="node-desc">Waiting</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Canvas Branding Title matching the reference image -->
+                        <div class="monitor-canvas-branding">
+                            <h1>All-in-one ETL platform</h1>
+                            <p>Control AI is a modern, all-in-one data automation platform designed to perfectly fit your business needs.</p>
+                        </div>
+                    </div>
+
+                    <!-- Right panel: Detailed Inspection -->
+                    <div class="monitor-inspector card-glass" id="monitor-inspector-panel">
+                        <div class="inspector-empty-state" id="monitor-inspector-empty">
+                            <i class="fa-solid fa-magnifying-glass-chart"></i>
+                            <h4>Component Inspector</h4>
+                            <p>Click on any agent node in the pipeline flowchart to inspect intermediate staging databases, generated schemas, validation rules, or logs.</p>
+                        </div>
+                        <div class="inspector-content" id="monitor-inspector-content" style="display: none;">
+                            <h3 id="inspector-node-title">-</h3>
+                            <div class="inspector-meta-row">
+                                <span class="badge" id="inspector-node-status">-</span>
+                                <span class="text-secondary" id="inspector-node-component">-</span>
+                            </div>
+                            <div class="inspector-section" id="inspector-section-data" style="margin-top:14px;">
+                                <h4>Intermediate Outputs</h4>
+                                <div id="inspector-data-output" class="inspector-scroll-container"></div>
+                            </div>
+                            <div class="inspector-section" id="inspector-section-logs" style="margin-top:14px;">
+                                <h4>Stage Logs</h4>
+                                <div id="inspector-logs-output" class="inspector-logs-box"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </header>
-
-            <!-- Network canvas flowchart removed in favor of permanent pipeline monitor -->
-        </main>
-
-        <!-- Right Detail Panel (Details, KPIs, RCA, Chat Assistant) -->
-        <aside class="details-sidebar">
-            <div class="sidebar-scroll-wrapper">
-                
-                <div class="sidebar-header">
-                    <span class="category-tag"><i class="fa-solid fa-microchip"></i> Senior AI Agent Insights</span>
-                    <h2 id="details-active-batch">Select active batch</h2>
-                    <p class="subtitle" id="details-batch-meta">Upload a file to profile metrics</p>
-                </div>
-
-                <!-- Data Quality Sentiment Widget -->
-                <div class="detail-widget-card glow-card">
-                    <div class="widget-header">
-                        <span>Data Integrity / Quality Score</span>
-                        <span class="badge-pill" id="stat-quality-score">-%</span>
-                    </div>
-                    <div class="widget-value-row">
-                        <h2 id="widget-quality-val">-%</h2>
-                        <span class="rate-status green"><i class="fa-solid fa-caret-up"></i> Optimal</span>
-                    </div>
-                    <!-- CSS Custom Equalizer Graph Grid -->
-                    <div class="equalizer-graph" id="quality-equalizer">
-                        <div class="eq-bar" style="--height: 40%"></div>
-                        <div class="eq-bar" style="--height: 55%"></div>
-                        <div class="eq-bar" style="--height: 70%"></div>
-                        <div class="eq-bar" style="--height: 80%"></div>
-                        <div class="eq-bar" style="--height: 95%"></div>
-                        <div class="eq-bar" style="--height: 90%"></div>
-                        <div class="eq-bar" style="--height: 75%"></div>
-                        <div class="eq-bar" style="--height: 60%"></div>
-                        <div class="eq-bar" style="--height: 65%"></div>
-                        <div class="eq-bar" style="--height: 80%"></div>
-                        <div class="eq-bar" style="--height: 85%"></div>
-                        <div class="eq-bar" style="--height: 95%"></div>
-                        <div class="eq-bar" style="--height: 90%"></div>
-                        <div class="eq-bar" style="--height: 70%"></div>
-                        <div class="eq-bar" style="--height: 60%"></div>
-                        <div class="eq-bar" style="--height: 80%"></div>
-                        <div class="eq-bar" style="--height: 90%"></div>
-                        <div class="eq-bar" style="--height: 95%"></div>
-                        <div class="eq-bar" style="--height: 85%"></div>
-                        <div class="eq-bar" style="--height: 98%"></div>
-                    </div>
-                </div>
-
-                <!-- 2x2 KPIs Grid -->
-                <div class="sidebar-kpis-grid">
-                    <div class="kpi-box">
-                        <h4 id="stat-total-processed">-</h4>
-                        <span>Rows Ingested</span>
-                    </div>
-                    <div class="kpi-box">
-                        <h4 id="stat-failed-records">-</h4>
-                        <span>Rejections</span>
-                    </div>
-                    <div class="kpi-box">
-                        <h4 id="stat-avg-runtime">-s</h4>
-                        <span>Pipeline Duration</span>
-                    </div>
-                    <div class="kpi-box">
-                        <h4 id="stat-success-rate">-%</h4>
-                        <span>Success Rate</span>
-                    </div>
-                </div>
-
-                <!-- RCA Summary Analysis -->
-                <div class="rca-analysis-card">
-                    <h3><i class="fa-solid fa-triangle-exclamation text-orange"></i> Root Cause & Transformations</h3>
-                    <div class="rca-content" id="rca-details-body">
-                        <p class="text-secondary text-center" style="margin-top: 15px;">No active execution summary loaded. Run the pipeline to display findings.</p>
-                    </div>
-                </div>
-
-                <!-- PDF Reports Download Card -->
-                <div class="reports-download-card" id="pdf-reports-container">
-                    <div class="no-data-card text-center">
-                        <i class="fa-solid fa-file-pdf"></i>
-                        <p>Awaiting report compilation</p>
-                    </div>
-                </div>
-
             </div>
-        </aside>
+        </div>
+
+        <!-- Console Drawer Overlay -->
+        <div class="console-drawer" id="console-drawer">
+            <div class="console-box">
+                <div class="console-header">
+                    <span><i class="fa-solid fa-terminal"></i> Execution Logs Console</span>
+                    <div class="console-controls">
+                        <span class="console-badge" id="batch-badge-id">No Active Batch</span>
+                        <button class="console-close-btn" id="btn-close-logs"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div class="console-body" id="console-logs">
+                    <p class="text-gray">[System] Ready. Submit a dataset to view step execution logs...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage & Executions Explorer Slide-out Drawer -->
+        <div class="explorer-drawer" id="explorer-drawer">
+            <div class="drawer-header">
+                <h2><i class="fa-solid fa-database"></i> Storage & Execution History</h2>
+                <button class="drawer-close-btn" id="btn-close-explorer"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="drawer-body">
+                <div class="drawer-section-title">
+                    <h3>Processed Files Directory</h3>
+                </div>
+
+                <div class="folders-grid">
+                    <div class="folder-card active" data-folder="all">
+                        <div class="folder-icon"><i class="fa-solid fa-folder-open text-blue"></i></div>
+                        <div class="folder-details">
+                            <h4>All Storage</h4>
+                            <span id="folder-all-count">- files</span>
+                        </div>
+                    </div>
+                    <div class="folder-card" data-folder="csv">
+                        <div class="folder-icon"><i class="fa-solid fa-file-csv text-green"></i></div>
+                        <div class="folder-details">
+                            <h4>CSV</h4>
+                            <span id="folder-csv-count">- files</span>
+                        </div>
+                    </div>
+                    <div class="folder-card" data-folder="word">
+                        <div class="folder-icon"><i class="fa-solid fa-file-word text-blue"></i></div>
+                        <div class="folder-details">
+                            <h4>Word</h4>
+                            <span id="folder-word-count">- files</span>
+                        </div>
+                    </div>
+                    <div class="folder-card" data-folder="sql">
+                        <div class="folder-icon"><i class="fa-solid fa-database text-purple"></i></div>
+                        <div class="folder-details">
+                            <h4>SQL DB</h4>
+                            <span id="folder-sql-count">- files</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container card-glass">
+                    <div class="table-header">
+                        <div class="search-bar">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="explorer-search" placeholder="Search by file name...">
+                        </div>
+                        <button class="btn-refresh-table" id="btn-refresh-explorer"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table" id="explorer-table">
+                            <thead>
+                                <tr>
+                                    <th>File Name</th>
+                                    <th>Folder Type</th>
+                                    <th>Size</th>
+                                    <th>Modified</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="explorer-table-body">
+                                <tr><td colspan="5" class="text-center text-secondary">Loading storage files...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="drawer-section-title" style="margin-top:24px;">
+                    <h3>Historical Pipeline Batches</h3>
+                </div>
+                <div class="table-container card-glass">
+                    <div class="table-scroll">
+                        <table class="data-table" id="recent-runs-table">
+                            <thead>
+                                <tr>
+                                    <th>Batch ID</th>
+                                    <th>File Name</th>
+                                    <th>Status</th>
+                                    <th>Execution Time</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td colspan="5" class="text-center text-secondary">Loading batch runs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Power BI Integration Slide-out Drawer -->
+        <div class="explorer-drawer powerbi-drawer" id="powerbi-drawer">
+            <div class="drawer-header">
+                <h2><i class="fa-solid fa-chart-column text-yellow"></i> Power BI Integration & Data Models</h2>
+                <button class="drawer-close-btn" id="btn-close-powerbi"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="drawer-body">
+                <!-- Top Connection Status Banner -->
+                <div class="pbi-status-banner card-glass">
+                    <div class="pbi-banner-info">
+                        <div class="pbi-icon-badge"><i class="fa-solid fa-database"></i></div>
+                        <div>
+                            <h4 id="pbi-conn-status">MySQL Engine: Connected (localhost:3306)</h4>
+                            <p id="pbi-sync-meta">Database: agentic_ai_etl | Target: Power BI Desktop & Service</p>
+                        </div>
+                    </div>
+                    <button class="btn-primary-glow" id="btn-trigger-pbi-refresh">
+                        <i class="fa-solid fa-rotate"></i> Trigger Dataset Refresh
+                    </button>
+                </div>
+
+                <!-- Power BI Data Model Architecture (Star Schema) -->
+                <div class="drawer-section-title">
+                    <h3>Power BI Star/Snowflake Data Model</h3>
+                </div>
+
+                <div class="pbi-schema-grid">
+                    <div class="pbi-table-card fact-card card-glass">
+                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> FactSales</div>
+                        <span class="pbi-tag">Fact Table</span>
+                        <ul class="pbi-col-list">
+                            <li><code>sale_id</code> (PK)</li>
+                            <li><code>order_id</code> (FK)</li>
+                            <li><code>quantity</code>, <code>unit_price</code>, <code>total_price</code></li>
+                        </ul>
+                    </div>
+                    <div class="pbi-table-card fact-card card-glass">
+                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> FactOrders</div>
+                        <span class="pbi-tag">Fact Table</span>
+                        <ul class="pbi-col-list">
+                            <li><code>order_id</code> (PK)</li>
+                            <li><code>customer_id</code> (FK)</li>
+                            <li><code>order_date</code>, <code>total_amount</code></li>
+                        </ul>
+                    </div>
+                    <div class="pbi-table-card dim-card card-glass">
+                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> DimCustomer</div>
+                        <span class="pbi-tag dim">Dimension</span>
+                        <ul class="pbi-col-list">
+                            <li><code>customer_id</code> (PK)</li>
+                            <li><code>customer_name</code>, <code>email</code>, <code>region</code></li>
+                        </ul>
+                    </div>
+                    <div class="pbi-table-card dim-card card-glass">
+                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> DimAgent</div>
+                        <span class="pbi-tag dim">Dimension</span>
+                        <ul class="pbi-col-list">
+                            <li><code>agent_id</code> (PK)</li>
+                            <li><code>agent_name</code>, <code>role</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 6 Power BI Report Pages Grid -->
+                <div class="drawer-section-title">
+                    <h3>Power BI Embedded Reports & Layouts</h3>
+                </div>
+
+                <div class="pbi-pages-grid">
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-gauge-high text-blue"></i></div>
+                        <h4>1. Executive Dashboard</h4>
+                        <p>Total Rows Processed, Success Rate, Active Pipelines, Pipeline Runtime Trends</p>
+                    </div>
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-shield-halved text-teal"></i></div>
+                        <h4>2. Data Quality Dashboard</h4>
+                        <p>Integrity Score, Completeness Null %, Duplicate Records Over Time</p>
+                    </div>
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-bolt text-green"></i></div>
+                        <h4>3. ETL Performance</h4>
+                        <p>Average Runtime per Agent, Data Volume vs Duration, Bottlenecks Matrix</p>
+                    </div>
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-triangle-exclamation text-orange"></i></div>
+                        <h4>4. Root Cause Analysis</h4>
+                        <p>Error Categories, RCA Severity Treemap, AI Action Recommendations</p>
+                    </div>
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-chart-line text-purple"></i></div>
+                        <h4>5. Business Analytics</h4>
+                        <p>Revenue over Time, Top Products by Sales, Regional Distribution Map</p>
+                    </div>
+                    <div class="pbi-page-card card-glass">
+                        <div class="pbi-page-icon"><i class="fa-solid fa-brain text-yellow"></i></div>
+                        <h4>6. AI & Agent Metrics</h4>
+                        <p>Agent Action History, AI Decision Confidence, Narrative Summaries</p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
     </div>
 
