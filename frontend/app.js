@@ -3741,69 +3741,13 @@ function renderInspectorGrid(records) {
     `;
 }
 
-// 6. Gamification XP Engine
+// 6. Gamification XP Engine (Deprecated & Removed)
 function awardXpPoints(rejectionsCount, qualityScore) {
-    // XP math: base 300XP for completion + bonus for high quality
-    let xpGain = 300;
-    if (qualityScore > 95) xpGain += 100;
-    if (rejectionsCount === 0) xpGain += 100;
-    
-    let currentXp = parseInt(localStorage.getItem('user_xp') || '350');
-    let currentLevel = parseInt(localStorage.getItem('user_xp_level') || '1');
-    
-    let newXp = currentXp + xpGain;
-    let newLevel = Math.floor(newXp / 1000) + 1;
-    let levelUp = newLevel > currentLevel;
-    
-    localStorage.setItem('user_xp', newXp);
-    localStorage.setItem('user_xp_level', newLevel);
-    
-    document.getElementById('user-xp-current').textContent = newXp;
-    document.getElementById('user-xp-level').textContent = newLevel;
-    document.getElementById('xp-progress-bar').style.width = `${(newXp % 1000) / 10}%`;
-    
-    showToast('info', `+${xpGain} XP Gained! (Level ${newLevel})`);
-    
-    if (levelUp) {
-        setTimeout(() => {
-            spawnBanner("LEVEL UP!", `Level ${newLevel} ETL Architect`, "#8b5cf6");
-            const canvasEl = document.getElementById('gamification-canvas');
-            if (canvasEl) {
-                spawnExplosion(canvasEl.width / 2, canvasEl.height / 2, "#8b5cf6");
-            }
-        }, 1000);
-    }
-    
-    // Check and unlock badges
-    setTimeout(() => {
-        if (rejectionsCount === 0) {
-            unlockBadge('badge-schema-shield', 'Schema Guard badge unlocked! Perfect data formatting validation.');
-        }
-        if (qualityScore > 90) {
-            unlockBadge('badge-null-hunter', 'Null Hunter badge unlocked! Perfect missing data repair.');
-        }
-        // Duplicate row count from intake
-        const intakeStage = (state.currentPipelineData || {}).stages?.['intake'] || {};
-        if (intakeStage.output && intakeStage.output.duplicate_rows > 0) {
-            unlockBadge('badge-dup-slayer', 'Duplicate Slayer badge unlocked! Removed duplicate records.');
-        }
-    }, 1500);
+    // XP and Gamification removed as per requirement
 }
 
 function unlockBadge(badgeId, message) {
-    const badge = document.getElementById(badgeId);
-    if (badge && badge.classList.contains('locked')) {
-        badge.classList.remove('locked');
-        showToast('success', message);
-        
-        // Canvas banner trigger
-        const badgeName = badge.querySelector('span')?.textContent || "Achievement Unlocked";
-        const canvasEl = document.getElementById('gamification-canvas');
-        if (canvasEl) {
-            spawnBanner("ACHIEVEMENT UNLOCKED!", badgeName, "#ffb703");
-            spawnExplosion(canvasEl.width / 2, canvasEl.height / 2, "#ffb703");
-        }
-    }
+    // Badges removed as per requirement
 }
 
 // Gamification Canvas Particles System
