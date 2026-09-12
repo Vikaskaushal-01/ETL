@@ -219,6 +219,31 @@
                             <span id="monitor-overall-status">Ready</span>
                         </div>
 
+                        <!-- Quick action toggles for drawers & modals -->
+                        <button class="monitor-control-btn" id="btn-toggle-powerbi" title="Toggle Power BI Data Models & Refresh"><i class="fa-solid fa-chart-column"></i></button>
+                        <button class="monitor-control-btn" id="btn-toggle-explorer" title="Toggle Storage Explorer Drawer"><i class="fa-solid fa-database"></i></button>
+                        <button class="monitor-control-btn" id="btn-toggle-logs" title="Toggle Live Console Logs"><i class="fa-solid fa-terminal"></i></button>
+
+                        <!-- Profile Area with Dropdown Menu -->
+                        <div class="profile-container">
+                            <div class="profile-area" id="profile-avatar-trigger">
+                                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" alt="Profile" class="avatar" id="user-display-avatar">
+                                <i class="fa-solid fa-chevron-down profile-arrow"></i>
+                            </div>
+                            <div class="profile-dropdown-menu" id="profile-dropdown">
+                                <div class="dropdown-user-info">
+                                    <strong id="user-display-name">System Administrator</strong>
+                                    <span id="user-display-email">admin@controlai.net</span>
+                                </div>
+                                <div class="dropdown-divider"></div>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-profile"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-security"><i class="fa-solid fa-key"></i> API Keys</a>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-preferences"><i class="fa-solid fa-sliders"></i> Preferences</a>
+                                <div class="dropdown-divider"></div>
+                                <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
+                            </div>
+                        </div>
+                    </div>
                 </header>
 
                 <!-- Main view container split into 3 columns -->
@@ -1004,168 +1029,6 @@
         </div>
     </div>
 
-    <!-- Real-time Ingestion Pipeline Monitor Full Page Overlay -->
-    <div id="pipeline-monitor-page" class="pipeline-monitor-overlay-page" style="display: none;">
-        <canvas id="gamification-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4;"></canvas>
-        <div class="monitor-container">
-            <!-- Header section -->
-            <div class="monitor-header">
-                <div class="monitor-title-area">
-                    <div class="monitor-icon pulse-blue"><i class="fa-solid fa-network-wired"></i></div>
-                    <div>
-                        <h2>Real-Time Ingestion Data Flow</h2>
-                        <p>Batch ID: <span id="monitor-batch-id" class="neon-text-blue">-</span> | Source File: <span id="monitor-file-name" class="neon-text-teal">-</span></p>
-                    </div>
-                </div>
-                <div class="monitor-header-actions" style="display:flex; align-items:center; gap:12px;">
-                    <div class="monitor-stat-pill">
-                        <i class="fa-solid fa-clock"></i> Duration: <span id="monitor-duration">0.0s</span>
-                    </div>
-                    <div class="monitor-stat-pill success" id="monitor-overall-status-pill">
-                        <span class="status-pulse-dot"></span>
-                        <span id="monitor-overall-status">Initializing...</span>
-                    </div>
-                    <button class="btn-close-monitor" id="btn-close-monitor-page">
-                        <i class="fa-solid fa-arrow-left"></i> Exit Monitor
-                    </button>
-                </div>
-            </div>
-
-            <!-- Main view container split into columns -->
-            <div class="monitor-main-content">
-                <!-- Left panel: Live execution metrics & gamification -->
-                <div class="monitor-sidebar card-glass">
-                    <div class="sidebar-section">
-                        <h3><i class="fa-solid fa-chart-pie"></i> Ingestion Performance</h3>
-                        <div class="sidebar-stat-row">
-                            <div class="sidebar-stat-card">
-                                <strong>Rows Ingested</strong>
-                                <span id="monitor-stat-rows">0</span>
-                            </div>
-                            <div class="sidebar-stat-card">
-                                <strong>Data Loss / Rejections</strong>
-                                <span id="monitor-stat-rejections" class="text-red">0</span>
-                            </div>
-                        </div>
-                        <div class="sidebar-stat-row" style="margin-top: 10px;">
-                            <div class="sidebar-stat-card">
-                                <strong>Data Quality Score</strong>
-                                <span id="monitor-stat-quality" class="text-teal">100%</span>
-                            </div>
-                            <div class="sidebar-stat-card">
-                                <strong>Loss Rate</strong>
-                                <span id="monitor-stat-loss-rate">0%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Progress bar -->
-                    <div class="sidebar-section">
-                        <h3><i class="fa-solid fa-spinner"></i> Ingestion Progression</h3>
-                        <div class="progress-bar-container">
-                            <div class="progress-bar-fill" id="monitor-progress-bar-fill" style="width: 0%;"></div>
-                        </div>
-                        <div class="progress-step-labels">
-                            <span id="label-step-intake" class="active">Read</span>
-                            <span id="label-step-transformation">Clean</span>
-                            <span id="label-step-storage">Stage</span>
-                            <span id="label-step-report">Report</span>
-                            <span id="label-step-pbi">Sync</span>
-                        </div>
-                    </div>
-
-                <!-- Center visualizer: Network flow -->
-                <div class="monitor-canvas-area card-glass">
-                    <svg id="monitor-connection-svg" class="monitor-connection-svg"></svg>
-                    <div class="monitor-nodes-flow">
-                        <!-- Raw Node (styled as profile headshot squircle) -->
-                        <div class="monitor-node-card raw-node" id="mnode-raw">
-                            <div class="node-avatar-container">
-                                <img src="./profile_data_engineer.jpg" class="node-avatar-img">
-                            </div>
-                            <div class="node-label-title">Raw Input</div>
-                            <div class="node-desc" id="mnode-raw-file">-</div>
-                        </div>
-                        
-                        <!-- Intake Node (yellow squircle lightbulb) -->
-                        <div class="monitor-node-card yellow-squircle waiting" id="mnode-intake">
-                            <div class="node-squircle-icon yellow">
-                                <i class="fa-solid fa-lightbulb"></i>
-                            </div>
-                            <div class="node-label-title">Iris Ingest</div>
-                            <div class="node-desc">Profiling schema...</div>
-                        </div>
-
-                        <!-- Cleanser Node (blue squircle wand/bubbles) -->
-                        <div class="monitor-node-card blue-squircle waiting" id="mnode-transformation">
-                            <div class="node-squircle-icon blue">
-                                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                            </div>
-                            <div class="node-label-title">Data Cleanser</div>
-                            <div class="node-desc">Waiting</div>
-                        </div>
-
-                        <!-- SQL Storage Node (purple squircle checkmark - central) -->
-                        <div class="monitor-node-card purple-squircle waiting" id="mnode-storage">
-                            <div class="node-squircle-icon purple">
-                                <i class="fa-solid fa-circle-check"></i>
-                            </div>
-                            <div class="node-label-title">SQL Staging</div>
-                            <div class="node-desc">Waiting</div>
-                        </div>
-
-                        <!-- Report Node (red squircle shield/alert) -->
-                        <div class="monitor-node-card red-squircle waiting" id="mnode-report">
-                            <div class="node-squircle-icon red">
-                                <i class="fa-solid fa-shield-halved"></i>
-                            </div>
-                            <div class="node-label-title">PDF Exporter</div>
-                            <div class="node-desc">Waiting</div>
-                        </div>
-
-                        <!-- PBI Gateway Node (white squircle double-eyes) -->
-                        <div class="monitor-node-card white-squircle waiting" id="mnode-pbi">
-                            <div class="node-squircle-icon white">
-                                <i class="fa-solid fa-eye"></i>
-                            </div>
-                            <div class="node-label-title">PBI Gateway</div>
-                            <div class="node-desc">Waiting</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Canvas Branding Title matching the reference image -->
-                    <div class="monitor-canvas-branding">
-                        <h1>All-in-one ETL platform</h1>
-                        <p>Control AI is a modern, all-in-one data automation platform designed to perfectly fit your business needs.</p>
-                    </div>
-                </div>
-
-                <!-- Right panel: Detailed Inspection -->
-                <div class="monitor-inspector card-glass" id="monitor-inspector-panel">
-                    <div class="inspector-empty-state" id="monitor-inspector-empty">
-                        <i class="fa-solid fa-magnifying-glass-chart"></i>
-                        <h4>Component Inspector</h4>
-                        <p>Click on any agent node in the pipeline flowchart to inspect intermediate staging databases, generated schemas, validation rules, or logs.</p>
-                    </div>
-                    <div class="inspector-content" id="monitor-inspector-content" style="display: none;">
-                        <h3 id="inspector-node-title">-</h3>
-                        <div class="inspector-meta-row">
-                            <span class="badge" id="inspector-node-status">-</span>
-                            <span class="text-secondary" id="inspector-node-component">-</span>
-                        </div>
-                        <div class="inspector-section" id="inspector-section-data" style="margin-top:14px;">
-                            <h4>Intermediate Outputs</h4>
-                            <div id="inspector-data-output" class="inspector-scroll-container"></div>
-                        </div>
-                        <div class="inspector-section" id="inspector-section-logs" style="margin-top:14px;">
-                            <h4>Stage Logs</h4>
-                            <div id="inspector-logs-output" class="inspector-logs-box"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
