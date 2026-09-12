@@ -3124,9 +3124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Window resize observer to update SVG flowpaths dynamically
     window.addEventListener('resize', () => {
-        if (document.getElementById('pipeline-monitor-page').style.display === 'flex') {
-            updateMonitorPaths();
-        }
+        updateMonitorPaths();
     });
 });
 
@@ -3807,7 +3805,7 @@ function spawnFloatingText(x, y, text, color = "#00f0ff") {
 
 function canvasAnimationLoop() {
     const canvas = document.getElementById('gamification-canvas');
-    if (!canvas || canvas.parentElement.style.display !== 'flex') {
+    if (!canvas || !canvas.parentElement) {
         if (animFrameId) {
             cancelAnimationFrame(animFrameId);
             animFrameId = null;
