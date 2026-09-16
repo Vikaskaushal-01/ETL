@@ -182,3 +182,53 @@ class RealtimeUploadRequest(BaseModel):
     custom_data: Optional[str] = None
     record_count: Optional[int] = 30
     cycle_index: Optional[int] = 1
+
+def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: int = 1, custom_data: str = None) -> tuple[str, bytes]:
+    import random
+    from datetime import datetime
+    
+    now = datetime.utcnow()
+    timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    timestamp_file = now.strftime("%Y%m%d_%H%M%S")
+    file_uuid = str(uuid.uuid4())[:6]
+
+    if custom_data and custom_data.strip():
+        filename = f"realtime_custom_{timestamp_file}_{file_uuid}.csv"
+        return filename, custom_data.strip().encode("utf-8")
+
+    # Default: Financial & E-Commerce Transactions
+    filename = f"realtime_transactions_{timestamp_file}_{file_uuid}.csv"
+    headers = "transaction_id,timestamp,customer_id,customer_name,merchant,amount,category,payment_method,status\n"
+    merchants = ["Apex Cloud Systems", "Starlight Hypermarket", "CyberPay Terminal", "Quantum Dynamics", "Vanguard Logistics", "Nexus Retail"]
+    categories = ["Cloud Infrastructure", "Electronics", "Groceries", "Software Subscriptions", "Logistics", "Equipment"]
+    payments = ["Credit_Card", "Crypto_USDT", "Wire_Transfer", "Apple_Pay", "Direct_Debit"]
+    customers = [
+        ("CUST_801", "Alex Vance"),
+        ("CUST_802", "Elena Rostova"),
+        ("CUST_803", "Marcus Brody"),
+        ("CUST_804", "Sophia Chen"),
+        ("CUST_805", "David Kim"),
+        ("CUST_806", "Amina Al-Mansoor")
+    ]
+    
+    rows = []
+    for i in range(1, count + 1):
+        tid = f"TXN_{cycle:03d}_{i:03d}"
+        cid, cname = random.choice(customers)
+        merch = random.choice(merchants)
+        cat = categories[merchants.index(merch)]
+        amt = round(random.uniform(15.00, 1250.00), 2)
+        pm = random.choice(payments)
+        status = "Settled" if random.random() > 0.12 else "Flagged_Review"
+        
+        if i % 9 == 0:
+            cname = ""
+        if i % 13 == 0:
+            amt = ""
+        if i % 17 == 0:
+            status = "Anomaly_Null"
+            
+        rows.append(f"{tid},{timestamp_str},{cid},{cname},{merch},{amt},{cat},{pm},{status}")
+        if i == 3 and count > 6:
+            rows.append(f"{tid},{timestamp_str},{cid},{cname},{merch},{amt},{cat},{pm},{status}")
+    return filename, (headers + "\n".join(rows)).encode("utf-8")
