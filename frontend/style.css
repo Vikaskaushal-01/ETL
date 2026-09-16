@@ -34,7 +34,8 @@
 body {
     background-color: var(--bg-main);
     color: var(--text-primary);
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     overflow: hidden;
     height: 100vh;
 }
@@ -156,7 +157,8 @@ body {
     border-radius: 8px;
     padding: 12px 14px 12px 38px;
     color: #0f172a;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 13px;
     outline: none;
     transition: border-color 0.2s;
@@ -223,7 +225,8 @@ body {
     border: none;
     border-radius: 8px;
     padding: 13px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 13.5px;
     font-weight: 600;
     cursor: pointer;
@@ -950,7 +953,8 @@ body {
     border-radius: 4px;
     padding: 8px 10px;
     color: var(--text-primary);
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 11px;
     outline: none;
 }
@@ -968,7 +972,8 @@ body {
     border-radius: 8px;
     padding: 12px;
     color: white;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -1469,7 +1474,8 @@ body {
     padding: 8px 12px;
     border-radius: 4px;
     cursor: pointer;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 11px;
     font-weight: 600;
     display: flex;
@@ -1605,7 +1611,8 @@ body {
     border-radius: 6px;
     padding: 8px 12px;
     color: var(--text-primary);
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     outline: none;
     font-size: 12px;
 }
@@ -1897,7 +1904,8 @@ table tr:last-child td {
     padding: 6px 12px;
     border-radius: 4px;
     font-size: 11px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     cursor: pointer;
     transition: var(--transition-smooth);
 }
@@ -2329,7 +2337,8 @@ table tr:last-child td {
     border: 1px solid rgba(64, 224, 208, 0.25);
     border-radius: 10px;
     color: var(--text-primary);
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 0.95rem;
     outline: none;
     transition: var(--transition-smooth);
@@ -2352,7 +2361,8 @@ table tr:last-child td {
     border: none;
     border-radius: 10px;
     color: #060b0e;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-weight: 600;
     font-size: 0.95rem;
     cursor: pointer;
@@ -2471,7 +2481,8 @@ table tr:last-child td {
     color: var(--color-blue);
     padding: 11px 22px;
     border-radius: 12px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 0.92rem;
     font-weight: 600;
     cursor: pointer;
@@ -2506,7 +2517,8 @@ table tr:last-child td {
     color: var(--text-secondary);
     padding: 12px 24px;
     border-radius: 12px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
@@ -2586,7 +2598,8 @@ table tr:last-child td {
     border: 1px solid rgba(0, 240, 255, 0.2);
     border-radius: 12px;
     color: var(--text-primary);
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-size: 0.95rem;
     outline: none;
     box-sizing: border-box;
@@ -2620,7 +2633,8 @@ table tr:last-child td {
     border-radius: 12px;
     color: #04090d;
     padding: 14px 28px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-weight: 700;
     font-size: 0.98rem;
     cursor: pointer;
@@ -2661,7 +2675,8 @@ table tr:last-child td {
     color: var(--text-primary);
     padding: 13px 24px;
     border-radius: 12px;
-    font-family: var(--font-outfit);
+    font-family: var(--font-main);
+    letter-spacing: -0.01em;
     font-weight: 600;
     font-size: 0.92rem;
     cursor: pointer;
