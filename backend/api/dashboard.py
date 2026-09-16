@@ -62,8 +62,12 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
         if runtimes:
             avg_runtime = sum(runtimes) / len(runtimes)
         for r in runs:
+            bid = r[0].replace("pipe_", "") if r[0] else ""
+            upload_rec = db.query(RawUpload).filter(RawUpload.batch_id == bid).first()
+            file_name = upload_rec.filename if upload_rec else f"{bid}.csv"
             recent_runs.append({
                 "pipeline_id": r[0],
+                "filename": file_name,
                 "start_time": r[1].isoformat() if r[1] else None,
                 "status": r[2],
                 "execution_time": r[3]
