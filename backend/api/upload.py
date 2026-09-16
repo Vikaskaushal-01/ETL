@@ -174,3 +174,11 @@ async def upload_file_from_url(
         "file_path": file_path.replace("\\", "/")
     }
 
+
+
+class RealtimeUploadRequest(BaseModel):
+    stream_type: Optional[str] = "transactions" # transactions | iot_sensors | ecommerce_orders | custom
+    stream_url: Optional[str] = None
+    custom_data: Optional[str] = None
+    record_count: Optional[int] = 30
+    cycle_index: Optional[int] = 1
