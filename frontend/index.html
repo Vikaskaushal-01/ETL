@@ -255,6 +255,16 @@
                         <!-- Ingest Dataset Card -->
                         <div class="sidebar-section">
                             <h3><i class="fa-solid fa-cloud-arrow-up text-blue"></i> Raw Dataset Intake</h3>
+                            
+                            <!-- Mode Switcher Tabs -->
+                            <div class="mode-switcher-tabs" style="display: flex; gap: 8px; margin-bottom: 14px;">
+                                <button class="mode-tab-btn active" id="tab-mode-batch" onclick="switchIngestMode('batch')">
+                                    <i class="fa-solid fa-file-arrow-up"></i> Batch Upload
+                                </button>
+                                <button class="mode-tab-btn" id="tab-mode-realtime" onclick="switchIngestMode('realtime')">
+                                    <i class="fa-solid fa-satellite-dish"></i> Real-Time Stream
+                                </button>
+                            </div>
                             <div class="sidebar-upload-card" id="file-drop-zone">
                                 <div class="upload-drop-content">
                                     <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
