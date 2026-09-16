@@ -196,6 +196,35 @@ def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: i
         filename = f"realtime_custom_{timestamp_file}_{file_uuid}.csv"
         return filename, custom_data.strip().encode("utf-8")
 
+    if stream_type == "iot_sensors":
+        filename = f"realtime_iot_telemetry_{timestamp_file}_{file_uuid}.csv"
+        headers = "reading_id,timestamp,sensor_id,device_type,facility,temperature_c,vibration_hz,pressure_psi,power_draw_kw,status_code\n"
+        devices = ["Turbine_A1", "Boiler_Pump", "Cooling_Tower", "Compressor_3", "Generator_Core", "Robotic_Arm"]
+        facilities = ["Facility_North", "Facility_South", "Facility_East", "Facility_West", "Plant_Alpha"]
+        
+        rows = []
+        for i in range(1, count + 1):
+            rid = f"IOT_{cycle:03d}_{i:03d}"
+            sens = random.choice(devices)
+            fac = random.choice(facilities)
+            temp = round(random.uniform(45.0, 95.0), 2)
+            vib = round(random.uniform(0.5, 8.5), 3)
+            pres = round(random.uniform(90.0, 150.0), 1)
+            pwr = round(random.uniform(12.0, 85.0), 2)
+            code = "NORMAL" if random.random() > 0.15 else "WARN_ANOMALY"
+            
+            if i % 8 == 0:
+                temp = ""
+            if i % 12 == 0:
+                sens = ""
+            if i % 15 == 0:
+                code = "ERR_HIGH_TEMP"
+                
+            rows.append(f"{rid},{timestamp_str},{sens},{sens.split('_')[0]},{fac},{temp},{vib},{pres},{pwr},{code}")
+            if i == 5 and count > 10:
+                rows.append(f"{rid},{timestamp_str},{sens},{sens.split('_')[0]},{fac},{temp},{vib},{pres},{pwr},{code}")
+        return filename, (headers + "\n".join(rows)).encode("utf-8")
+
     # Default: Financial & E-Commerce Transactions
     filename = f"realtime_transactions_{timestamp_file}_{file_uuid}.csv"
     headers = "transaction_id,timestamp,customer_id,customer_name,merchant,amount,category,payment_method,status\n"
