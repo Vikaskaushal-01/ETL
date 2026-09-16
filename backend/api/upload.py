@@ -225,6 +225,43 @@ def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: i
                 rows.append(f"{rid},{timestamp_str},{sens},{sens.split('_')[0]},{fac},{temp},{vib},{pres},{pwr},{code}")
         return filename, (headers + "\n".join(rows)).encode("utf-8")
 
+    elif stream_type == "ecommerce_orders":
+        filename = f"realtime_orders_{timestamp_file}_{file_uuid}.csv"
+        headers = "order_id,timestamp,customer_email,product_sku,item_name,quantity,unit_price,total_amount,shipping_region,order_status\n"
+        products = [
+            ("SKU-NEO-01", "Quantum Processing Unit", 320.00),
+            ("SKU-NEO-02", "Neural Interface Pod", 185.50),
+            ("SKU-NEO-03", "Holographic Display 4K", 450.00),
+            ("SKU-NEO-04", "Cybernetic Cooling Fan", 45.00),
+            ("SKU-NEO-05", "Graphene Battery Pack", 89.99),
+            ("SKU-NEO-06", "Optical Data Bus Cable", 24.50)
+        ]
+        regions = ["US-East", "US-West", "EU-Central", "APAC-Tokyo", "LATAM-SaoPaulo"]
+        first_names = ["Alex", "Jordan", "Taylor", "Morgan", "Sam", "Casey", "Riley", "Avery"]
+        
+        rows = []
+        for i in range(1, count + 1):
+            oid = f"ORD_{cycle:03d}_{i:03d}"
+            name = random.choice(first_names)
+            email = f"{name.lower()}{random.randint(10,99)}@example.com"
+            sku, item, price = random.choice(products)
+            qty = random.randint(1, 4)
+            total = round(qty * price, 2)
+            reg = random.choice(regions)
+            status = "Completed" if random.random() > 0.1 else "Pending_Auth"
+            
+            if i % 7 == 0:
+                email = ""
+            if i % 11 == 0:
+                total = ""
+            if i % 14 == 0:
+                qty = ""
+                
+            rows.append(f"{oid},{timestamp_str},{email},{sku},{item},{qty},{price},{total},{reg},{status}")
+            if i == 4 and count > 8:
+                rows.append(f"{oid},{timestamp_str},{email},{sku},{item},{qty},{price},{total},{reg},{status}")
+        return filename, (headers + "\n".join(rows)).encode("utf-8")
+
     # Default: Financial & E-Commerce Transactions
     filename = f"realtime_transactions_{timestamp_file}_{file_uuid}.csv"
     headers = "transaction_id,timestamp,customer_id,customer_name,merchant,amount,category,payment_method,status\n"
