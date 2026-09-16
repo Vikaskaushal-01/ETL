@@ -298,3 +298,59 @@ def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: i
         if i == 3 and count > 6:
             rows.append(f"{tid},{timestamp_str},{cid},{cname},{merch},{amt},{cat},{pm},{status}")
     return filename, (headers + "\n".join(rows)).encode("utf-8")
+
+
+@router.post("/realtime")
+async def upload_realtime_stream(
+    req: RealtimeUploadRequest,
+    db: Session = Depends(get_db),
+    x_user_email: Optional[str] = Header(None)
+):
+    """
+    Accepts real-time streaming batch trigger. Generates fresh streaming records
+    with live UTC timestamps and registers batch in the pipeline.
+    """
+    filename, content = generate_realtime_stream_dataset(
+        stream_type=req.stream_type or "transactions",
+        count=req.record_count or 30,
+        cycle=req.cycle_index or 1,
+        custom_data=req.custom_data
+    )
+    
+    file_id = str(uuid.uuid4())[:8]
+    batch_id = f"batch_rt_{file_id}"
+    file_path = get_user_path(x_user_email, os.path.join("data", "raw", filename))
+    
+    try:
+        with open(file_path, "wb") as buffer:
+            buffer.write(content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write real-time stream file: {str(e)}")
+        
+    _, ext = os.path.splitext(filename.lower())
+    file_type = ext[1:]
+    
+    try:
+        upload_record = create_raw_upload(
+            db,
+            filename=filename,
+            source=f"Realtime_{req.stream_type or 'Stream'}",
+            file_type=file_type,
+            batch_id=batch_id,
+            uploaded_by=x_user_email
+        )
+    except Exception as db_err:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=500, detail=f"Database registration failed: {str(db_err)}")
+        
+    return {
+        "status": "Success",
+        "upload_id": upload_record.id,
+        "batch_id": batch_id,
+        "filename": filename,
+        "file_path": file_path.replace("\\", "/"),
+        "cycle_index": req.cycle_index or 1,
+        "stream_type": req.stream_type or "transactions",
+        "record_count": req.record_count or 30
+    }
