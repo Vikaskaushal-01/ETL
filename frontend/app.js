@@ -1294,6 +1294,42 @@ async function uploadRealtimeStream(streamType, recordCount, cycleIndex) {
     }
 }
 
+// Continuous Real-Time Streaming Cycle Runner
+window.startRealtimeStreamRunner = function(intervalMs = 8000) {
+    if (state.streamIntervalId) clearInterval(state.streamIntervalId);
+    state.isStreaming = true;
+    showToast('success', `Continuous streaming runner active (interval: ${intervalMs / 1000}s)`);
+    
+    const runBtn = document.getElementById('btn-run-pipeline');
+    if (runBtn) runBtn.click();
+    
+    state.streamIntervalId = setInterval(() => {
+        if (!state.isStreaming) {
+            clearInterval(state.streamIntervalId);
+            state.streamIntervalId = null;
+            return;
+        }
+        if (state.ingestMode === 'realtime') {
+            const runBtn = document.getElementById('btn-run-pipeline');
+            if (runBtn) runBtn.click();
+        }
+    }, intervalMs);
+};
+
+window.stopRealtimeStreamRunner = function() {
+    state.isStreaming = false;
+    if (state.streamIntervalId) {
+        clearInterval(state.streamIntervalId);
+        state.streamIntervalId = null;
+    }
+    const pulseDot = document.getElementById('stream-pulse-dot');
+    const statusText = document.getElementById('stream-status-text');
+    if (pulseDot) pulseDot.classList.remove('streaming');
+    if (statusText) statusText.textContent = 'Stream Ingest: Standby';
+    showToast('info', 'Continuous streaming runner stopped.');
+};
+
+
 async function uploadFile(file) {
     const formData = new FormData();
     formData.append('file', file);
