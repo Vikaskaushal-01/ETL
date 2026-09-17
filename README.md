@@ -138,7 +138,7 @@ Access Services:
 
 ```mermaid
 graph TD
-    START[Raw File Ingestion] --> IntakeAgent[1. Data Intake Agent]
+    START[Raw File Ingestion / Real-Time Stream] --> IntakeAgent[1. Data Intake Agent]
     IntakeAgent --> TransformationAgent[2. Data Transformation Agent]
     TransformationAgent --> ValidationAgent[3. Validation & Load Agent]
     ValidationAgent -->|Staging DB Checks| ValidationRoute{Checks Pass?}
@@ -150,4 +150,21 @@ graph TD
     PBI_Refresh --> END[Complete]
 ```
 
-After this we can handle complex data and build complex reports which gives us more insights of the data.
+---
+
+## ⚡ Real-Time Streaming Ingestion Engine
+
+Control AI ETL Platform supports high-throughput real-time streaming ingestion alongside traditional batch file uploads:
+
+### Supported Stream Generators:
+1. **Financial & Payment Transactions (`transactions`)**: High-velocity payments stream with customer identifiers, merchant mappings, currency values, settlement statuses, and anomaly injections.
+2. **Industrial IoT Telemetry (`iot_sensors`)**: Edge sensor telemetry stream with temperature, vibration frequency (Hz), PSI pressure, and power draw (kW).
+3. **Global E-Commerce Logistics (`ecommerce_orders`)**: Multi-region retail order stream with SKU product catalog, pricing, quantity, and payment authorization.
+
+### Streaming Endpoints:
+- `POST /api/v1/upload/realtime`: Ingest streaming batch payload with configurable stream type, cycle index, and record batch size.
+- `GET /api/v1/upload/realtime/presets`: Fetch supported streaming generator definitions and schema field mappings.
+
+---
+
+After this we can handle complex data and build complex reports which gives us more insights of the data.
