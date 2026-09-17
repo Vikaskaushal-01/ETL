@@ -24,4 +24,8 @@ class PipelineState(TypedDict):
     formatted_file_path: str
     storage_reason: str
     storage_status: str
+    retry_count: Optional[int]
+    circuit_breaker_triggered: Optional[bool]
+    error_stack_trace: Optional[str]
+    sla_breached: Optional[bool]
 
