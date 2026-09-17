@@ -176,6 +176,32 @@ class TransformationAgent:
                     })
                 logs.append(f"Handled {null_count} missing values in column '{col}'.")
 
+        # 5b. Apply custom user-defined transformation rules if specified in metadata
+        custom_rules = metadata.get("custom_rules", [])
+        if custom_rules and isinstance(custom_rules, list):
+            for rule in custom_rules:
+                target_col = rule.get("column")
+                action = rule.get("action")
+                val = rule.get("value")
+                if target_col in df.columns:
+                    if action == "drop_column":
+                        df = df.drop(columns=[target_col])
+                        history.append({
+                            "column_name": target_col,
+                            "old_value": "present",
+                            "new_value": "dropped",
+                            "reason": "Applied custom rule: drop column"
+                        })
+                    elif action == "fillna":
+                        df[target_col] = df[target_col].fillna(val)
+                        history.append({
+                            "column_name": target_col,
+                            "old_value": "nulls",
+                            "new_value": str(val),
+                            "reason": f"Applied custom rule: fillna with {val}"
+                        })
+            logs.append(f"Applied {len(custom_rules)} custom transformation rule(s).")
+
         # 6. Save clean dataset
         base_name = os.path.basename(file_path)
         if not os.path.isabs(output_dir):
