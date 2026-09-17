@@ -55,9 +55,24 @@ PLATFORM_TROUBLESHOOTING_GUIDE = """
    - Recommended Solutions:
      * Rebuild and restart services: `docker-compose up --build -d`.
      * Ensure `GEMINI_API_KEY` is set and valid in `.env`.
-"""
+def sanitize_user_prompt(prompt: str) -> str:
+    """Sanitizes user input against prompt injection and removes dangerous control characters."""
+    if not prompt:
+        return ""
+    # Strip null bytes and non-printable control characters (except newline, tab)
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", prompt)
+    # Neutralize explicit prompt override commands
+    injection_patterns = [
+        r"(?i)ignore\s+(all\s+)?(previous|prior)\s+instructions?",
+        r"(?i)system\s*:\s*you\s+are\s+now",
+        r"(?i)reveal\s+(your\s+)?(system\s+prompt|secret\s+key|api\s+key)"
+    ]
+    for pattern in injection_patterns:
+        sanitized = re.sub(pattern, "[FILTERED_INSTRUCTION]", sanitized)
+    return sanitized.strip()
 
 def extract_batch_id(message: str, req_batch_id: str = None) -> str:
+    message = sanitize_user_prompt(message)
     if req_batch_id:
         return req_batch_id
     # 1. Match batch_xxxx
