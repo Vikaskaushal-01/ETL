@@ -55,6 +55,8 @@ PLATFORM_TROUBLESHOOTING_GUIDE = """
    - Recommended Solutions:
      * Rebuild and restart services: `docker-compose up --build -d`.
      * Ensure `GEMINI_API_KEY` is set and valid in `.env`.
+"""
+
 def sanitize_user_prompt(prompt: str) -> str:
     """Sanitizes user input against prompt injection and removes dangerous control characters."""
     if not prompt:
@@ -539,20 +541,15 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
         if log_content:
             response_msg = f"Here are the process logs you requested ({log_source}):\n\n```text\n{log_content}\n```"
             
-            # Wrap standard logs query with a nice LLM response
-            prompt_with_logs = f"""
-            You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.
-            The user asked a question regarding process logs.
-            Here is the process logs content we retrieved:
-            {log_content}
-            
-            Conversation History:
-            {formatted_history if formatted_history else "No previous conversation history."}
-            
-            User Query: {req.message}
-            
-            Based on the logs and conversation history above, answer the user's question. Output a detailed markdown response that includes the logs content if requested or relevant.
-            """
+            history_str = formatted_history if formatted_history else "No previous conversation history."
+            prompt_with_logs = (
+                "You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.\n"
+                "The user asked a question regarding process logs.\n"
+                f"Here is the process logs content we retrieved:\n{log_content}\n\n"
+                f"Conversation History:\n{history_str}\n\n"
+                f"User Query: {user_msg}\n\n"
+                "Based on the logs and conversation history above, answer the user question. Output a detailed markdown response that includes the logs content if requested or relevant."
+            )
             try:
                 llm_res = query_llm(prompt_with_logs, "You are the ETL Chat Support Agent. Summarize logs clearly in markdown.", json_mode=False)
                 if "```" not in llm_res:
@@ -708,25 +705,22 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
     if is_platform_issue:
         troubleshooting_context = f"\nPlatform Troubleshooting Reference (Causes & Solutions):\n{PLATFORM_TROUBLESHOOTING_GUIDE}\n"
 
-    prompt = f"""
-    You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.
-    Using the database context, troubleshooting guidelines, and conversation history below, answer the user's questions regarding their ETL runs, data quality issues, database structure, or general ETL pipeline behavior.
-    
-    Database Context:
-    {context if context else "No specific batch context loaded. Provide general info on the pipeline architecture."}
-    
-    {troubleshooting_context}
-    
-    Conversation History:
-    {formatted_history if formatted_history else "No previous conversation history."}
-    
-    User Query: {req.message}
-    
-    Ensure you analyze the user's text patterns and understand their actual intent. 
-    If the user's query is platform-related (such as file-related problems, logs and execution issues, or internal platform bugs), you must structure your response to provide:
-    1. The possible causes of the issue.
-    2. Recommended solutions.
-    """
+    db_ctx = context if context else "No specific batch context loaded. Provide general info on the pipeline architecture."
+    hist_ctx = formatted_history if formatted_history else "No previous conversation history."
+    user_q = req.message
+
+    prompt = (
+        "You are the Senior Data Engineering Chat Assistant for the Agentic AI ETL Platform.\n"
+        "Using the database context, troubleshooting guidelines, and conversation history below, answer the user questions regarding their ETL runs, data quality issues, database structure, or general ETL pipeline behavior.\n\n"
+        f"Database Context:\n{db_ctx}\n\n"
+        f"{troubleshooting_context}\n\n"
+        f"Conversation History:\n{hist_ctx}\n\n"
+        f"User Query: {user_q}\n\n"
+        "Ensure you analyze the user text patterns and understand their actual intent.\n"
+        "If the user query is platform-related (such as file-related problems, logs and execution issues, or internal platform bugs), you must structure your response to provide:\n"
+        "1. The possible causes of the issue.\n"
+        "2. Recommended solutions."
+    )
     
     system_instruction = (
         "You are the senior intelligent ETL Chat Support Agent. "
