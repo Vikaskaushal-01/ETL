@@ -4956,3 +4956,27 @@ input[type="date"].settings-input::-webkit-calendar-picker-indicator {
     100% { transform: scale(0.95); opacity: 0.8; }
 }
 
+.stream-indicator-pill {
+    background: rgba(16, 185, 129, 0.15) !important;
+    border: 1px solid rgba(16, 185, 129, 0.4) !important;
+    color: #34d399 !important;
+    font-weight: 700 !important;
+    font-size: 11px !important;
+    letter-spacing: 0.05em !important;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.25) !important;
+}
+
+.btn-realtime-glow {
+    background: linear-gradient(135deg, #059669, #0d9488) !important;
+    border: 1px solid rgba(52, 211, 153, 0.5) !important;
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.35) !important;
+    color: #ffffff !important;
+}
+
+.btn-realtime-glow:hover {
+    background: linear-gradient(135deg, #10b981, #14b8a6) !important;
+    box-shadow: 0 0 25px rgba(16, 185, 129, 0.6) !important;
+    transform: translateY(-1px) scale(1.01) !important;
+}
+
+
