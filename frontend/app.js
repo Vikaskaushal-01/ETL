@@ -39,8 +39,61 @@ const state = {
     explorerFiles: [],
     equalizerInterval: null,
     chatHistory: [],
-    activeInspectedStageId: null
+    activeInspectedStageId: null,
+    ingestMode: 'batch', // 'batch' | 'realtime'
+    streamBatchSize: 30,
+    streamCycle: 0,
+    streamIntervalId: null,
+    isStreaming: false
 };
+
+// Real-Time & Batch Ingestion Mode Switcher
+window.switchIngestMode = function(mode) {
+    state.ingestMode = mode;
+    const tabBatch = document.getElementById('tab-mode-batch');
+    const tabRealtime = document.getElementById('tab-mode-realtime');
+    const dropZone = document.getElementById('file-drop-zone');
+    const streamPanel = document.getElementById('realtime-stream-panel');
+    const runBtn = document.getElementById('btn-run-pipeline');
+
+    if (mode === 'realtime') {
+        if (tabBatch) tabBatch.classList.remove('active');
+        if (tabRealtime) tabRealtime.classList.add('active');
+        if (dropZone) dropZone.style.display = 'none';
+        if (streamPanel) streamPanel.style.display = 'flex';
+        if (runBtn) {
+            runBtn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Stream Live Ingest';
+            runBtn.classList.add('btn-realtime-glow');
+        }
+        showToast('info', 'Switched to Real-Time Streaming Ingestion Mode');
+    } else {
+        if (tabBatch) tabBatch.classList.add('active');
+        if (tabRealtime) tabRealtime.classList.remove('active');
+        if (dropZone) dropZone.style.display = 'block';
+        if (streamPanel) streamPanel.style.display = 'none';
+        if (runBtn) {
+            runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run Data Flow';
+            runBtn.classList.remove('btn-realtime-glow');
+        }
+        showToast('info', 'Switched to Batch File Ingestion Mode');
+    }
+};
+
+window.setStreamBatchSize = function(size) {
+    state.streamBatchSize = size;
+    const sizeLabel = document.getElementById('stream-size-label');
+    if (sizeLabel) sizeLabel.textContent = `${size} rows`;
+    
+    const chips = document.querySelectorAll('.stream-size-chip');
+    chips.forEach(chip => {
+        if (parseInt(chip.getAttribute('data-size'), 10) === size) {
+            chip.classList.add('active');
+        } else {
+            chip.classList.remove('active');
+        }
+    });
+};
+
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
