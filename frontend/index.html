@@ -265,6 +265,8 @@
                                     <i class="fa-solid fa-satellite-dish"></i> Real-Time Stream
                                 </button>
                             </div>
+                            
+                            <!-- Batch Upload Dropzone -->
                             <div class="sidebar-upload-card" id="file-drop-zone">
                                 <div class="upload-drop-content">
                                     <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
@@ -281,6 +283,43 @@
                                     <button class="btn-remove-file" id="btn-clear-file" type="button"><i class="fa-solid fa-times"></i></button>
                                 </div>
                             </div>
+
+                            <!-- Real-Time Stream Panel (Hidden by default until toggled) -->
+                            <div class="realtime-stream-panel" id="realtime-stream-panel" style="display: none;">
+                                <div class="stream-config-row">
+                                    <div class="stream-config-label">
+                                        <span>Stream Generator</span>
+                                        <span class="badge-mini text-teal"><i class="fa-solid fa-bolt"></i> Synthetic Live</span>
+                                    </div>
+                                    <select class="stream-type-select" id="stream-type-select">
+                                        <option value="transactions">💳 Financial & Payments (TXN)</option>
+                                        <option value="iot_sensors">📡 Industrial IoT Telemetry (IOT)</option>
+                                        <option value="ecommerce_orders">📦 Global Logistics & Orders (ORD)</option>
+                                    </select>
+                                </div>
+
+                                <div class="stream-config-row">
+                                    <div class="stream-config-label">
+                                        <span>Batch Size per Cycle</span>
+                                        <span id="stream-size-label" class="text-blue">30 rows</span>
+                                    </div>
+                                    <div class="stream-batch-size-group">
+                                        <button type="button" class="stream-size-chip" data-size="15" onclick="setStreamBatchSize(15)">15</button>
+                                        <button type="button" class="stream-size-chip active" data-size="30" onclick="setStreamBatchSize(30)">30</button>
+                                        <button type="button" class="stream-size-chip" data-size="60" onclick="setStreamBatchSize(60)">60</button>
+                                        <button type="button" class="stream-size-chip" data-size="100" onclick="setStreamBatchSize(100)">100</button>
+                                    </div>
+                                </div>
+
+                                <div class="stream-status-indicator">
+                                    <div style="display: flex; align-items: center;">
+                                        <span class="stream-pulse-dot" id="stream-pulse-dot"></span>
+                                        <span id="stream-status-text" class="text-secondary">Stream Ingest: Standby</span>
+                                    </div>
+                                    <span id="stream-cycle-counter" class="text-teal font-mono">Cycle #0</span>
+                                </div>
+                            </div>
+
                             <button class="btn-run-pipeline" id="btn-run-pipeline" type="button">
                                 <i class="fa-solid fa-play"></i> Run Data Flow
                             </button>
