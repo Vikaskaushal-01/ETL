@@ -55,3 +55,28 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def check_database_health() -> dict:
+    """Evaluates real-time database connection latency and engine dialect."""
+    import time
+    from sqlalchemy import text
+    start = time.time()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        latency_ms = round((time.time() - start) * 1000, 2)
+        dialect = "mysql" if "mysql" in str(engine.url) else "sqlite"
+        return {
+            "status": "Healthy",
+            "dialect": dialect,
+            "latency_ms": latency_ms,
+            "connected": True
+        }
+    except Exception as exc:
+        return {
+            "status": "Unhealthy",
+            "dialect": "unknown",
+            "error": str(exc),
+            "connected": False
+        }
