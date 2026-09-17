@@ -1199,6 +1199,22 @@ function initPipelineControls() {
                 showToast('error', 'Connection to URL upload failed.');
                 return;
             }
+        } else if (state.ingestMode === 'realtime') {
+            const streamTypeSelect = document.getElementById('stream-type-select');
+            const streamType = streamTypeSelect ? streamTypeSelect.value : 'transactions';
+            state.streamCycle = (state.streamCycle || 0) + 1;
+            
+            writeConsoleLog(`[Real-Time Stream] Generating synthetic stream batch: ${streamType} (Cycle #${state.streamCycle}, ${state.streamBatchSize || 30} rows)...`);
+            
+            const pulseDot = document.getElementById('stream-pulse-dot');
+            const statusText = document.getElementById('stream-status-text');
+            const cycleCounter = document.getElementById('stream-cycle-counter');
+            
+            if (pulseDot) pulseDot.classList.add('streaming');
+            if (statusText) statusText.textContent = `Streaming ${streamType}...`;
+            if (cycleCounter) cycleCounter.textContent = `Cycle #${state.streamCycle}`;
+            
+            uploadResult = await uploadRealtimeStream(streamType, state.streamBatchSize || 30, state.streamCycle);
         } else if (!hasVirtualInput) {
             if (!state.selectedFile) {
                 showToast('error', 'Select a file or enter text data to ingest.');
@@ -1254,6 +1270,28 @@ function initPipelineControls() {
             stopEqualizerPulsing();
         }
     });
+}
+
+async function uploadRealtimeStream(streamType, recordCount, cycleIndex) {
+    try {
+        const response = await fetch('/api/v1/upload/realtime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                stream_type: streamType,
+                record_count: recordCount,
+                cycle_index: cycleIndex
+            })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Real-time stream upload failed.');
+        }
+        return await response.json();
+    } catch (e) {
+        writeConsoleLog(`[Error] Real-time stream upload failed: ${e.message}`, 'text-red');
+        return null;
+    }
 }
 
 async function uploadFile(file) {
