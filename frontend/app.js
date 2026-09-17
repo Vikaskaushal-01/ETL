@@ -27,6 +27,82 @@ function parseUTCDate(dateStr) {
     return new Date(dateStr);
 }
 
+// App Shell: sidebar navigation + topbar (Dashboard/Pipeline view switching,
+// sidebar shortcuts forwarded to their existing drawer/modal toggle buttons)
+function initAppShell() {
+    const sidebar = document.getElementById('app-sidebar');
+    const collapseBtn = document.getElementById('btn-sidebar-collapse');
+    if (collapseBtn && sidebar) {
+        collapseBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            const icon = collapseBtn.querySelector('i');
+            if (icon) {
+                icon.classList.toggle('fa-angles-left');
+                icon.classList.toggle('fa-angles-right');
+            }
+        });
+    }
+
+    const topbarTitle = document.getElementById('app-topbar-title');
+    const topbarCrumb = document.getElementById('app-topbar-crumb');
+    const viewMeta = {
+        'dashboard-view': { title: 'Dashboard', crumb: 'Overview & recent activity' },
+        'pipeline-monitor-page': { title: 'Pipeline', crumb: 'Real-Time Ingestion Data Flow' }
+    };
+
+    function activateView(viewId) {
+        document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+        const target = document.getElementById(viewId);
+        if (target) target.classList.add('active');
+
+        document.querySelectorAll('.app-nav-item[data-view]').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-view') === viewId);
+        });
+
+        const meta = viewMeta[viewId];
+        if (meta) {
+            if (topbarTitle) topbarTitle.textContent = meta.title;
+            if (topbarCrumb) topbarCrumb.textContent = meta.crumb;
+        }
+
+        if (viewId === 'dashboard-view' && typeof loadDashboardStats === 'function') {
+            loadDashboardStats();
+        }
+        if (viewId === 'pipeline-monitor-page') {
+            setTimeout(() => {
+                if (typeof updateMonitorPaths === 'function') updateMonitorPaths();
+            }, 50);
+        }
+    }
+
+    document.querySelectorAll('.app-nav-item[data-view]').forEach(btn => {
+        btn.addEventListener('click', () => activateView(btn.getAttribute('data-view')));
+    });
+
+    document.querySelectorAll('.app-nav-item[data-forward]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const forwardEl = document.getElementById(btn.getAttribute('data-forward'));
+            if (forwardEl) forwardEl.click();
+        });
+    });
+
+    const navIngestion = document.getElementById('nav-ingestion');
+    if (navIngestion) {
+        navIngestion.addEventListener('click', () => {
+            activateView('pipeline-monitor-page');
+            const batchTab = document.getElementById('tab-mode-batch');
+            if (batchTab) batchTab.click();
+        });
+    }
+
+    const notifBtn = document.getElementById('btn-topbar-notifications');
+    if (notifBtn) {
+        notifBtn.addEventListener('click', () => {
+            if (typeof showToast === 'function') showToast('info', 'No new notifications');
+        });
+    }
+}
+
 // Global Application State
 const state = {
     selectedFile: null,
@@ -100,6 +176,7 @@ window.setStreamBatchSize = function(size) {
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+    initAppShell();
     initAuth();
     initUserProfileManager();
     initSettingsPage();
@@ -1929,8 +2006,8 @@ function renderCharts(recentRuns) {
             datasets: [{
                 label: 'Duration (s)',
                 data: runtimes,
-                borderColor: '#00f0ff',
-                backgroundColor: 'rgba(0, 240, 255, 0.08)',
+                borderColor: '#4f46e5',
+                backgroundColor: 'rgba(79, 70, 229, 0.08)',
                 fill: true,
                 tension: 0.3,
                 borderWidth: 2
@@ -1942,12 +2019,12 @@ function renderCharts(recentRuns) {
             plugins: { legend: { display: false } },
             scales: {
                 x: {
-                    grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                    ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 9 } }
+                    grid: { color: 'rgba(15, 23, 42, 0.06)' },
+                    ticks: { color: '#8a8f9a', font: { family: 'Plus Jakarta Sans', size: 10 } }
                 },
                 y: {
-                    grid: { color: 'rgba(255, 255, 255, 0.03)' },
-                    ticks: { color: '#94a3b8', font: { family: 'Outfit', size: 9 } }
+                    grid: { color: 'rgba(15, 23, 42, 0.06)' },
+                    ticks: { color: '#8a8f9a', font: { family: 'Plus Jakarta Sans', size: 10 } }
                 }
             }
         }
@@ -2773,17 +2850,23 @@ function initSettingsPage() {
 function applyAccentTheme(theme) {
     const root = document.documentElement;
     if (theme === 'emerald') {
-        root.style.setProperty('--color-blue', '#10b981');
-        root.style.setProperty('--color-teal', '#059669');
-        root.style.setProperty('--border-glow', 'rgba(16, 185, 129, 0.35)');
+        root.style.setProperty('--color-blue', '#059669');
+        root.style.setProperty('--color-blue-strong', '#065f46');
+        root.style.setProperty('--color-blue-soft', '#ecfdf5');
+        root.style.setProperty('--color-teal', '#047857');
+        root.style.setProperty('--border-glow', 'rgba(5, 150, 105, 0.3)');
     } else if (theme === 'violet') {
-        root.style.setProperty('--color-blue', '#a855f7');
-        root.style.setProperty('--color-teal', '#8b5cf6');
-        root.style.setProperty('--border-glow', 'rgba(168, 85, 247, 0.35)');
+        root.style.setProperty('--color-blue', '#7c3aed');
+        root.style.setProperty('--color-blue-strong', '#5b21b6');
+        root.style.setProperty('--color-blue-soft', '#f3f0fd');
+        root.style.setProperty('--color-teal', '#6d28d9');
+        root.style.setProperty('--border-glow', 'rgba(124, 58, 237, 0.3)');
     } else {
-        root.style.setProperty('--color-blue', '#00f0ff');
-        root.style.setProperty('--color-teal', '#14b8a6');
-        root.style.setProperty('--border-glow', 'rgba(0, 240, 255, 0.25)');
+        root.style.setProperty('--color-blue', '#4f46e5');
+        root.style.setProperty('--color-blue-strong', '#3730a3');
+        root.style.setProperty('--color-blue-soft', '#eef0fd');
+        root.style.setProperty('--color-teal', '#0d9488');
+        root.style.setProperty('--border-glow', 'rgba(79, 70, 229, 0.25)');
     }
 }
 
@@ -4010,10 +4093,9 @@ function initGamificationCanvas() {
     canvasExplosions = [];
     canvasFloatingTexts = [];
     canvasBanners = [];
-    
-    // Play "Initiate" banner
-    spawnBanner("AUTONOMOUS ETL ACTIVE", "Data Pipeline Ingesting...", "#00f0ff");
-    
+
+    // Boot banner disabled — restrained UI, no splash overlay on load.
+
     if (animFrameId) cancelAnimationFrame(animFrameId);
     animFrameId = requestAnimationFrame(canvasAnimationLoop);
 }

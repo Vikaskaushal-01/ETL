@@ -199,8 +199,110 @@
 
     <!-- Main App Container (Hidden initially via auth check class) -->
     <div class="app-container app-hidden" id="main-app-container">
-        <!-- Permanent Data Flow Pipeline Main Workspace -->
-        <div id="pipeline-monitor-page" class="pipeline-monitor-main-page">
+        <div class="app-shell">
+            <!-- Left Navigation Sidebar -->
+            <aside class="app-sidebar" id="app-sidebar">
+                <div class="app-sidebar-brand">
+                    <div class="brand-mark"><i class="fa-solid fa-diagram-project"></i></div>
+                    <span class="brand-name">Control AI</span>
+                </div>
+                <nav class="app-sidebar-nav">
+                    <span class="app-sidebar-section-label">Workspace</span>
+                    <button class="app-nav-item" id="nav-dashboard" data-view="dashboard-view"><i class="fa-solid fa-gauge-high"></i><span class="app-nav-label">Dashboard</span></button>
+                    <button class="app-nav-item active" id="nav-pipeline" data-view="pipeline-monitor-page"><i class="fa-solid fa-diagram-project"></i><span class="app-nav-label">Pipeline</span></button>
+                    <button class="app-nav-item" id="nav-ingestion"><i class="fa-solid fa-cloud-arrow-up"></i><span class="app-nav-label">Data Ingestion</span></button>
+                    <span class="app-sidebar-section-label">Insights</span>
+                    <button class="app-nav-item" id="nav-history" data-forward="btn-toggle-explorer"><i class="fa-solid fa-clock-rotate-left"></i><span class="app-nav-label">History</span></button>
+                    <button class="app-nav-item" id="nav-reports" data-forward="btn-toggle-explorer"><i class="fa-solid fa-file-lines"></i><span class="app-nav-label">Reports</span></button>
+                    <button class="app-nav-item" id="nav-powerbi" data-forward="btn-toggle-powerbi"><i class="fa-solid fa-chart-column"></i><span class="app-nav-label">Power BI</span></button>
+                    <button class="app-nav-item" id="nav-ai-assistant" data-forward="chatbot-trigger-btn"><i class="fa-solid fa-robot"></i><span class="app-nav-label">AI Assistant</span></button>
+                    <button class="app-nav-item" id="nav-storage" data-forward="btn-toggle-explorer"><i class="fa-solid fa-database"></i><span class="app-nav-label">Storage</span></button>
+                    <span class="app-sidebar-section-label">Account</span>
+                    <button class="app-nav-item" id="nav-settings" data-forward="btn-dropdown-profile"><i class="fa-solid fa-sliders"></i><span class="app-nav-label">Settings</span></button>
+                </nav>
+                <div class="app-sidebar-footer">
+                    <button class="app-sidebar-collapse-btn" id="btn-sidebar-collapse" title="Collapse sidebar"><i class="fa-solid fa-angles-left"></i></button>
+                </div>
+            </aside>
+
+            <div class="app-main">
+                <!-- Global Top Header -->
+                <header class="app-topbar">
+                    <div class="app-topbar-left">
+                        <span class="app-topbar-title" id="app-topbar-title">Pipeline</span>
+                        <span class="app-topbar-crumb" id="app-topbar-crumb">Real-Time Ingestion Data Flow</span>
+                    </div>
+                    <div class="app-topbar-right">
+                        <button class="app-topbar-icon-btn" id="btn-topbar-notifications" title="Notifications"><i class="fa-regular fa-bell"></i></button>
+
+                        <!-- Profile Area with Dropdown Menu -->
+                        <div class="profile-container">
+                            <div class="profile-area" id="profile-avatar-trigger">
+                                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" alt="Profile" class="avatar" id="user-display-avatar">
+                                <i class="fa-solid fa-chevron-down profile-arrow"></i>
+                            </div>
+                            <div class="profile-dropdown-menu" id="profile-dropdown">
+                                <div class="dropdown-user-info">
+                                    <strong id="user-display-name">System Administrator</strong>
+                                    <span id="user-display-email">admin@controlai.net</span>
+                                </div>
+                                <div class="dropdown-divider"></div>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-profile"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-security"><i class="fa-solid fa-key"></i> API Keys</a>
+                                <a href="#" class="dropdown-item" id="btn-dropdown-preferences"><i class="fa-solid fa-sliders"></i> Preferences</a>
+                                <div class="dropdown-divider"></div>
+                                <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="app-view-container">
+                    <!-- Dashboard View -->
+                    <div id="dashboard-view" class="app-view">
+                        <div class="dash-section-heading"><h3>Overview</h3></div>
+                        <div class="kpi-grid">
+                            <div class="kpi-card">
+                                <div class="kpi-card-head"><span>Rows Ingested</span><div class="kpi-card-icon"><i class="fa-solid fa-database"></i></div></div>
+                                <div class="kpi-card-value" id="stat-total-processed">0</div>
+                                <div class="kpi-card-sub">Total rows processed to date</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-card-head"><span>Success Rate</span><div class="kpi-card-icon green"><i class="fa-solid fa-circle-check"></i></div></div>
+                                <div class="kpi-card-value" id="stat-success-rate">100%</div>
+                                <div class="kpi-card-sub">Pipeline runs completed successfully</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-card-head"><span>Avg Processing Time</span><div class="kpi-card-icon"><i class="fa-solid fa-stopwatch"></i></div></div>
+                                <div class="kpi-card-value" id="stat-avg-runtime">0.0s</div>
+                                <div class="kpi-card-sub">Average pipeline execution time</div>
+                            </div>
+                            <div class="kpi-card">
+                                <div class="kpi-card-head"><span>Failed Records</span><div class="kpi-card-icon red"><i class="fa-solid fa-triangle-exclamation"></i></div></div>
+                                <div class="kpi-card-value" id="stat-failed-records">0</div>
+                                <div class="kpi-card-sub">Rejected across all runs</div>
+                            </div>
+                        </div>
+
+                        <div class="dash-grid-2">
+                            <div class="dash-panel">
+                                <h3>Execution Duration Trend</h3>
+                                <div class="dash-chart-wrapper"><canvas id="executionHistoryChart"></canvas></div>
+                            </div>
+                            <div class="dash-panel">
+                                <h3>Recent Pipeline Runs</h3>
+                                <div class="table-scroll">
+                                    <table class="data-table" id="recent-runs-table">
+                                        <thead><tr><th>Batch ID</th><th>Started</th><th>Runtime</th><th>Status</th><th>Actions</th></tr></thead>
+                                        <tbody><tr><td colspan="5" class="text-center text-secondary">Loading recent runs...</td></tr></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Permanent Data Flow Pipeline Main Workspace -->
+                    <div id="pipeline-monitor-page" class="pipeline-monitor-main-page app-view active">
             <canvas id="gamification-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4;"></canvas>
             <div class="monitor-container">
                 <!-- Header section -->
@@ -229,26 +331,6 @@
                         <button class="monitor-control-btn" id="btn-toggle-powerbi" title="Toggle Power BI Data Models & Refresh"><i class="fa-solid fa-chart-column"></i></button>
                         <button class="monitor-control-btn" id="btn-toggle-explorer" title="Toggle Storage Explorer Drawer"><i class="fa-solid fa-database"></i></button>
                         <button class="monitor-control-btn" id="btn-toggle-logs" title="Toggle Live Console Logs"><i class="fa-solid fa-terminal"></i></button>
-
-                        <!-- Profile Area with Dropdown Menu -->
-                        <div class="profile-container">
-                            <div class="profile-area" id="profile-avatar-trigger">
-                                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" alt="Profile" class="avatar" id="user-display-avatar">
-                                <i class="fa-solid fa-chevron-down profile-arrow"></i>
-                            </div>
-                            <div class="profile-dropdown-menu" id="profile-dropdown">
-                                <div class="dropdown-user-info">
-                                    <strong id="user-display-name">System Administrator</strong>
-                                    <span id="user-display-email">admin@controlai.net</span>
-                                </div>
-                                <div class="dropdown-divider"></div>
-                                <a href="#" class="dropdown-item" id="btn-dropdown-profile"><i class="fa-solid fa-user-gear"></i> Profile Settings</a>
-                                <a href="#" class="dropdown-item" id="btn-dropdown-security"><i class="fa-solid fa-key"></i> API Keys</a>
-                                <a href="#" class="dropdown-item" id="btn-dropdown-preferences"><i class="fa-solid fa-sliders"></i> Preferences</a>
-                                <div class="dropdown-divider"></div>
-                                <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
-                            </div>
-                        </div>
                     </div>
                 </header>
 
@@ -374,10 +456,10 @@
                     <div class="monitor-canvas-area card-glass">
                         <svg id="monitor-connection-svg" class="monitor-connection-svg"></svg>
                         <div class="monitor-nodes-flow">
-                            <!-- Raw Node (styled as profile headshot squircle) -->
+                            <!-- Raw Node -->
                             <div class="monitor-node-card raw-node" id="mnode-raw" title="Click to select file or inspect raw input">
                                 <div class="node-avatar-container">
-                                    <img src="./profile_data_engineer.jpg" class="node-avatar-img">
+                                    <i class="fa-solid fa-file-import"></i>
                                 </div>
                                 <div class="node-label-title">Raw Input</div>
                                 <div class="node-desc" id="mnode-raw-file">-</div>
@@ -458,6 +540,9 @@
                                 <div id="inspector-logs-output" class="inspector-logs-box"></div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
                     </div>
                 </div>
             </div>
