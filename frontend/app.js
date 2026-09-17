@@ -55,12 +55,14 @@ window.switchIngestMode = function(mode) {
     const dropZone = document.getElementById('file-drop-zone');
     const streamPanel = document.getElementById('realtime-stream-panel');
     const runBtn = document.getElementById('btn-run-pipeline');
+    const realtimePill = document.getElementById('realtime-header-pill');
 
     if (mode === 'realtime') {
         if (tabBatch) tabBatch.classList.remove('active');
         if (tabRealtime) tabRealtime.classList.add('active');
         if (dropZone) dropZone.style.display = 'none';
         if (streamPanel) streamPanel.style.display = 'flex';
+        if (realtimePill) realtimePill.style.display = 'inline-flex';
         if (runBtn) {
             runBtn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Stream Live Ingest';
             runBtn.classList.add('btn-realtime-glow');
@@ -71,6 +73,7 @@ window.switchIngestMode = function(mode) {
         if (tabRealtime) tabRealtime.classList.remove('active');
         if (dropZone) dropZone.style.display = 'block';
         if (streamPanel) streamPanel.style.display = 'none';
+        if (realtimePill) realtimePill.style.display = 'none';
         if (runBtn) {
             runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run Data Flow';
             runBtn.classList.remove('btn-realtime-glow');
