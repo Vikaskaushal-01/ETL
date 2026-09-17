@@ -182,8 +182,9 @@ class RealtimeUploadRequest(BaseModel):
     custom_data: Optional[str] = None
     record_count: Optional[int] = 30
     cycle_index: Optional[int] = 1
+    anomaly_rate: Optional[float] = 0.15
 
-def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: int = 1, custom_data: str = None) -> tuple[str, bytes]:
+def generate_realtime_stream_dataset(stream_type: str, count: int = 30, cycle: int = 1, custom_data: str = None, anomaly_rate: float = 0.15) -> tuple[str, bytes]:
     import random
     from datetime import datetime
     
@@ -314,7 +315,8 @@ async def upload_realtime_stream(
         stream_type=req.stream_type or "transactions",
         count=req.record_count or 30,
         cycle=req.cycle_index or 1,
-        custom_data=req.custom_data
+        custom_data=req.custom_data,
+        anomaly_rate=req.anomaly_rate if req.anomaly_rate is not None else 0.15
     )
     
     file_id = str(uuid.uuid4())[:8]
