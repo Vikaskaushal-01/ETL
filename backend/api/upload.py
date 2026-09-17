@@ -354,3 +354,39 @@ async def upload_realtime_stream(
         "stream_type": req.stream_type or "transactions",
         "record_count": req.record_count or 30
     }
+
+
+@router.get("/realtime/presets")
+async def get_realtime_presets():
+    """
+    Returns available synthetic real-time stream generator presets and schema definitions.
+    """
+    return {
+        "presets": [
+            {
+                "id": "transactions",
+                "name": "Financial & Payment Transactions",
+                "prefix": "TXN",
+                "description": "High-velocity financial payment events with customer ID, merchant, transaction amount, and review flags.",
+                "default_batch_size": 30,
+                "fields": ["transaction_id", "timestamp", "customer_id", "customer_name", "merchant", "amount", "category", "payment_method", "status"]
+            },
+            {
+                "id": "iot_sensors",
+                "name": "Industrial IoT & Edge Telemetry",
+                "prefix": "IOT",
+                "description": "Continuous edge sensor telemetry stream with temperature, vibration frequency, psi pressure, and power draw.",
+                "default_batch_size": 30,
+                "fields": ["reading_id", "timestamp", "sensor_id", "device_type", "facility", "temperature_c", "vibration_hz", "pressure_psi", "power_draw_kw", "status_code"]
+            },
+            {
+                "id": "ecommerce_orders",
+                "name": "Global E-Commerce Logistics",
+                "prefix": "ORD",
+                "description": "Live multi-regional order intake pipeline stream with customer emails, SKU catalog, quantity, and payment authorization.",
+                "default_batch_size": 30,
+                "fields": ["order_id", "timestamp", "customer_email", "product_sku", "item_name", "quantity", "unit_price", "total_amount", "shipping_region", "order_status"]
+            }
+        ]
+    }
+
