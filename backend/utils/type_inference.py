@@ -52,7 +52,10 @@ class SemanticTypeInferenceEngine:
 
         # 6. Datetime check
         try:
-            parsed = pd.to_datetime(sample, errors="coerce")
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+                parsed = pd.to_datetime(sample, errors="coerce")
             if (parsed.notna().mean()) > 0.85:
                 return "datetime"
         except Exception:
