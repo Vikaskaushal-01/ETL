@@ -67,7 +67,8 @@ def sanitize_user_prompt(prompt: str) -> str:
     injection_patterns = [
         r"(?i)ignore\s+(all\s+)?(previous|prior)\s+instructions?",
         r"(?i)system\s*:\s*you\s+are\s+now",
-        r"(?i)reveal\s+(your\s+)?(system\s+prompt|secret\s+key|api\s+key)"
+        r"(?i)reveal\s+(your\s+)?(system\s+prompt|secret\s+key|api\s+key)",
+        r"(?i)disregard\s+(all\s+)?(prior|previous)\s+rules"
     ]
     for pattern in injection_patterns:
         sanitized = re.sub(pattern, "[FILTERED_INSTRUCTION]", sanitized)
@@ -547,7 +548,7 @@ The reports reflect the exact metrics and run metadata parsed directly from the 
                 "The user asked a question regarding process logs.\n"
                 f"Here is the process logs content we retrieved:\n{log_content}\n\n"
                 f"Conversation History:\n{history_str}\n\n"
-                f"User Query: {user_msg}\n\n"
+                f"User Query: {req.message}\n\n"
                 "Based on the logs and conversation history above, answer the user question. Output a detailed markdown response that includes the logs content if requested or relevant."
             )
             try:
