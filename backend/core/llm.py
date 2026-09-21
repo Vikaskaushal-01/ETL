@@ -42,7 +42,17 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         if len(parts) > 1:
             history_section = parts[1].split("User Query:")[0].strip()
 
-    # Check for basic math/calculation queries (e.g. "what is 25 * 4?", "2+2", "calculate 100 / 4")
+    # Check for basic math/calculation queries (e.g. "what is 25 * 4?", "2+2", "calculate 100 / 4", "15% of 200")
+    pct_match = re.search(r'(?:what is\s+)?([\d\.]+)\s*%\s*(?:of\s+)([\d\.]+)', query_text.strip(), re.IGNORECASE)
+    if pct_match:
+        try:
+            p_val = float(pct_match.group(1))
+            total_val = float(pct_match.group(2))
+            res_val = round((p_val / 100.0) * total_val, 4)
+            return f"### Calculation Result\n\n**Expression**: `{p_val}% of {total_val}`\n**Result**: **`{res_val}`**"
+        except Exception:
+            pass
+
     math_match = re.search(r'(?:what is|calculate|compute|solve)?\s*([\d\.\s\+\-\*\/\(\)\^%]+)\??$', query_text.strip(), re.IGNORECASE)
     if math_match:
         expr = math_match.group(1).strip()
