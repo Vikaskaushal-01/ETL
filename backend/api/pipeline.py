@@ -92,10 +92,18 @@ def read_pipeline_state(pipeline_id: str) -> dict:
 
 def clean_json_value(v):
     import math
+    from datetime import datetime, date
     if isinstance(v, float):
         if math.isnan(v) or math.isinf(v):
             return None
         return v
+    elif hasattr(v, "item"): # numpy scalar types
+        try:
+            return clean_json_value(v.item())
+        except Exception:
+            return str(v)
+    elif isinstance(v, (datetime, date)):
+        return v.isoformat()
     elif isinstance(v, dict):
         return {k: clean_json_value(val) for k, val in v.items()}
     elif isinstance(v, list):
