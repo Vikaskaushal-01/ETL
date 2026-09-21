@@ -32,7 +32,7 @@ A production-ready, autonomous data engineering platform that ingests raw datase
 ### 🤖 Artificial Intelligence & Agentic Workflow
 - **LangGraph**: Framework for constructing stateful multi-agent workflows with decision nodes, fallback branches, and state persistence.
 - **LangChain & LangChain Community**: LLM orchestration, prompt engineering, tool bindings, and chain pipelines.
-- **Google Gemini API (`langchain-google-genai`)**: Primary AI LLM model (`gemini-2.5-flash`) for schema profiling, cleansing strategy generation, RCA reports, and AI chat assistant.
+- **Google Gemini API (`langchain-google-genai`)**: Primary AI LLM model (`gemini-3.6-flash`) for schema profiling, cleansing strategy generation, RCA reports, and AI chat assistant.
 - **Ollama**: Local containerized LLM runner (`http://ollama:11434`) for offline or air-gapped deployments.
 - **Programmatic Heuristic LLM Engine**: Built-in offline fallback engine providing deterministic dataset cleansing and profiling rules.
 
