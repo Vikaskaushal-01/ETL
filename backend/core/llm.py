@@ -275,7 +275,7 @@ if LLM_PROVIDER == "gemini" and GEMINI_API_KEY and not GEMINI_API_KEY.startswith
         os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
         for m_name in gemini_models_to_try:
             try:
-                gemini_model = ChatGoogleGenerativeAI(model=m_name, temperature=0.2)
+                gemini_model = ChatGoogleGenerativeAI(model=m_name, temperature=0.2, max_retries=1)
                 logger.info(f"Gemini LLM model '{m_name}' initialized.")
                 break
             except Exception as init_err:
