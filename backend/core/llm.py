@@ -245,6 +245,28 @@ Feel free to ask any specific question about your data or platform!"""
     reply += "You can ask me to break down specific column statistics, explain why any validation rejected records occurred, generate customized SQL queries, or troubleshoot pipeline operations."
     return reply
 
+def extract_text_from_llm_response(content) -> str:
+    """
+    Extracts raw text from various LLM content types (str, list of dicts/parts, LangChain structures).
+    """
+    if not content:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for part in content:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, dict) and "text" in part:
+                text_parts.append(str(part["text"]))
+            elif hasattr(part, "text"):
+                text_parts.append(str(part.text))
+            else:
+                text_parts.append(str(part))
+        return "".join(text_parts)
+    return str(content)
+
 gemini_models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 gemini_model = None
 
@@ -289,8 +311,10 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
                 messages.append(("user", prompt))
                 response = gemini_model.invoke(messages)
                 if response and response.content:
-                    _gemini_circuit_open_until = 0.0
-                    return response.content
+                    extracted = extract_text_from_llm_response(response.content)
+                    if extracted:
+                        _gemini_circuit_open_until = 0.0
+                        return extracted
             except Exception as e:
                 err_str = str(e)
                 # Check for permanent or blocked API credentials
