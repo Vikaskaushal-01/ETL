@@ -245,7 +245,7 @@ Feel free to ask any specific question about your data or platform!"""
     reply += "You can ask me to break down specific column statistics, explain why any validation rejected records occurred, generate customized SQL queries, or troubleshoot pipeline operations."
     return reply
 
-gemini_models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+gemini_models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
 gemini_model = None
 
 if LLM_PROVIDER == "gemini" and GEMINI_API_KEY and not GEMINI_API_KEY.startswith("your_gemini_"):
