@@ -130,3 +130,38 @@ def get_powerbi_schema():
             }
         ]
     }
+
+@router.get("/measures")
+def get_powerbi_dax_measures():
+    """
+    Returns pre-configured DAX calculation measures and metadata for semantic model consumption.
+    """
+    return {
+        "measures": [
+            {
+                "name": "Total Revenue",
+                "formula": "SUM(FactSales[total_price])",
+                "category": "Sales Intelligence",
+                "format_string": "$#,##0.00"
+            },
+            {
+                "name": "Average Order Value",
+                "formula": "DIVIDE(SUM(FactOrders[total_amount]), COUNTROWS(FactOrders), 0)",
+                "category": "Order Metrics",
+                "format_string": "$#,##0.00"
+            },
+            {
+                "name": "Pipeline Success Rate",
+                "formula": "DIVIDE(CALCULATE(COUNTROWS(FactExecution), FactExecution[status] = \"Completed\"), COUNTROWS(FactExecution), 0)",
+                "category": "Data Ops Telemetry",
+                "format_string": "0.0%"
+            },
+            {
+                "name": "Total Units Sold",
+                "formula": "SUM(FactSales[quantity])",
+                "category": "Inventory & Volume",
+                "format_string": "#,##0"
+            }
+        ]
+    }
+
