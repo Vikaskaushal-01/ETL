@@ -27,7 +27,9 @@ class IntakeAgent:
             df = read_dataset(file_path)
         
         row_count, col_count = df.shape
-        column_names = list(df.columns)
+        column_names = [str(col).strip() for col in list(df.columns) if str(col).strip()]
+        if not column_names:
+            column_names = [f"col_{i+1}" for i in range(col_count)]
         
         # Calculate missing values
         missing_values = df.isnull().sum().to_dict()
