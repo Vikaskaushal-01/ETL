@@ -47,15 +47,15 @@ def clean_docx_string(val, max_len=80):
 
 def clean_markdown_string(val, max_len=80):
     s = str(val) if val is not None else ""
-    s = s.replace("|", "\\|")
+    s = s.replace("|", "\\|").replace("\n", " ")
     if len(s) > max_len:
         s = s[:max_len-3] + "..."
-    return s
+    return s.strip()
 
 def generate_json_report(file_path: str, data: dict):
     ensure_dir(file_path)
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=2, default=str)
+        json.dump(data, f, indent=2, default=str, ensure_ascii=False)
     logger.info(f"JSON report generated at {file_path}")
 
 def generate_markdown_report(file_path: str, data: dict):
