@@ -40,6 +40,9 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required.")
 
+    if "@" not in email or "." not in email:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+
     if len(password) < 4:
         raise HTTPException(status_code=400, detail="Password must be at least 4 characters.")
 
