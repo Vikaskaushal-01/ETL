@@ -105,9 +105,12 @@ class TransformationAgent:
             if "date" in col or "time" in col:
                 # Try parsing as datetime
                 try:
-                    # Capture original state to log
-                    sample_vals = df[col].dropna().head(3).tolist()
-                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=UserWarning)
+                        # Capture original state to log
+                        sample_vals = df[col].dropna().head(3).tolist()
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
                     # format as ISO string YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
                     df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
                     history.append({
