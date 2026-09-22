@@ -314,3 +314,60 @@ async def upload_rag_url(
         "upload_time": db_doc.upload_time
     }
 
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: Optional[int] = 5
+
+@router.post("/search")
+def search_rag_knowledge_base(
+    req: RagSearchRequest,
+    db: Session = Depends(get_db),
+    x_user_email: Optional[str] = Header(None)
+):
+    """
+    Performs keyword & token relevance scoring across uploaded knowledge base documents.
+    """
+    email = x_user_email or "admin@controlai.net"
+    query_tokens = [tok.lower() for tok in req.query.strip().split() if len(tok) > 2]
+    
+    if not query_tokens:
+        return {"query": req.query, "results": [], "total_matches": 0}
+
+    docs = db.query(RagDocument).filter(RagDocument.uploaded_by == email).all()
+    results = []
+
+    for doc in docs:
+        content_lower = (doc.content or "").lower()
+        score = 0
+        matching_snippets = []
+
+        for token in query_tokens:
+            token_count = content_lower.count(token)
+            if token_count > 0:
+                score += token_count * 2
+                idx = content_lower.find(token)
+                start_idx = max(0, idx - 60)
+                end_idx = min(len(doc.content or ""), idx + 140)
+                snippet = (doc.content or "")[start_idx:end_idx].strip()
+                if snippet and snippet not in matching_snippets:
+                    matching_snippets.append(f"...{snippet}...")
+
+        if score > 0:
+            results.append({
+                "doc_id": doc.id,
+                "filename": doc.filename,
+                "file_type": doc.file_type,
+                "score": score,
+                "snippets": matching_snippets[:3]
+            })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    top_results = results[:req.top_k or 5]
+
+    return {
+        "query": req.query,
+        "total_matches": len(results),
+        "results": top_results
+    }
+
+
