@@ -276,9 +276,9 @@ class StorageAgent:
                 for mc in missing_customers_to_stub:
                     try:
                         if is_sqlite:
-                            db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global')"), {"c": mc})
+                            db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)"), {"c": mc, "u": user_email})
                         else:
-                            db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global') ON DUPLICATE KEY UPDATE customer_id=customer_id"), {"c": mc})
+                            db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u) ON DUPLICATE KEY UPDATE customer_id=customer_id"), {"c": mc, "u": user_email})
                     except Exception as stub_err:
                         logger.warning(f"Customer stub insert note: {stub_err}")
                 db.commit()
@@ -287,9 +287,9 @@ class StorageAgent:
                 # Ensure a base customer stub exists for auto orders
                 try:
                     if is_sqlite:
-                        db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global')"))
+                        db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)"), {"u": user_email})
                     else:
-                        db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global') ON DUPLICATE KEY UPDATE customer_id=customer_id"))
+                        db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u) ON DUPLICATE KEY UPDATE customer_id=customer_id"), {"u": user_email})
                     db.commit()
                 except Exception as stub_err:
                     logger.warning(f"Base customer stub insert note: {stub_err}")
@@ -297,9 +297,9 @@ class StorageAgent:
                 for mo in missing_orders_to_stub:
                     try:
                         if is_sqlite:
-                            db.execute(text("INSERT OR IGNORE INTO orders (order_id, customer_id, order_date, status, total_amount) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0)"), {"o": mo})
+                            db.execute(text("INSERT OR IGNORE INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u)"), {"o": mo, "u": user_email})
                         else:
-                            db.execute(text("INSERT INTO orders (order_id, customer_id, order_date, status, total_amount) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0) ON DUPLICATE KEY UPDATE order_id=order_id"), {"o": mo})
+                            db.execute(text("INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u) ON DUPLICATE KEY UPDATE order_id=order_id"), {"o": mo, "u": user_email})
                     except Exception as stub_err:
                         logger.warning(f"Order stub insert note: {stub_err}")
                 db.commit()
