@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-09-22
+
+### 🚀 Added
+- **Gemini 3.6 Flash LLM Integration**:
+  - Upgraded Google GenAI client to use `gemini-3.6-flash` as primary LLM engine with fallback circuit breakers.
+  - Added structured text and dictionary response extraction helpers for LangChain GenAI 4.2+.
+- **Extended API Telemetry & Endpoints**:
+  - Added `/api/v1/dashboard/metrics` providing pipeline throughput, uptime availability %, and node execution state.
+  - Added `/api/v1/powerbi/measures` providing pre-configured DAX business formulas (Total Revenue, AOV, Success Rate, Units Sold).
+  - Added `/api/v1/rag/search` providing token-scored keyword search and relevance ranking across uploaded knowledge base documents.
+- **Enhanced Data Ingestion & Sanitization**:
+  - Delimiter detection resilience and header whitespace normalization in `IntakeAgent`.
+  - Advanced semantic type inference for Currency ($ / € / £ / ¥) and IP addresses.
+  - Chat prompt injection defense filters and NLP fallback handling for data engineering queries.
+- **Automated Regression Testing**:
+  - Added unit test coverage for extended dashboard telemetry, PowerBI measures, and RAG search in `tests/test_extended_endpoints.py`.
+
+### 🛡️ Security & Performance
+- Suppressed legacy pandas datetime format inference warnings in semantic type detection.
+- Configured client retry policies and 60-second circuit breaker recovery for LLM service endpoints.
+- Auto-provisioning logic for relational parent stubs in SQLite and MySQL storage engines.
+
+---
+
 ## [2.0.0] - 2026-09-17
+
 
 ### 🚀 Added
 - **Real-Time Streaming Ingestion Engine**:
