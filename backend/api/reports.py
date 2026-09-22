@@ -72,10 +72,10 @@ def get_reports_by_folder(db: Session = Depends(get_db), x_user_email: Optional[
                 "folder_name": folder_name,
                 "created_at": report.created_at.isoformat() if report.created_at else (upload_time.isoformat() if upload_time else None),
                 "formats": {
-                    "pdf": report.pdf_path,
-                    "docx": report.docx_path,
-                    "markdown": report.markdown_path,
-                    "json": report.json_path
+                    "pdf": report.pdf_path.replace("\\", "/") if report.pdf_path else "",
+                    "docx": report.docx_path.replace("\\", "/") if report.docx_path else "",
+                    "markdown": report.markdown_path.replace("\\", "/") if report.markdown_path else "",
+                    "json": report.json_path.replace("\\", "/") if report.json_path else ""
                 }
             })
             
