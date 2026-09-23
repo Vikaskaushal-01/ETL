@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -7,7 +7,7 @@ class ChatMessage(BaseModel):
     content: str
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = Field(..., min_length=1, max_length=8000)
     batch_id: Optional[str] = None
     history: Optional[List[ChatMessage]] = None
 
@@ -37,12 +37,12 @@ class PipelineStatusResponse(BaseModel):
 class ReportSummary(BaseModel):
     id: int
     batch_id: str
-    pdf_path: str
+    pdf_path: Optional[str] = None
     docx_path: Optional[str] = None
     txt_path: Optional[str] = None
-    markdown_path: str
-    json_path: str
-    created_at: datetime
+    markdown_path: Optional[str] = None
+    json_path: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 class DashboardSummary(BaseModel):
     total_rows_processed: int
