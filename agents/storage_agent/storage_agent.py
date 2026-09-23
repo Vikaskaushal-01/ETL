@@ -3,6 +3,7 @@ import json
 import re
 import logging
 import time
+import datetime
 import sqlite3
 import pandas as pd
 from sqlalchemy import text
@@ -14,6 +15,105 @@ from backend.core.llm import query_llm
 from backend.utils.file_utils import read_dataset
 
 logger = logging.getLogger("etl_storage_agent")
+
+# Relational target tables: loadable columns and primary keys
+TABLE_COLUMNS = {
+    "customers": ["customer_id", "customer_name", "email", "phone", "region"],
+    "orders": ["order_id", "customer_id", "order_date", "status", "total_amount"],
+    "sales": ["sale_id", "order_id", "product_id", "quantity", "unit_price", "total_price", "sale_date"],
+}
+PRIMARY_KEYS = {"customers": "customer_id", "orders": "order_id", "sales": "sale_id"}
+
+
+def detect_dataset_type(cols: list) -> str:
+    """
+    Maps a cleaned dataset onto a relational table by its key columns. A file that has its own
+    identifier (e.g. transaction_id) and merely references customer_id is not a customer master
+    list, so it is stored as a generic dataset rather than overwriting customers.
+    """
+    col_set = set(cols)
+    if "sale_id" in col_set:
+        return "sales"
+    if "order_id" in col_set:
+        return "orders"
+    if "customer_id" in col_set:
+        other_ids = [c for c in col_set if c.endswith("_id") and c != "customer_id"]
+        return "dataset" if other_ids else "customers"
+    return "dataset"
+
+
+def _is_missing(v) -> bool:
+    try:
+        return v is None or bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False
+
+
+def _clean_key(v) -> str:
+    if _is_missing(v):
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    s = str(v).strip()
+    return "" if s.lower() in ("nan", "none", "null") else s
+
+
+def _to_text(v):
+    if _is_missing(v):
+        return None
+    if isinstance(v, (datetime.datetime, datetime.date)):
+        return v.isoformat(sep=" ") if isinstance(v, datetime.datetime) else v.isoformat()
+    return v if isinstance(v, str) else str(v)
+
+
+def _to_float(v, col: str):
+    if _is_missing(v) or (isinstance(v, str) and not v.strip()):
+        return None, None
+    try:
+        return float(str(v).replace(",", "").strip()), None
+    except (TypeError, ValueError):
+        return None, f"Invalid numeric value in '{col}': {v!r}"
+
+
+def _to_int(v, col: str):
+    number, err = _to_float(v, col)
+    if err or number is None:
+        return None, err
+    if not number.is_integer():
+        return None, f"Non-integer value in '{col}': {v!r}"
+    return int(number), None
+
+
+def _to_datetime(v, col: str):
+    if _is_missing(v) or (isinstance(v, str) and not v.strip()):
+        return None, None
+    parsed = pd.to_datetime(v, errors="coerce")
+    if pd.isna(parsed):
+        return None, f"Unparseable date in '{col}': {v!r}"
+    return parsed.to_pydatetime(), None
+
+
+def _upsert_sql(is_sqlite: bool, table: str, cols: list, pk: str) -> str:
+    col_list = ", ".join(cols)
+    values = ", ".join(f":{c}" for c in cols)
+    updates = [c for c in cols if c != pk]
+    if is_sqlite:
+        set_clause = ", ".join(f"{c}=excluded.{c}" for c in updates)
+        return f"INSERT INTO {table} ({col_list}) VALUES ({values}) ON CONFLICT({pk}) DO UPDATE SET {set_clause}"
+    set_clause = ", ".join(f"{c}=VALUES({c})" for c in updates)
+    return f"INSERT INTO {table} ({col_list}) VALUES ({values}) ON DUPLICATE KEY UPDATE {set_clause}"
+
+
+def _upsert_ignore_sql(is_sqlite: bool, table: str, cols_and_values: str, pk: str) -> str:
+    if is_sqlite:
+        return f"INSERT OR IGNORE INTO {table} {cols_and_values}"
+    return f"INSERT INTO {table} {cols_and_values} ON DUPLICATE KEY UPDATE {pk}={pk}"
+
+
+def _xml_safe(value) -> str:
+    """python-docx rejects control characters; strip them so odd source data cannot break the export."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(value))
+
 
 class StorageAgent:
     def __init__(self):
@@ -94,23 +194,8 @@ class StorageAgent:
 
         logger.info(f"Selected format: {format_selected}. Reason: {storage_reason}")
         
-        # 3. Detect table name and set reference (No physical file stored for formats)
-        dataset_type = "dataset"
-        if "customer_id" in cols and "customer_name" in cols:
-            dataset_type = "customers"
-        elif "order_id" in cols and "customer_id" in cols:
-            dataset_type = "orders"
-        elif "sale_id" in cols and "order_id" in cols:
-            dataset_type = "sales"
-        else:
-            if "customer_id" in cols:
-                dataset_type = "customers"
-            elif "order_id" in cols:
-                dataset_type = "orders"
-            elif "sale_id" in cols:
-                dataset_type = "sales"
-            else:
-                dataset_type = "dataset"
+        # 3. Detect the target relational table from the dataset's key columns
+        dataset_type = detect_dataset_type(cols)
 
         db = SessionLocal()
         user_email = None
@@ -129,7 +214,7 @@ class StorageAgent:
         rejected_records = []
         rows_loaded = 0
         rows_rejected = 0
-        
+
         # Pull existing FKs
         existing_customers = set()
         existing_orders = set()
@@ -151,255 +236,151 @@ class StorageAgent:
         missing_customers_to_stub = set()
         missing_orders_to_stub = set()
 
+        table_columns = TABLE_COLUMNS.get(dataset_type, [])
+        pk_col = PRIMARY_KEYS.get(dataset_type)
+
         for idx, raw_record in enumerate(df.to_dict(orient='records')):
             row_num = idx + 1
-            row_dict = {k: (None if pd.isna(v) else v) for k, v in raw_record.items()}
-            is_valid = True
-            reject_reason = ""
-            
+            row_dict = {str(k): (None if _is_missing(v) else v) for k, v in raw_record.items()}
+            # Columns the target table expects but the file lacks are loaded as NULL
+            for col in table_columns:
+                row_dict.setdefault(col, None)
+
+            reject_reasons = []
+            prod_row = None
+
+            if pk_col:
+                pk_val = _clean_key(row_dict.get(pk_col))
+                if not pk_val:
+                    reject_reasons.append(f"Missing primary key '{pk_col}'")
+                elif pk_val in seen_pks:
+                    reject_reasons.append(f"Duplicate primary key '{pk_col}'={pk_val} within the batch")
+                else:
+                    seen_pks.add(pk_val)
+                row_dict[pk_col] = pk_val
+
             if dataset_type == "customers":
-                pk_val = str(row_dict.get("customer_id", "")).strip()
-                if not pk_val or pk_val == "nan" or pk_val == "None":
-                    row_dict["customer_id"] = f"CUST_AUTO_{idx+1}"
-                    pk_val = row_dict["customer_id"]
-                if pk_val in seen_pks:
-                    row_dict["customer_id"] = f"{pk_val}_dup_{idx+1}"
-                seen_pks.add(row_dict["customer_id"])
-                    
+                if not _clean_key(row_dict.get("customer_name")):
+                    reject_reasons.append("Missing required field 'customer_name'")
+                prod_row = {c: _to_text(row_dict.get(c)) for c in table_columns}
+
             elif dataset_type == "orders":
-                pk_val = str(row_dict.get("order_id", "")).strip()
-                fk_val = str(row_dict.get("customer_id", "")).strip()
-                if not pk_val or pk_val == "nan" or pk_val == "None":
-                    row_dict["order_id"] = f"ORD_AUTO_{idx+1}"
-                    pk_val = row_dict["order_id"]
-                if pk_val in seen_pks:
-                    row_dict["order_id"] = f"{pk_val}_dup_{idx+1}"
-                seen_pks.add(row_dict["order_id"])
-
-                if not fk_val or fk_val == "nan" or fk_val == "None":
-                    row_dict["customer_id"] = "CUST_DEFAULT"
-                    fk_val = "CUST_DEFAULT"
-
-                if fk_val not in existing_customers:
+                fk_val = _clean_key(row_dict.get("customer_id")) or "CUST_DEFAULT"
+                row_dict["customer_id"] = fk_val
+                total_amount, err_amt = _to_float(row_dict.get("total_amount"), "total_amount")
+                order_date, err_date = _to_datetime(row_dict.get("order_date"), "order_date")
+                reject_reasons += [e for e in (err_amt, err_date) if e]
+                prod_row = {
+                    "order_id": row_dict["order_id"],
+                    "customer_id": fk_val,
+                    "order_date": order_date,
+                    "status": _to_text(row_dict.get("status")),
+                    "total_amount": total_amount
+                }
+                if not reject_reasons and fk_val not in existing_customers:
                     missing_customers_to_stub.add(fk_val)
                     existing_customers.add(fk_val)
 
             elif dataset_type == "sales":
-                pk_val = str(row_dict.get("sale_id", "")).strip()
-                fk_val = str(row_dict.get("order_id", "")).strip()
-                if not pk_val or pk_val == "nan" or pk_val == "None":
-                    row_dict["sale_id"] = f"SALE_AUTO_{idx+1}"
-                    pk_val = row_dict["sale_id"]
-                if pk_val in seen_pks:
-                    row_dict["sale_id"] = f"{pk_val}_dup_{idx+1}"
-                seen_pks.add(row_dict["sale_id"])
-
-                if not fk_val or fk_val == "nan" or fk_val == "None":
-                    row_dict["order_id"] = "ORD_DEFAULT"
-                    fk_val = "ORD_DEFAULT"
-
-                if fk_val not in existing_orders:
+                fk_val = _clean_key(row_dict.get("order_id")) or "ORD_DEFAULT"
+                row_dict["order_id"] = fk_val
+                quantity, err_qty = _to_int(row_dict.get("quantity"), "quantity")
+                unit_price, err_up = _to_float(row_dict.get("unit_price"), "unit_price")
+                total_price, err_tp = _to_float(row_dict.get("total_price"), "total_price")
+                sale_date, err_date = _to_datetime(row_dict.get("sale_date"), "sale_date")
+                reject_reasons += [e for e in (err_qty, err_up, err_tp, err_date) if e]
+                prod_row = {
+                    "sale_id": row_dict["sale_id"],
+                    "order_id": fk_val,
+                    "product_id": _to_text(row_dict.get("product_id")),
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "total_price": total_price,
+                    "sale_date": sale_date
+                }
+                if not reject_reasons and fk_val not in existing_orders:
                     missing_orders_to_stub.add(fk_val)
                     existing_orders.add(fk_val)
             else:
-                # Generic dataset: rows are all valid
-                is_valid = True
+                prod_row = {k: v for k, v in row_dict.items()}
 
+            is_valid = not reject_reasons
             status = "Valid" if is_valid else "Rejected"
-            if not is_valid:
+            if is_valid:
+                rows_loaded += 1
+                prod_row["uploaded_by"] = user_email
+                production_records.append(prod_row)
+            else:
                 rows_rejected += 1
                 rejected_records.append({
                     "row_number": row_num,
-                    "record": row_dict,
-                    "reason": reject_reason
+                    "record": {k: _to_text(v) for k, v in row_dict.items()},
+                    "reason": "; ".join(reject_reasons)
                 })
-            else:
-                rows_loaded += 1
-                production_records.append(row_dict)
 
-            row_dict["batch_id"] = batch_id
-            row_dict["row_number"] = row_num
-            row_dict["validation_status"] = status
-            staging_records.append(row_dict)
+            if dataset_type in TABLE_COLUMNS:
+                staging_row = {c: _to_text(row_dict.get(c)) for c in table_columns}
+            else:
+                staging_row = {"data_json": json.dumps(row_dict, default=str)}
+            staging_row.update({"batch_id": batch_id, "row_number": row_num, "validation_status": status})
+            staging_records.append(staging_row)
 
         # Database Loading Transaction
+        is_sqlite = db.get_bind().dialect.name == "sqlite"
+        staging_table = f"staging_{dataset_type}"
         try:
-            # Delete staging
-            db.execute(text(f"DELETE FROM staging_{dataset_type} WHERE batch_id = :b"), {"b": batch_id})
-            sql_logs.append(f"DELETE FROM staging_{dataset_type} WHERE batch_id = '{batch_id}'")
-            
-            # Bulk staging inserts
-            if staging_records:
-                if dataset_type == "customers":
-                    stmt = text("""
-                        INSERT INTO staging_customers (customer_id, customer_name, email, phone, region, batch_id, `row_number`, validation_status)
-                        VALUES (:customer_id, :customer_name, :email, :phone, :region, :batch_id, :row_number, :validation_status)
-                    """)
-                    db.execute(stmt, staging_records)
-                elif dataset_type == "orders":
-                    formatted_staging = [{**r, "order_date": str(r.get("order_date")), "total_amount": str(r.get("total_amount"))} for r in staging_records]
-                    stmt = text("""
-                        INSERT INTO staging_orders (order_id, customer_id, order_date, status, total_amount, batch_id, `row_number`, validation_status)
-                        VALUES (:order_id, :customer_id, :order_date, :status, :total_amount, :batch_id, :row_number, :validation_status)
-                    """)
-                    db.execute(stmt, formatted_staging)
-                elif dataset_type == "sales":
-                    formatted_staging = [{**r, "quantity": str(r.get("quantity")), "unit_price": str(r.get("unit_price")), "total_price": str(r.get("total_price")), "sale_date": str(r.get("sale_date"))} for r in staging_records]
-                    stmt = text("""
-                        INSERT INTO staging_sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date, batch_id, `row_number`, validation_status)
-                        VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date, :batch_id, :row_number, :validation_status)
-                    """)
-                    db.execute(stmt, formatted_staging)
-                else:
-                    formatted_staging = [
-                        {
-                            "batch_id": batch_id,
-                            "row_number": r.get("row_number", idx + 1),
-                            "data_json": json.dumps({k: v for k, v in r.items() if k not in ["batch_id", "row_number", "validation_status"]}, default=str),
-                            "validation_status": r.get("validation_status", "Valid")
-                        }
-                        for idx, r in enumerate(staging_records)
-                    ]
-                    stmt = text("""
-                        INSERT INTO staging_dataset (batch_id, `row_number`, data_json, validation_status)
-                        VALUES (:batch_id, :row_number, :data_json, :validation_status)
-                    """)
-                    db.execute(stmt, formatted_staging)
-            
-            sql_logs.append(f"INSERTED {len(staging_records)} records into staging_{dataset_type}.")
+            # Replace any staging rows from a previous run of this batch
+            db.execute(text(f"DELETE FROM {staging_table} WHERE batch_id = :b"), {"b": batch_id})
+            sql_logs.append(f"DELETE FROM {staging_table} WHERE batch_id = '{batch_id}'")
 
-            # Load production valid records
-            is_sqlite = "sqlite" in str(db.get_bind().url)
+            if staging_records:
+                staging_cols = list(staging_records[0].keys())
+                col_list = ", ".join(f"`{c}`" if c == "row_number" else c for c in staging_cols)
+                values_list = ", ".join(f":{c}" for c in staging_cols)
+                db.execute(text(f"INSERT INTO {staging_table} ({col_list}) VALUES ({values_list})"), staging_records)
+            sql_logs.append(f"INSERTED {len(staging_records)} records into {staging_table} ({rows_rejected} flagged Rejected).")
 
             # Auto-provision parent stub records if referenced foreign keys are missing in DB
-            if missing_customers_to_stub:
-                for mc in missing_customers_to_stub:
-                    try:
-                        if is_sqlite:
-                            db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)"), {"c": mc, "u": user_email})
-                        else:
-                            db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u) ON DUPLICATE KEY UPDATE customer_id=customer_id"), {"c": mc, "u": user_email})
-                    except Exception as stub_err:
-                        logger.warning(f"Customer stub insert note: {stub_err}")
-                db.commit()
-
-            if missing_orders_to_stub:
-                # Ensure a base customer stub exists for auto orders
-                try:
-                    if is_sqlite:
-                        db.execute(text("INSERT OR IGNORE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)"), {"u": user_email})
-                    else:
-                        db.execute(text("INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by) VALUES ('CUST_DEFAULT', 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u) ON DUPLICATE KEY UPDATE customer_id=customer_id"), {"u": user_email})
-                    db.commit()
-                except Exception as stub_err:
-                    logger.warning(f"Base customer stub insert note: {stub_err}")
-
+            if missing_customers_to_stub or missing_orders_to_stub:
+                customer_stubs = set(missing_customers_to_stub)
+                if missing_orders_to_stub:
+                    customer_stubs.add("CUST_DEFAULT")
+                for mc in customer_stubs:
+                    db.execute(text(_upsert_ignore_sql(
+                        is_sqlite, "customers",
+                        "(customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)",
+                        "customer_id"
+                    )), {"c": mc, "u": user_email})
                 for mo in missing_orders_to_stub:
-                    try:
-                        if is_sqlite:
-                            db.execute(text("INSERT OR IGNORE INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u)"), {"o": mo, "u": user_email})
-                        else:
-                            db.execute(text("INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u) ON DUPLICATE KEY UPDATE order_id=order_id"), {"o": mo, "u": user_email})
-                    except Exception as stub_err:
-                        logger.warning(f"Order stub insert note: {stub_err}")
-                db.commit()
+                    db.execute(text(_upsert_ignore_sql(
+                        is_sqlite, "orders",
+                        "(order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u)",
+                        "order_id"
+                    )), {"o": mo, "u": user_email})
+                sql_logs.append(f"Auto-provisioned {len(customer_stubs)} parent customer(s) and {len(missing_orders_to_stub)} parent order(s) referenced by foreign keys.")
 
             if production_records:
-                if dataset_type == "customers":
-                    for r in production_records:
-                        r["uploaded_by"] = user_email
-                    if is_sqlite:
-                        stmt = text("""
-                            INSERT OR REPLACE INTO customers (customer_id, customer_name, email, phone, region, uploaded_by)
-                            VALUES (:customer_id, :customer_name, :email, :phone, :region, :uploaded_by)
-                        """)
-                    else:
-                        stmt = text("""
-                            INSERT INTO customers (customer_id, customer_name, email, phone, region, uploaded_by)
-                            VALUES (:customer_id, :customer_name, :email, :phone, :region, :uploaded_by)
-                            ON DUPLICATE KEY UPDATE customer_name=VALUES(customer_name), email=VALUES(email), phone=VALUES(phone), region=VALUES(region), uploaded_by=VALUES(uploaded_by)
-                        """)
-                    db.execute(stmt, production_records)
-                elif dataset_type == "orders":
-                    formatted_prod = []
-                    for r in production_records:
-                        try:
-                            o_date = pd.to_datetime(r.get("order_date"))
-                            if pd.notna(o_date):
-                                o_date = o_date.to_pydatetime()
-                            else:
-                                o_date = None
-                        except Exception:
-                            o_date = None
-                        formatted_prod.append({
-                            **r,
-                            "order_date": o_date,
-                            "total_amount": float(r.get("total_amount")) if r.get("total_amount") else 0.0,
-                            "uploaded_by": user_email
-                        })
-                    if is_sqlite:
-                        stmt = text("""
-                            INSERT OR REPLACE INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by)
-                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount, :uploaded_by)
-                        """)
-                    else:
-                        stmt = text("""
-                            INSERT INTO orders (order_id, customer_id, order_date, status, total_amount, uploaded_by)
-                            VALUES (:order_id, :customer_id, :order_date, :status, :total_amount, :uploaded_by)
-                            ON DUPLICATE KEY UPDATE customer_id=VALUES(customer_id), order_date=VALUES(order_date), status=VALUES(status), total_amount=VALUES(total_amount), uploaded_by=VALUES(uploaded_by)
-                        """)
-                    db.execute(stmt, formatted_prod)
-                elif dataset_type == "sales":
-                    formatted_prod = []
-                    for r in production_records:
-                        try:
-                            s_date = pd.to_datetime(r.get("sale_date"))
-                            if pd.notna(s_date):
-                                s_date = s_date.to_pydatetime()
-                            else:
-                                s_date = None
-                        except Exception:
-                            s_date = None
-                        formatted_prod.append({
-                            **r,
-                            "quantity": int(r.get("quantity")) if r.get("quantity") else 0,
-                            "unit_price": float(r.get("unit_price")) if r.get("unit_price") else 0.0,
-                            "total_price": float(r.get("total_price")) if r.get("total_price") else 0.0,
-                            "sale_date": s_date,
-                            "uploaded_by": user_email
-                        })
-                    if is_sqlite:
-                        stmt = text("""
-                            INSERT OR REPLACE INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date, uploaded_by)
-                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date, :uploaded_by)
-                        """)
-                    else:
-                        stmt = text("""
-                            INSERT INTO sales (sale_id, order_id, product_id, quantity, unit_price, total_price, sale_date, uploaded_by)
-                            VALUES (:sale_id, :order_id, :product_id, :quantity, :unit_price, :total_price, :sale_date, :uploaded_by)
-                            ON DUPLICATE KEY UPDATE order_id=VALUES(order_id), product_id=VALUES(product_id), quantity=VALUES(quantity), unit_price=VALUES(unit_price), total_price=VALUES(total_price), sale_date=VALUES(sale_date), uploaded_by=VALUES(uploaded_by)
-                        """)
-                    db.execute(stmt, formatted_prod)
+                if dataset_type in TABLE_COLUMNS:
+                    prod_cols = table_columns + ["uploaded_by"]
+                    db.execute(text(_upsert_sql(is_sqlite, dataset_type, prod_cols, pk_col)), production_records)
                 else:
-                    formatted_prod = [
-                        {"business_columns": json.dumps(r, default=str)}
-                        for r in production_records
-                    ]
-                    stmt = text("""
-                        INSERT INTO production_dataset (business_columns)
-                        VALUES (:business_columns)
-                    """)
-                    db.execute(stmt, formatted_prod)
-            
+                    db.execute(
+                        text("INSERT INTO production_dataset (business_columns) VALUES (:business_columns)"),
+                        [{"business_columns": json.dumps({k: v for k, v in r.items() if k != "uploaded_by"}, default=str)} for r in production_records]
+                    )
+
             sql_logs.append(f"INSERTED/UPDATED {len(production_records)} valid records into production {dataset_type} table.")
             db.commit()
         except Exception as db_err:
             db.rollback()
             logger.error(f"Database load failed: {db_err}")
-            sql_logs.append(f"TRANSACTION ROLLBACK due to: {str(db_err)}")
+            sql_logs.append(f"TRANSACTION ROLLBACK due to: {str(db_err)[:500]}")
             rows_rejected = len(df)
             rows_loaded = 0
-            rejected_records = [{"row_number": i+1, "record": df.iloc[i].to_dict(), "reason": f"DB Load Crash: {str(db_err)}"} for i in range(len(df))]
+            rejected_records = [
+                {"row_number": i + 1, "record": {str(k): _to_text(v) for k, v in rec.items()}, "reason": f"DB Load Crash: {str(db_err)[:300]}"}
+                for i, rec in enumerate(df.to_dict(orient="records"))
+            ]
         finally:
             db.close()
 
@@ -474,7 +455,7 @@ class StorageAgent:
             try:
                 word_export_path = os.path.join(clean_dir, f"{base_no_ext}.docx")
                 docx_doc = Document()
-                docx_doc.add_heading(f"Cleaned Dataset: {base_no_ext}", level=0)
+                docx_doc.add_heading(_xml_safe(f"Cleaned Dataset: {base_no_ext}"), level=0)
                 docx_doc.add_paragraph(f"Formatted and structured dataset generated by Intelligent Storage Agent ({format_selected} format).")
                 
                 # Create Table (limit to 100 rows for size / speed reasons)
@@ -486,14 +467,14 @@ class StorageAgent:
                 # Add Header
                 hdr_cells = table.rows[0].cells
                 for i, col in enumerate(df.columns):
-                    hdr_cells[i].text = str(col)
+                    hdr_cells[i].text = _xml_safe(col)
                     
                 # Add Data Rows
                 for r_idx in range(preview_limit):
                     row_cells = table.rows[r_idx + 1].cells
                     for c_idx in range(cols_count):
                         val = df.iloc[r_idx, c_idx]
-                        row_cells[c_idx].text = "" if pd.isna(val) else str(val)
+                        row_cells[c_idx].text = "" if _is_missing(val) else _xml_safe(val)
                         
                 docx_doc.save(word_export_path)
                 logger.info(f"Saved formatted Word document to: {word_export_path}")
