@@ -1,13 +1,40 @@
 import os
 import json
 import logging
+import re
 import time
+import warnings
 import pandas as pd
 import numpy as np
 from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder, detect_file_info
 from backend.core.llm import query_llm
 
 logger = logging.getLogger("etl_transformation_agent")
+
+# Share of non-null values that must parse as dates before a column is rewritten to ISO format
+DATE_PARSE_THRESHOLD = 0.8
+_DATE_NAME_RE = re.compile(r"(^|_)(date|datetime|timestamp|time|dt|dob|created_at|updated_at)(_|$)|_at$|_on$")
+
+
+def is_date_column_name(col: str) -> bool:
+    """Matches date-like column names as whole tokens, so e.g. 'runtime_sec' or 'candidate' are not dates."""
+    return bool(_DATE_NAME_RE.search(str(col).lower()))
+
+
+def parse_dates(series: pd.Series) -> pd.Series:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return pd.to_datetime(series, errors="coerce", format="mixed")
+
+def measure_quality(df: pd.DataFrame) -> float:
+    """Share of non-null cells, penalized by duplicate rows, as a 0-100 score."""
+    total_elems = df.shape[0] * df.shape[1]
+    if total_elems == 0:
+        return 100.0
+    missing = int(df.isnull().sum().sum())
+    dups = int(df.duplicated().sum())
+    return round(max(0.0, (total_elems - missing - dups) / total_elems * 100), 2)
+
 
 class TransformationAgent:
     def __init__(self):
@@ -49,6 +76,10 @@ class TransformationAgent:
             df = read_dataset(file_path)
             original_shape = df.shape
             
+        quality_before = metadata.get("estimated_quality")
+        if not isinstance(quality_before, (int, float)):
+            quality_before = measure_quality(df)
+
         history = []
         logs = []
         
@@ -100,28 +131,29 @@ class TransformationAgent:
                 })
                 logs.append(f"Removed {dups_count} duplicate rows from the dataset.")
 
-        # 4. Standardize date formats
+        # 4. Standardize date formats (only for genuine date columns, never destroying unparseable values)
         for col in df.columns:
-            if "date" in col or "time" in col:
-                # Try parsing as datetime
-                try:
-                    import warnings
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", category=UserWarning)
-                        # Capture original state to log
-                        sample_vals = df[col].dropna().head(3).tolist()
-                        df[col] = pd.to_datetime(df[col], errors='coerce')
-                    # format as ISO string YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
-                    df[col] = df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
-                    history.append({
-                        "column_name": col,
-                        "old_value": str(sample_vals),
-                        "new_value": "ISO datetime YYYY-MM-DD HH:MM:SS",
-                        "reason": f"Standardized date values"
-                    })
-                    logs.append(f"Standardized date/time values in column '{col}' to ISO format.")
-                except Exception as ex:
-                    logger.warning(f"Could not standardize dates in '{col}': {ex}")
+            if not is_date_column_name(col) or pd.api.types.is_numeric_dtype(df[col]):
+                continue
+            try:
+                sample_vals = df[col].dropna().head(3).tolist()
+                parsed = parse_dates(df[col])
+                non_null = df[col].notna()
+                parse_ratio = parsed[non_null].notna().mean() if non_null.any() else 0.0
+                if parse_ratio < DATE_PARSE_THRESHOLD:
+                    logger.info(f"Skipping date standardization for '{col}': only {parse_ratio:.0%} of values parse as dates.")
+                    continue
+                # Keep the original text for the few values that do not parse instead of nulling them
+                df[col] = parsed.dt.strftime('%Y-%m-%d %H:%M:%S').where(parsed.notna(), df[col])
+                history.append({
+                    "column_name": col,
+                    "old_value": str(sample_vals),
+                    "new_value": "ISO datetime YYYY-MM-DD HH:MM:SS",
+                    "reason": "Standardized date values"
+                })
+                logs.append(f"Standardized date/time values in column '{col}' to ISO format.")
+            except Exception as ex:
+                logger.warning(f"Could not standardize dates in '{col}': {ex}")
 
         # 5. Fill missing values (business-specific logic)
         for col in df.columns:
@@ -147,13 +179,11 @@ class TransformationAgent:
                         "new_value": str(median_val),
                         "reason": f"Imputed {null_count} missing unit prices to median of {median_val}"
                     })
-                elif col == "total_price":
-                    # Recalculate if unit_price and quantity exist
-                    df["unit_price"] = pd.to_numeric(df["unit_price"], errors='coerce').fillna(10.0)
-                    df["quantity"] = pd.to_numeric(df["quantity"], errors='coerce').fillna(1).astype(int)
-                    calculated_total = df["quantity"] * df["unit_price"]
-                    df["total_price"] = df["total_price"].fillna(calculated_total)
-                    df["total_price"] = pd.to_numeric(df["total_price"], errors='coerce').fillna(10.0)
+                elif col == "total_price" and "unit_price" in df.columns and "quantity" in df.columns:
+                    # Recalculate from unit_price * quantity where both are known
+                    unit_price = pd.to_numeric(df["unit_price"], errors='coerce')
+                    quantity = pd.to_numeric(df["quantity"], errors='coerce')
+                    df["total_price"] = pd.to_numeric(df["total_price"], errors='coerce').fillna(quantity * unit_price)
                     history.append({
                         "column_name": col,
                         "old_value": "Nulls present",
@@ -165,7 +195,7 @@ class TransformationAgent:
                     pass
                 else:
                     # Generic fill
-                    if df[col].dtype in [np.float64, np.int64]:
+                    if pd.api.types.is_numeric_dtype(df[col]):
                         fill_val = 0
                         df[col] = df[col].fillna(fill_val)
                     else:
@@ -232,13 +262,17 @@ class TransformationAgent:
                                 chunk[col] = chunk[col].astype(str).str.strip().replace({"nan": None, "None": None, "": None})
                             except Exception:
                                 pass
-                    # 3. Standardize dates
+                    # 3. Standardize dates (same safety rules as the in-memory path)
                     for col in chunk.columns:
-                        if "date" in col or "time" in col:
-                            try:
-                                chunk[col] = pd.to_datetime(chunk[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-                            except Exception:
-                                pass
+                        if not is_date_column_name(col) or pd.api.types.is_numeric_dtype(chunk[col]):
+                            continue
+                        try:
+                            parsed = parse_dates(chunk[col])
+                            non_null = chunk[col].notna()
+                            if non_null.any() and parsed[non_null].notna().mean() >= DATE_PARSE_THRESHOLD:
+                                chunk[col] = parsed.dt.strftime('%Y-%m-%d %H:%M:%S').where(parsed.notna(), chunk[col])
+                        except Exception:
+                            pass
                     # 4. Fill missing values
                     for col in chunk.columns:
                         null_count = int(chunk[col].isnull().sum())
@@ -247,13 +281,13 @@ class TransformationAgent:
                                 chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(1).astype(int)
                             elif col == "unit_price":
                                 chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(10.0)
-                            elif col == "total_price":
-                                chunk["unit_price"] = pd.to_numeric(chunk["unit_price"], errors='coerce').fillna(10.0)
-                                chunk["quantity"] = pd.to_numeric(chunk["quantity"], errors='coerce').fillna(1).astype(int)
-                                calculated_total = chunk["quantity"] * chunk["unit_price"]
-                                chunk[col] = chunk[col].fillna(calculated_total)
+                            elif col == "total_price" and "unit_price" in chunk.columns and "quantity" in chunk.columns:
+                                calculated_total = pd.to_numeric(chunk["quantity"], errors='coerce') * pd.to_numeric(chunk["unit_price"], errors='coerce')
+                                chunk[col] = pd.to_numeric(chunk[col], errors='coerce').fillna(calculated_total)
+                            elif col in ("customer_name", "customer_id", "order_id"):
+                                pass
                             else:
-                                if chunk[col].dtype in [np.float64, np.int64]:
+                                if pd.api.types.is_numeric_dtype(chunk[col]):
                                     chunk[col] = chunk[col].fillna(0)
                                 else:
                                     chunk[col] = chunk[col].fillna("Unknown")
@@ -276,23 +310,17 @@ class TransformationAgent:
                 df.to_csv(clean_file_path, index=False)
 
         # Recalculate post-cleaning quality score
-        new_row_count, new_col_count = df.shape
-        new_missing = int(df.isnull().sum().sum())
-        new_dups = int(df.duplicated().sum())
-        total_elems = new_row_count * new_col_count
-        quality_after = 100.0
-        if total_elems > 0:
-            quality_after = round(((total_elems - new_missing - new_dups) / total_elems) * 100, 2)
+        quality_after = measure_quality(df)
 
         # Call LLM to summarize/record rationale
         prompt = f"""
         You are a Senior ETL Engineer. You have just cleaned a dataset.
         Original dimensions: {original_shape}
         Cleaned dimensions: {df.shape}
-        Calculated Quality Before: {metadata.get("estimated_quality", 80.0)}
+        Calculated Quality Before: {quality_before}
         Calculated Quality After: {quality_after}
         Transformation steps applied:
-        {json.dumps(history, indent=2)}
+        {json.dumps(history, indent=2, default=str)}
         
         Provide a concise transformation summary in JSON format:
         1. quality_before (float, use the Calculated Quality Before value)
@@ -311,12 +339,11 @@ class TransformationAgent:
             elif "```" in llm_response:
                 llm_response = llm_response.split("```")[1].split("```")[0].strip()
             summary_info = json.loads(llm_response.strip())
+            if not isinstance(summary_info, dict):
+                raise ValueError("LLM summary is not a JSON object")
         except Exception:
-            summary_info = {
-                "quality_before": metadata.get("estimated_quality", 80.0),
-                "quality_after": quality_after,
-                "summary": f"Cleaned and standardized columns. Dropped duplicates and computed missing elements."
-            }
+            summary_info = {}
+        summary_text = summary_info.get("summary") or "Cleaned and standardized columns. Dropped duplicates and computed missing elements."
 
         execution_time = time.time() - start_time
         logger.info(f"Transformation complete. Clean file stored at {clean_file_path}")
@@ -325,9 +352,10 @@ class TransformationAgent:
             "transformation_steps": history,
             "updated_schema": {col: str(dtype) for col, dtype in df.dtypes.items()},
             "clean_dataset_path": clean_file_path,
-            "quality_before": summary_info.get("quality_before"),
-            "quality_after": summary_info.get("quality_after"),
-            "summary": summary_info.get("summary"),
+            # Quality scores are measured from the data; the LLM only narrates the summary
+            "quality_before": quality_before,
+            "quality_after": quality_after,
+            "summary": summary_text,
             "logs": logs,
             "execution_time": execution_time
         }
