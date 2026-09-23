@@ -102,7 +102,7 @@ function renderHistoryTable() {
         const reportBtns = ['pdf', 'docx'].map(fmt => r.reports && r.reports[fmt]
             ? `<button class="btn-refresh" onclick="downloadReport('${r.batch_id}', '${fmt}')" title="Download ${fmt.toUpperCase()} report"><i class="fa-solid ${fmt === 'pdf' ? 'fa-file-pdf' : 'fa-file-word'}"></i></button>`
             : '').join('');
-        const cleanBtn = r.clean_file ? `<button class="btn-refresh" onclick="downloadNodeData('${escapeHtml(r.clean_file)}')" title="Download cleaned data"><i class="fa-solid fa-broom"></i></button>` : '';
+        const cleanBtn = r.clean_file ? `<button class="btn-refresh" onclick="downloadNodeData(${jsArg(r.clean_file)})" title="Download cleaned data"><i class="fa-solid fa-broom"></i></button>` : '';
         const rerunBtn = r.raw_file && r.status !== 'Running' ? `<button class="btn-refresh" onclick="rerunBatch('${r.batch_id}')" title="Run the pipeline again on this file"><i class="fa-solid fa-rotate-right"></i></button>` : '';
         return `
             <tr>
@@ -262,7 +262,7 @@ window.openRunLog = function(batchId) {
 
 // ---------- Storage ----------
 
-loadExplorerFiles = async function() {
+async function loadExplorerFiles() {
     const tbody = document.querySelector('#explorer-files-table tbody');
     if (!getAuthToken()) return;
     try {
@@ -280,7 +280,7 @@ loadExplorerFiles = async function() {
     }
 };
 
-renderExplorerFiles = function() {
+function renderExplorerFiles() {
     const tbody = document.querySelector('#explorer-files-table tbody');
     if (!tbody) return;
     const folder = state.explorerFolderFilter || 'all';
@@ -301,7 +301,7 @@ renderExplorerFiles = function() {
             <td><span class="badge">${escapeHtml(f.format)}</span></td>
             <td>${fmtBytes(f.size)}</td>
             <td>${new Date(f.modified_time).toLocaleString()}</td>
-            <td><button class="btn-download-file" onclick="downloadDataFile('${escapeHtml(f.path)}')"><i class="fa-solid fa-download"></i> Download</button></td>
+            <td><button class="btn-download-file" onclick="downloadDataFile(${jsArg(f.path)})"><i class="fa-solid fa-download"></i> Download</button></td>
         </tr>`).join('');
 };
 
@@ -332,7 +332,7 @@ window.loadPowerBIView = async function() {
                     <td><code>${escapeHtml(def.source || '-')}</code></td>
                     <td class="cell-sub">${(def.columns || []).map(c => `<code>${c}</code>`).join(' ')}</td>
                     <td>${t.rows.toLocaleString()}</td>
-                    <td>${t.file ? `<button class="btn-download-file" onclick="downloadDataFile('${escapeHtml(t.file)}')"><i class="fa-solid fa-download"></i> CSV</button>` : '<span class="text-secondary">Export first</span>'}</td>
+                    <td>${t.file ? `<button class="btn-download-file" onclick="downloadDataFile(${jsArg(t.file)})"><i class="fa-solid fa-download"></i> CSV</button>` : '<span class="text-secondary">Export first</span>'}</td>
                 </tr>`;
         }).join('');
 
@@ -408,6 +408,19 @@ document.addEventListener('DOMContentLoaded', () => {
     on('history-search', 'input', renderHistoryTable);
     on('history-status-filter', 'change', renderHistoryTable);
     on('btn-refresh-history', 'click', () => window.loadHistoryView());
+    on('btn-refresh-explorer', 'click', () => loadExplorerFiles());
+    on('explorer-search', 'input', (e) => {
+        state.explorerSearchQuery = e.target.value.toLowerCase();
+        renderExplorerFiles();
+    });
+    document.querySelectorAll('#storage-folders .folder-card').forEach(card => {
+        card.addEventListener('click', () => {
+            document.querySelectorAll('#storage-folders .folder-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            state.explorerFolderFilter = card.getAttribute('data-folder');
+            renderExplorerFiles();
+        });
+    });
     on('reports-search', 'input', renderReportsGrid);
     on('btn-refresh-reports', 'click', () => window.loadReportsView());
     on('logs-search', 'input', renderLogsRunList);
