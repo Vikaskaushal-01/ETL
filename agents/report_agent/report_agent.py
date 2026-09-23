@@ -4,7 +4,11 @@ import shutil
 import logging
 import time
 from sqlalchemy import text
-from backend.core.llm import query_llm
+from backend.core.llm import query_llm, is_real_llm_available as LLM_PROVIDER_IS_REAL
+from backend.utils.file_utils import read_dataset
+from backend.utils.data_insights import (
+    build_recommendations, build_root_cause_analysis, compute_dataset_insights
+)
 from backend.utils.report_utils import (
     generate_pdf_report, generate_docx_report,
     generate_markdown_report, generate_json_report
@@ -17,6 +21,21 @@ from backend.database.repository import (
 
 logger = logging.getLogger("etl_report_agent")
 
+def _as_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return "; ".join(str(v) for v in value)
+    return str(value)
+
+
 class ReportAgent:
     def __init__(self):
         self.role = "Chief Data Intelligence Officer"
@@ -27,95 +46,64 @@ class ReportAgent:
         batch_id = state.get("batch_id")
         logger.info(f"Running Report Generation Agent on batch {batch_id}")
         
-        # 1. Analyze validation rejects
+        # 1. Analyze validation rejects: RCA is derived from the actual rejection reasons
         val_res = state.get("validation_results", {})
         rejected_count = val_res.get("rows_rejected", 0)
         rejected_records = val_res.get("rejected_records", [])
-        
-        rca_list = []
-        
-        if rejected_count > 0:
-            prompt_rca = f"""
-            You are a Senior Data Quality Specialist performing Root Cause Analysis (RCA).
-            A dataset was processed and {rejected_count} rows were rejected during load validation.
-            Here is a sample of the rejected records:
-            {json.dumps(rejected_records[:5], indent=2)}
-            
-            Perform an RCA and output a JSON list of issues. Each element must contain:
-            - issue: clear description of the data quality failure
-            - root_cause: underlying reason (e.g. source systems join failed, wrong date strings, float parses failed)
-            - business_impact: financial, operational or downstream report accuracy impacts
-            - technical_impact: schema load failures, key violations
-            - recommendation: technical fix (e.g. re-extract data, validate source CRM exports)
-            - confidence: float score between 0 and 100 on this assessment
-            
-            Strict Directives:
-            - Be concise, factual, and professional.
-            - Do NOT add generic filler text, placeholder text, or speculative boilerplate.
-            - Focus strictly on the actual raw fields and error samples.
-            
-            Return ONLY a valid JSON list.
-            """
-            system_instruction = "You are the Report Generation Agent. Generate concise Root Cause Analysis metrics as valid JSON. Do not write explanations outside the JSON."
-            try:
-                llm_res = query_llm(prompt_rca, system_instruction, json_mode=True)
-                if "```json" in llm_res:
-                    llm_res = llm_res.split("```json")[1].split("```")[0].strip()
-                elif "```" in llm_res:
-                    llm_res = llm_res.split("```")[1].split("```")[0].strip()
-                rca_list = json.loads(llm_res.strip())
-            except Exception as e:
-                logger.error(f"Error parsing RCA LLM response: {e}")
-                rca_list = [{
-                    "issue": f"{rejected_count} records rejected during schema checks.",
-                    "root_cause": "Data format mismatch or constraint violation in raw inputs.",
-                    "business_impact": "Downstream analytics metrics might misrepresent overall performance.",
-                    "technical_impact": "Primary key null checks or foreign key reference verification failed.",
-                    "recommendation": "Examine upstream synchronization rules to guarantee data consistency.",
-                    "confidence": 90.0
-                }]
-        else:
-            rca_list = []
+        total_rows = (val_res.get("rows_loaded", 0) or 0) + (rejected_count or 0)
+        rca_list = build_root_cause_analysis(rejected_records, total_rows) if rejected_count else []
 
-        # 2. Extract Business Insights & Business Summary
+        # 2. Insights and recommendations are computed from the cleaned dataset itself
+        clean_df = None
+        clean_path = state.get("dataset_path")
+        if clean_path and os.path.isfile(clean_path):
+            try:
+                clean_df = read_dataset(clean_path)
+            except Exception as e:
+                logger.warning(f"Could not read cleaned dataset for insights: {e}")
+        business_insights = compute_dataset_insights(clean_df)
+        recommendations = build_recommendations(
+            clean_df, rca_list, state.get("duplicate_rows", 0),
+            (state.get("metadata") or {}).get("estimated_quality"), state.get("quality_score")
+        )
+
+        # The LLM only narrates the measured facts; it is not asked to invent insights
+        facts = "\n".join(f"- {line}" for line in business_insights)
         prompt_insights = f"""
-        You are a Chief Data Intelligence Officer analyzing a database load run.
+        You are a Chief Data Intelligence Officer writing the executive summary of an ETL run.
         Dataset: {state.get('dataset_name')}
-        Rows Loaded: {val_res.get('rows_loaded', 0)}
-        Rows Rejected: {val_res.get('rows_rejected', 0)}
-        Data Quality: {state.get('quality_score')}%
-        
-        Generate a corporate executive summary and a list of business insights and pipeline optimization recommendations.
-        
-        Strict Directives:
-        - Avoid speculative narrative or hypothetical industry trends.
-        - Focus strictly on the exact column counts, row dimensions, duplicates, nulls, and load statistics.
-        - Keep insights and summaries highly concise, professional, and clear.
-        
-        Output a JSON object containing:
-        - executive_summary: A high-level description of what the dataset is, how the pipeline run executed, and the overall load success.
-        - business_insights: Bullets outlining key observations (e.g. transaction distributions, region performance, or customer profile observations).
-        - recommendations: A list of actionable technical/pipeline optimization recommendations.
-        
-        Return ONLY valid JSON.
+        Rows loaded: {val_res.get('rows_loaded', 0)}; rows rejected: {rejected_count}; final data quality: {state.get('quality_score')}%.
+        Measured facts about the data:
+        {facts}
+        Root cause findings: {'; '.join(r['issue'] for r in rca_list) if rca_list else 'none'}
+
+        Write a 3-4 sentence executive summary using ONLY the facts above. Do not introduce any number,
+        trend or category that is not listed. Return JSON: {{"executive_summary": "..."}}
         """
-        system_instruction = "You are the Report Generation Agent. Extract and summarize executive business insights as valid JSON. Do not write explanations outside the JSON."
+        system_instruction = "You are the Report Generation Agent. Summarize only the provided facts as valid JSON."
+        executive_summary = None
         try:
             llm_ins = query_llm(prompt_insights, system_instruction, json_mode=True)
             if "```json" in llm_ins:
                 llm_ins = llm_ins.split("```json")[1].split("```")[0].strip()
             elif "```" in llm_ins:
                 llm_ins = llm_ins.split("```")[1].split("```")[0].strip()
-            insights_info = json.loads(llm_ins.strip())
+            parsed = json.loads(llm_ins.strip())
+            if isinstance(parsed, dict) and isinstance(parsed.get("executive_summary"), str) and LLM_PROVIDER_IS_REAL():
+                executive_summary = parsed["executive_summary"].strip()
         except Exception as e:
-            logger.error(f"Error parsing insights LLM response: {e}")
-            insights_info = {
-                "executive_summary": f"Successfully processed dataset '{state.get('dataset_name')}' with batch ID '{batch_id}'. Validated and staged {val_res.get('rows_loaded', 0)} rows successfully with a data quality index of {state.get('quality_score', 100.0)}%.",
-                "business_insights": "The ingestion logs demonstrate standard transaction ranges. Regions show active billing cycles.",
-                "recommendations": [
-                    "Perform index analysis on table columns to accelerate reports.",
-                    "Schedule batch processes during low utilization hours to maximize database speed."
-                ]
+            logger.info(f"LLM executive summary unavailable, using the measured summary: {e}")
+        if not executive_summary:
+            status_text = "all rows loaded" if not rejected_count else f"{rejected_count} row(s) rejected ({', '.join(r['issue'].split(':')[0] for r in rca_list)})"
+            executive_summary = (
+                f"Processed '{state.get('dataset_name')}' (batch {batch_id}): {val_res.get('rows_loaded', 0)} row(s) loaded, "
+                f"{status_text}. Final data quality score: {state.get('quality_score')}%. "
+                + (business_insights[0] if business_insights else "")
+            )
+        insights_info = {
+            "executive_summary": executive_summary,
+            "business_insights": business_insights,
+            "recommendations": recommendations,
         }
 
         # 3. Save to database and compile reports
@@ -137,7 +125,7 @@ class ReportAgent:
             save_quality_report(
                 db, 
                 batch_id=batch_id,
-                missing_values=sum(state.get("missing_values", {}).values()) if state.get("missing_values") else 0,
+                missing_values=int(sum((state.get("missing_values") or {}).values())),
                 duplicate_count=state.get("duplicate_rows", 0),
                 quality_score=adjusted_quality,
                 schema_match=True
@@ -148,14 +136,15 @@ class ReportAgent:
                 save_root_cause_report(
                     db,
                     batch_id=batch_id,
-                    issue=rca.get("issue"),
-                    root_cause=rca.get("root_cause"),
-                    business_impact=rca.get("business_impact"),
-                    technical_impact=rca.get("technical_impact"),
-                    recommendation=rca.get("recommendation"),
-                    confidence=rca.get("confidence")
+                    issue=_as_text(rca.get("issue")),
+                    root_cause=_as_text(rca.get("root_cause")),
+                    business_impact=_as_text(rca.get("business_impact")),
+                    technical_impact=_as_text(rca.get("technical_impact")),
+                    recommendation=_as_text(rca.get("recommendation")),
+                    confidence=_as_float(rca.get("confidence"), 90.0)
                 )
         except Exception as err:
+            db.rollback()
             logger.error(f"Error inserting quality reports/RCA into DB: {err}")
 
         # Determine input name from dataset name or path
@@ -168,6 +157,7 @@ class ReportAgent:
 
         # Build paths for report organized by exact input name
         from backend.utils.account_utils import get_user_path
+        from backend.core.security import sanitize_filename
         
         user_email = None
         try:
@@ -178,13 +168,8 @@ class ReportAgent:
         except Exception as e:
             logger.warning(f"ReportAgent failed to query uploaded_by: {e}")
 
-        input_name_dir = os.path.dirname(get_user_path(user_email, os.path.join("reports", dataset_name, "dummy.pdf")))
+        input_name_dir = os.path.dirname(get_user_path(user_email, os.path.join("reports", sanitize_filename(dataset_name, "unknown"), "dummy.pdf")))
         os.makedirs(input_name_dir, exist_ok=True)
-        
-        # Also ensure root workspace reports/<dataset_name> directory exists
-        PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        root_report_dir = os.path.join(PROJECT_ROOT, "reports", dataset_name)
-        os.makedirs(root_report_dir, exist_ok=True)
         
         pdf_path = os.path.join(input_name_dir, f"{batch_id}_report.pdf").replace("\\", "/")
         markdown_path = os.path.join(input_name_dir, f"{batch_id}_report.md").replace("\\", "/")
@@ -194,7 +179,7 @@ class ReportAgent:
         # Prep report data structure
         report_data = {
             "batch_id": batch_id,
-            "pipeline_status": "Success" if rejected_count == 0 else "Passed with Warnings",
+            "pipeline_status": val_res.get("validation_status") or ("Success" if rejected_count == 0 else "Passed with Warnings"),
             "quality_score": adjusted_quality,
             "business_summary": insights_info.get("executive_summary"),
             "dataset_name": state.get("dataset_name"),
@@ -216,31 +201,17 @@ class ReportAgent:
         execution_time = time.time() - start_time
         report_data["execution_time"] = execution_time
 
-        # Check if root workspace directory differs from user account dir
-        norm_input_dir = os.path.normcase(os.path.normpath(os.path.abspath(input_name_dir)))
-        norm_root_dir = os.path.normcase(os.path.normpath(os.path.abspath(root_report_dir)))
-        need_root_copy = (norm_input_dir != norm_root_dir)
-
         # Generate exactly 4 reports: PDF, Word (DOCX), Markdown (MD), and JSON
         try:
             generate_pdf_report(pdf_path, report_data)
             logger.info(f"PDF report successfully saved at: {pdf_path}")
-            if need_root_copy and os.path.exists(pdf_path):
-                try:
-                    shutil.copy2(pdf_path, os.path.join(root_report_dir, f"{batch_id}_report.pdf"))
-                except Exception as copy_err:
-                    logger.debug(f"Failed copying PDF report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate PDF report file: {file_err}")
+            pdf_path = ""
 
         try:
             generate_docx_report(docx_path, report_data)
             logger.info(f"DOCX report successfully saved at: {docx_path}")
-            if need_root_copy and os.path.exists(docx_path):
-                try:
-                    shutil.copy2(docx_path, os.path.join(root_report_dir, f"{batch_id}_report.docx"))
-                except Exception as copy_err:
-                    logger.debug(f"Failed copying DOCX report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate DOCX report file: {file_err}")
             docx_path = ""
@@ -248,11 +219,6 @@ class ReportAgent:
         try:
             generate_markdown_report(markdown_path, report_data)
             logger.info(f"Markdown report successfully saved at: {markdown_path}")
-            if need_root_copy and os.path.exists(markdown_path):
-                try:
-                    shutil.copy2(markdown_path, os.path.join(root_report_dir, f"{batch_id}_report.md"))
-                except Exception as copy_err:
-                    logger.debug(f"Failed copying Markdown report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate Markdown report file: {file_err}")
             markdown_path = ""
@@ -260,14 +226,23 @@ class ReportAgent:
         try:
             generate_json_report(json_path, report_data)
             logger.info(f"JSON report successfully saved at: {json_path}")
-            if need_root_copy and os.path.exists(json_path):
-                try:
-                    shutil.copy2(json_path, os.path.join(root_report_dir, f"{batch_id}_report.json"))
-                except Exception as copy_err:
-                    logger.debug(f"Failed copying JSON report to root dir: {copy_err}")
         except Exception as file_err:
             logger.error(f"Failed to generate JSON report file: {file_err}")
             json_path = ""
+
+        # Also keep a copy in the project's reports/<file name>/ folder (the account copy above is what
+        # the API serves; this server-side folder is not exposed to other users).
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        root_report_dir = os.path.join(project_root, "reports", sanitize_filename(dataset_name, "unknown"))
+        if os.path.normcase(os.path.abspath(root_report_dir)) != os.path.normcase(os.path.abspath(input_name_dir)):
+            os.makedirs(root_report_dir, exist_ok=True)
+            for generated in (pdf_path, docx_path, markdown_path, json_path):
+                if generated and os.path.exists(generated):
+                    try:
+                        shutil.copy2(generated, os.path.join(root_report_dir, os.path.basename(generated)))
+                    except Exception as copy_err:
+                        logger.warning(f"Failed copying {generated} to {root_report_dir}: {copy_err}")
+            logger.info(f"Report copies saved to: {root_report_dir}")
 
         # Update generated reports database table using existing session
         try:
