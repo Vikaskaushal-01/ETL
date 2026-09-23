@@ -189,7 +189,6 @@ const state = {
     explorerFiles: [],
     equalizerInterval: null,
     chatHistory: [],
-    activeInspectedStageId: null,
     ingestMode: 'batch', // 'batch' | 'realtime'
     streamBatchSize: 30,
     streamCycle: 0,
@@ -256,29 +255,16 @@ document.addEventListener('DOMContentLoaded', () => {
     initAuth();
     initUserProfileManager();
     initSettingsPage();
-    initClock();
     initDrawers();
     initDragAndDrop();
     initPipelineControls();
-    initExplorer();
     initChat();
     initChatbotToggle();
-    initSVGDrawing();
-    initNodeHoverEffects();
-    initStageInspector();
     
     // Initial data load
     loadDashboardStats();
-    loadReportsList();
+    loadLatestRun();
     
-    const refreshBtn = document.getElementById('refresh-dashboard-btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            loadDashboardStats();
-            loadExplorerFiles();
-        });
-    }
-
     // Initialize permanent Data Flow Pipeline
     setTimeout(() => {
         setupMonitorSvg();
@@ -306,7 +292,6 @@ function initAuth() {
             loginScreen.classList.add('fade-out');
             mainApp.classList.remove('app-hidden');
             setTimeout(() => {
-                drawNetworkConnections();
                 setupMonitorSvg();
                 updateMonitorPaths();
                 initGamificationCanvas();
@@ -460,11 +445,9 @@ function initAuth() {
 
                 // Reload data for the logged-in user
                 loadDashboardStats();
-                loadExplorerFiles();
-                loadReportsList();
+                loadLatestRun();
 
                 // Draw graph components
-                setTimeout(drawNetworkConnections, 600);
             })
             .catch(err => {
                 loginBtnText.textContent = 'Sign in';
@@ -544,18 +527,15 @@ function initAuth() {
                 return res.json();
             })
             .then(data => {
-                showToast('success', 'Verification code sent to your email.');
-                // Dynamic OTP notification for ease of demo copy-paste
-                setTimeout(() => {
-                    showToast('info', `[DEMO OTP CODE]: ${data.demo_code}`, 10000);
-                }, 800);
+                // Email delivery is not configured, so the server returns the code; it is filled in for you
+                showToast('info', `Verification code: ${data.demo_code} (email delivery is not configured, so it has been filled in).`);
 
                 // Transition step
                 forgotStepEmail.style.display = 'none';
                 forgotStepCode.style.display = 'block';
                 forgotHeaderTitle.textContent = 'Verify Code';
-                forgotHeaderSubtitle.textContent = `We've sent a 6-digit code to ${email}`;
-                inputForgotCode.value = '';
+                forgotHeaderSubtitle.textContent = `Enter the 6-digit code for ${email}`;
+                inputForgotCode.value = data.demo_code || '';
                 inputForgotCode.focus();
             })
             .catch(err => {
@@ -795,7 +775,6 @@ function initAuth() {
 
             // Trigger profile UI updates and SVG redraw
             window.dispatchEvent(new Event('controlai_login_success'));
-            setTimeout(drawNetworkConnections, 600);
         })
         .catch(err => {
             showToast('error', err.message || 'OAuth authentication failed.');
@@ -840,8 +819,7 @@ function initAuth() {
 
         // Reload data (will query under anonymous/empty state)
         loadDashboardStats();
-        loadExplorerFiles();
-        loadReportsList();
+        loadLatestRun();
 
         showToast('info', 'Logged out successfully.');
 
@@ -851,317 +829,50 @@ function initAuth() {
     });
 }
 
-// // Live Clock in Topbar
-function initClock() {
-    const clockEl = document.getElementById('live-clock');
-    if (!clockEl) return;
-    const updateClock = () => {
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        clockEl.innerHTML = `<i class="fa-solid fa-clock"></i> ${timeStr}`;
-    };
-    updateClock();
-    setInterval(updateClock, 1000);
-}
 
 // Drawers & Manual Paste Panel Toggles
+// Pipeline toolbar: live log console toggle, plus shortcuts to the Storage and Power BI pages
 function initDrawers() {
-    const btnToggleExplorer = document.getElementById('btn-toggle-explorer');
-    const btnCloseExplorer = document.getElementById('btn-close-explorer');
-    const explorerDrawer = document.getElementById('explorer-drawer');
-
-    const btnToggleLogs = document.getElementById('btn-toggle-logs');
-    const btnCloseLogs = document.getElementById('btn-close-logs');
     const consoleDrawer = document.getElementById('console-drawer');
-
-    const btnToggleGraph = document.getElementById('btn-toggle-graph');
-    const workspace = document.querySelector('.network-workspace') || document.getElementById('pipeline-monitor-page');
-
-    const btnTogglePowerBI = document.getElementById('btn-toggle-powerbi');
-    const btnClosePowerBI = document.getElementById('btn-close-powerbi');
-    const powerbiDrawer = document.getElementById('powerbi-drawer');
-    const btnTriggerPbiRefresh = document.getElementById('btn-trigger-pbi-refresh');
-
-    const updateWorkspaceBlur = () => {
-        if (!workspace) return;
-        if ((explorerDrawer && explorerDrawer.classList.contains('active')) || 
-            (consoleDrawer && consoleDrawer.classList.contains('active')) || 
-            (powerbiDrawer && powerbiDrawer.classList.contains('active'))) {
-            workspace.classList.add('blur-bg');
-        } else {
-            workspace.classList.remove('blur-bg');
-        }
-    };
+    const btnToggleLogs = document.getElementById('btn-toggle-logs');
 
     const closeAllMenus = () => {
-        if (btnToggleGraph) btnToggleGraph.classList.remove('active');
-        const pbiBtn = document.getElementById('btn-toggle-powerbi');
-        if (pbiBtn) pbiBtn.classList.remove('active');
-        const expBtn = document.getElementById('btn-toggle-explorer');
-        if (expBtn) expBtn.classList.remove('active');
-        const logBtn = document.getElementById('btn-toggle-logs');
-        if (logBtn) logBtn.classList.remove('active');
-        const profBtn = document.getElementById('btn-toggle-profile');
-        if (profBtn) profBtn.classList.remove('active');
-
-        if (explorerDrawer) explorerDrawer.classList.remove('active');
         if (consoleDrawer) consoleDrawer.classList.remove('active');
-        if (powerbiDrawer) powerbiDrawer.classList.remove('active');
-
+        if (btnToggleLogs) btnToggleLogs.classList.remove('active');
         const settingsOverlay = document.getElementById('settings-page-overlay');
         if (settingsOverlay) {
             settingsOverlay.style.display = 'none';
             settingsOverlay.classList.remove('active');
         }
-        if (workspace) workspace.classList.remove('blur-bg');
     };
     window.closeAllMenus = closeAllMenus;
 
-    // The Storage and Power BI drawers became full pages; the pipeline toolbar buttons open them
-    if (btnTogglePowerBI) {
-        btnTogglePowerBI.addEventListener('click', () => {
-            closeAllMenus();
-            if (window.activateView) window.activateView('powerbi-view');
-        });
-    }
-
-    if (btnToggleExplorer) {
-        btnToggleExplorer.addEventListener('click', () => {
-            closeAllMenus();
-            if (window.activateView) window.activateView('storage-view');
-        });
-    }
+    const goTo = (viewId) => () => {
+        closeAllMenus();
+        if (window.activateView) window.activateView(viewId);
+    };
+    const btnTogglePowerBI = document.getElementById('btn-toggle-powerbi');
+    if (btnTogglePowerBI) btnTogglePowerBI.addEventListener('click', goTo('powerbi-view'));
+    const btnToggleExplorer = document.getElementById('btn-toggle-explorer');
+    if (btnToggleExplorer) btnToggleExplorer.addEventListener('click', goTo('storage-view'));
 
     if (btnToggleLogs && consoleDrawer) {
         btnToggleLogs.addEventListener('click', () => {
-            const wasActive = consoleDrawer.classList.contains('active');
-            closeAllMenus();
-            if (!wasActive) {
-                consoleDrawer.classList.add('active');
-                btnToggleLogs.classList.add('active');
-                if (workspace) workspace.classList.add('blur-bg');
-            } else {
-                if (btnToggleGraph) btnToggleGraph.classList.add('active');
-            }
+            const open = !consoleDrawer.classList.contains('active');
+            consoleDrawer.classList.toggle('active', open);
+            btnToggleLogs.classList.toggle('active', open);
         });
     }
-
-    if (btnCloseLogs) {
-        btnCloseLogs.addEventListener('click', () => {
-            closeAllMenus();
-            if (btnToggleGraph) btnToggleGraph.classList.add('active');
-        });
-    }
-
-    if (btnToggleGraph) {
-        btnToggleGraph.addEventListener('click', () => {
-            closeAllMenus();
-            btnToggleGraph.classList.add('active');
-        });
-    }
-
-    const toggleManualInput = document.getElementById('toggle-manual-input');
-    if (toggleManualInput) {
-        const boxBody = toggleManualInput.nextElementSibling;
-        const arrowIcon = toggleManualInput.querySelector('.arrow-icon');
-
-        toggleManualInput.addEventListener('click', () => {
-            if (!boxBody) return;
-            const isHidden = boxBody.style.display === 'none';
-            boxBody.style.display = isHidden ? 'block' : 'none';
-            if (arrowIcon) arrowIcon.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-        });
-    }
-}
-
-// Power BI status fetcher
-async function fetchPowerBIStatus() {
-    try {
-        const res = await fetch('/api/v1/powerbi/status');
-        if (!res.ok) return;
-        const data = await res.json();
-        const statusEl = document.getElementById('pbi-conn-status');
-        const syncMetaEl = document.getElementById('pbi-sync-meta');
-        if (statusEl && data.connector) {
-            statusEl.textContent = `MySQL Engine: ${data.connector.status} (${data.connector.server})`;
-        }
-        if (syncMetaEl && data.dataset) {
-            const timeStr = data.dataset.last_refresh ? parseUTCDate(data.dataset.last_refresh).toLocaleTimeString() : 'Just now';
-            syncMetaEl.textContent = `Database: ${data.connector.database} | Last Refresh: ${timeStr} (${data.dataset.status})`;
-        }
-    } catch (e) {
-        loggerError('fetchPowerBIStatus', e);
-    }
-}
-
-// SVG Connection Lines Graph Drawing (Sequential connected network pipeline flow)
-function initSVGDrawing() {
-    setTimeout(drawNetworkConnections, 500);
-    window.addEventListener('resize', drawNetworkConnections);
-}
-
-function drawNetworkConnections() {
-    const svg = document.getElementById('connection-svg');
-    if (!svg) return;
-    svg.innerHTML = ''; 
-
-    const canvasRect = svg.getBoundingClientRect();
-    const getCenterOffset = (el) => {
-        const r = el.getBoundingClientRect();
-        return {
-            x: r.left - canvasRect.left + r.width / 2,
-            y: r.top - canvasRect.top + r.height / 2
-        };
-    };
-
-    const sourceEl = document.getElementById('file-drop-zone');
-    const steps = [
-        document.getElementById('flow-intake'),
-        document.getElementById('flow-transformation'),
-        document.getElementById('flow-storage'),
-        document.getElementById('flow-report'),
-        document.getElementById('flow-pbi')
-    ];
-    const outputs = [
-        document.getElementById('entity-csv-dest'),
-        document.getElementById('entity-sql-dest'),
-        document.getElementById('entity-word-dest'),
-        document.getElementById('entity-pdf-dest'),
-        document.getElementById('entity-pbi-dest')
-    ];
-
-    if (!sourceEl || steps.some(s => !s)) return;
-    const sourcePt = getCenterOffset(sourceEl);
-
-    const appendConnectionPath = (startPt, destPt, stepState, idPrefix) => {
-        const cp1x = startPt.x + (destPt.x - startPt.x) * 0.45;
-        const cp1y = startPt.y;
-        const cp2x = startPt.x + (destPt.x - startPt.x) * 0.55;
-        const cp2y = destPt.y;
-
-        const dAttr = `M ${startPt.x} ${startPt.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${destPt.x} ${destPt.y}`;
-        
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', dAttr);
-        path.id = `path-${idPrefix}`;
-        
-        let colorClass = 'conn-path';
-        if (stepState === 'processing') colorClass = 'conn-path-active';
-        else if (stepState === 'completed') colorClass = 'conn-path-completed';
-        else if (stepState === 'failed') colorClass = 'conn-path-failed';
-        
-        path.setAttribute('class', colorClass);
-        svg.appendChild(path);
-
-        if (stepState === 'processing' || stepState === 'completed') {
-            const flowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            flowPath.setAttribute('d', dAttr);
-            
-            let flowClass = 'conn-path-flow blue';
-            if (stepState === 'processing') flowClass = 'conn-path-flow orange';
-            else if (stepState === 'completed') flowClass = 'conn-path-flow green';
-            
-            flowPath.setAttribute('class', flowClass);
-            svg.appendChild(flowPath);
-        }
-    };
-
-    const getStepState = (el) => {
-        if (el.classList.contains('processing')) return 'processing';
-        if (el.classList.contains('completed')) return 'completed';
-        if (el.classList.contains('failed')) return 'failed';
-        return 'waiting';
-    };
-
-    // 1. Raw Intake -> Agent 1 Intake
-    appendConnectionPath(sourcePt, getCenterOffset(steps[0]), getStepState(steps[0]), 'source-intake');
-
-    // 2. Agent 1 Intake -> Agent 2 Transformation
-    let state1to2 = getStepState(steps[1]);
-    if (state1to2 === 'waiting' && steps[0].classList.contains('completed')) state1to2 = 'completed';
-    appendConnectionPath(getCenterOffset(steps[0]), getCenterOffset(steps[1]), state1to2, 'intake-transform');
-
-    // 3. Agent 2 Transformation -> Agent 3 Storage
-    let state2to3 = getStepState(steps[2]);
-    if (state2to3 === 'waiting' && steps[1].classList.contains('completed')) state2to3 = 'completed';
-    appendConnectionPath(getCenterOffset(steps[1]), getCenterOffset(steps[2]), state2to3, 'transform-storage');
-
-    // 4. Agent 3 Storage -> Agent 4 Report
-    let state3to4 = getStepState(steps[3]);
-    if (state3to4 === 'waiting' && steps[2].classList.contains('completed')) state3to4 = 'completed';
-    appendConnectionPath(getCenterOffset(steps[2]), getCenterOffset(steps[3]), state3to4, 'storage-report');
-
-    // 5. Agent 4 Report -> Step 5 Power BI Gateway
-    let state4to5 = getStepState(steps[4]);
-    if (state4to5 === 'waiting' && steps[3].classList.contains('completed')) state4to5 = 'completed';
-    appendConnectionPath(getCenterOffset(steps[3]), getCenterOffset(steps[4]), state4to5, 'report-pbi');
-
-    // 6. Outputs connections
-    const storagePt = getCenterOffset(steps[2]); 
-    const reportPt = getCenterOffset(steps[3]);  
-    const pbiPt = getCenterOffset(steps[4]);
-
-    outputs.forEach((out, idx) => {
-        if (!out) return;
-        const outPt = getCenterOffset(out);
-        
-        let startPt = storagePt;
-        let stepState = steps[2].classList.contains('completed') ? 'completed' : 'waiting';
-        if (steps[2].classList.contains('failed')) stepState = 'failed';
-        
-        if (idx === 3) {
-            startPt = reportPt;
-            stepState = steps[3].classList.contains('completed') ? 'completed' : 'waiting';
-            if (steps[3].classList.contains('failed')) stepState = 'failed';
-        } else if (idx === 4) {
-            startPt = pbiPt;
-            stepState = steps[4].classList.contains('completed') ? 'completed' : 'waiting';
-            if (steps[4].classList.contains('failed')) stepState = 'failed';
-        }
-
-        appendConnectionPath(startPt, outPt, stepState, `step-out-${idx}`);
+    const btnCloseLogs = document.getElementById('btn-close-logs');
+    if (btnCloseLogs) btnCloseLogs.addEventListener('click', () => {
+        if (consoleDrawer) consoleDrawer.classList.remove('active');
+        if (btnToggleLogs) btnToggleLogs.classList.remove('active');
     });
 }
 
-// Hover effects to highlight relations
-function initNodeHoverEffects() {
-    const hoverMappings = [
-        { node: 'file-drop-zone', paths: ['path-source-intake'], color: 'highlight-blue' },
-        { node: 'flow-intake', paths: ['path-source-intake', 'path-intake-transform'], color: 'highlight-orange' },
-        { node: 'flow-transformation', paths: ['path-intake-transform', 'path-transform-storage'], color: 'highlight-orange' },
-        { node: 'flow-storage', paths: ['path-transform-storage', 'path-storage-report', 'path-step-out-0', 'path-step-out-1', 'path-step-out-2'], color: 'highlight-teal' },
-        { node: 'flow-report', paths: ['path-storage-report', 'path-report-pbi', 'path-step-out-3'], color: 'highlight-red' },
-        { node: 'flow-pbi', paths: ['path-report-pbi', 'path-step-out-4'], color: 'highlight-orange' },
-        { node: 'entity-csv-dest', paths: ['path-step-out-0'], color: 'highlight-green' },
-        { node: 'entity-sql-dest', paths: ['path-step-out-1'], color: 'highlight-teal' },
-        { node: 'entity-word-dest', paths: ['path-step-out-2'], color: 'highlight-blue' },
-        { node: 'entity-pdf-dest', paths: ['path-step-out-3'], color: 'highlight-red' },
-        { node: 'entity-pbi-dest', paths: ['path-step-out-4'], color: 'highlight-teal' }
-    ];
 
-    hoverMappings.forEach(mapping => {
-        const el = document.getElementById(mapping.node);
-        if (!el) return;
 
-        el.addEventListener('mouseenter', () => {
-            mapping.paths.forEach(pId => {
-                const pathEl = document.getElementById(pId);
-                if (pathEl) {
-                    pathEl.classList.add(mapping.color || 'highlight-teal');
-                }
-            });
-        });
 
-        el.addEventListener('mouseleave', () => {
-            mapping.paths.forEach(pId => {
-                const pathEl = document.getElementById(pId);
-                if (pathEl) {
-                    pathEl.classList.remove('highlight-blue', 'highlight-teal', 'highlight-green', 'highlight-red', 'highlight-orange');
-                }
-            });
-        });
-    });
-}
 
 // // Drag & Drop Ingestion
 function initDragAndDrop() {
@@ -1287,8 +998,6 @@ function initPipelineControls() {
 
 // One ingestion: upload (file / URL / stream cycle) then start and monitor the pipeline
 async function runIngestionCycle() {
-        const manualEl = document.getElementById('manual-textarea');
-        const hasVirtualInput = manualEl ? manualEl.value.trim() !== '' : false;
         const urlEl = document.getElementById('ingest-url-input');
         const urlVal = (state.ingestMode === 'url' && urlEl) ? urlEl.value.trim() : '';
         let uploadResult = null;
@@ -1296,8 +1005,16 @@ async function runIngestionCycle() {
             showToast('error', 'Enter a direct link to a data file first.');
             return;
         }
+        if (state.ingestMode === 'batch' && !state.selectedFile) {
+            showToast('error', 'Choose a file to ingest first.');
+            return;
+        }
+        // Clear the previous run's result while the new file uploads
+        const statusEl = document.getElementById('monitor-overall-status');
+        if (statusEl) statusEl.textContent = 'Uploading...';
+        const statusPill = document.getElementById('monitor-overall-status-pill');
+        if (statusPill) statusPill.className = 'monitor-stat-pill processing';
                 
-        resetFlowVisual();
         clearConsole();
         
         if (window.closeAllMenus) window.closeAllMenus();
@@ -1351,22 +1068,13 @@ async function runIngestionCycle() {
             if (cycleCounter) cycleCounter.textContent = `Cycle #${state.streamCycle}`;
             
             uploadResult = await uploadRealtimeStream(streamType, state.streamBatchSize || 30, state.streamCycle, streamType === 'live_url' ? streamUrl : null);
-        } else if (!hasVirtualInput) {
+        } else {
             if (!state.selectedFile) {
-                showToast('error', 'Select a file or enter text data to ingest.');
+                showToast('error', 'Choose a file to ingest first.');
                 return;
             }
             writeConsoleLog('[System] Ingesting local file upload...');
             uploadResult = await uploadFile(state.selectedFile);
-        } else {
-            const rawData = manualEl.value.trim();
-            const manualFileEl = document.getElementById('manual-filename');
-            const filename = (manualFileEl ? manualFileEl.value.trim() : '') || 'adhoc_sales.csv';
-            
-            writeConsoleLog('[System] Creating a file from the text editor input...');
-            const blob = new Blob([rawData], { type: 'text/plain' });
-            const virtualFile = new File([blob], filename, { type: 'text/plain' });
-            uploadResult = await uploadFile(virtualFile);
         }
         
         if (!uploadResult) {
@@ -1380,19 +1088,13 @@ async function runIngestionCycle() {
         const bBadge = document.getElementById('batch-badge-id');
         if (bBadge) bBadge.textContent = `Batch: ${batch_id}`;
         
-        const dab = document.getElementById('details-active-batch');
-        if (dab) dab.textContent = batch_id;
-        const dbm = document.getElementById('details-batch-meta');
-        if (dbm) dbm.textContent = `Initiating file parsing...`;
 
         writeConsoleLog(`[Intake] Preserved original raw file at: ${file_path}`);
         writeConsoleLog(`[System] Initializing autonomous agents graph for pipeline: pipe_${batch_id}`);
         
-        startEqualizerPulsing();
 
         const startSuccess = await startPipeline(file_path, batch_id);
         if (startSuccess) {
-            setStepStatus('intake', 'processing', 'Profiling schema...');
             
             // Open full-screen pipeline monitor
             if (window.openPipelineMonitorOverlay) {
@@ -1402,8 +1104,6 @@ async function runIngestionCycle() {
             startPipelinePolling(`pipe_${batch_id}`);
         } else {
             showToast('error', 'Failed to start pipeline.');
-            setStepStatus('intake', 'failed', 'Crashed');
-            stopEqualizerPulsing();
         }
 }
 
@@ -1512,68 +1212,47 @@ async function startPipeline(filePath, batchId) {
     }
 }
 
-// Pipeline Polling Status
+// Pipeline Polling Status: drives the monitor, console and notifications until the run finishes
 function startPipelinePolling(pipelineId) {
     if (state.pipelinePollingInterval) clearInterval(state.pipelinePollingInterval);
-    
+    const stopPolling = () => {
+        clearInterval(state.pipelinePollingInterval);
+        state.pipelinePollingInterval = null;
+    };
+
     state.pipelinePollingInterval = setInterval(async () => {
         try {
             const response = await fetch(`/api/v1/pipeline/status?pipeline_id=${pipelineId}`);
+            if (response.status === 404) {
+                stopPolling();
+                writeConsoleLog('[System Error] This pipeline run no longer exists.', 'text-red');
+                return;
+            }
             if (!response.ok) return;
             const data = await response.json();
             state.currentPipelineData = data;
             updatePipelineMonitorUI(data);
-
             updateLogsConsole(data.logs);
-            if (data.stages) {
-                updateFlowVisualFromStages(data.stages);
-            } else {
-                updateFlowVisualFromLogs(data.logs);
-            }
 
-            if (state.activeInspectedStageId && document.getElementById('stage-inspector-modal').style.display === 'flex') {
-                openStageInspector(state.activeInspectedStageId);
-            }
-            
             if (data.status === 'Success' || data.status === 'Passed with Warnings') {
-                clearInterval(state.pipelinePollingInterval);
-                state.pipelinePollingInterval = null;
-                
-                setStepStatus('intake', 'completed', 'Completed');
-                setStepStatus('transformation', 'completed', 'Completed');
-                setStepStatus('storage', 'completed', 'Stored');
-                setStepStatus('report', 'completed', 'Report Ready');
-                setStepStatus('pbi', 'completed', 'Refreshed');
-                
+                stopPolling();
                 writeConsoleLog(`[System Success] Pipeline complete! Status: ${data.status}. Duration: ${(data.execution_time || 0).toFixed(2)}s`, 'text-green');
                 showToast(data.status === 'Success' ? 'success' : 'info', `${data.filename || data.batch_id}: ${data.status}`);
                 playAlertChime(true);
-                if (window.refreshNotifications) window.refreshNotifications();
-                
-                stopEqualizerPulsing();
-                
-                loadDashboardStats();
-                loadExplorerFiles();
-                loadReportsList();
-                loadChatBatchContexts();
-
-                if (localStorage.getItem('pref_auto_ai') !== 'false') {
-                    fetchSelectedBatchInsights(state.currentBatchId);
-                }
             } else if (data.status === 'Failed') {
-                clearInterval(state.pipelinePollingInterval);
-                state.pipelinePollingInterval = null;
-                
-                const activeStep = getActiveStep(data.logs);
-                if (activeStep) setStepStatus(activeStep, 'failed', 'Crashed');
-                
+                stopPolling();
                 writeConsoleLog(`[System Failure] Pipeline execution aborted: ${data.error || 'see the process log for details'}`, 'text-red');
                 showToast('error', `${data.filename || data.batch_id}: pipeline failed. ${data.error || ''}`);
                 playAlertChime(false);
-                if (window.refreshNotifications) window.refreshNotifications();
-                
-                stopEqualizerPulsing();
-                loadDashboardStats();
+            } else {
+                return;
+            }
+            // Run finished: refresh everything that depends on run results
+            if (window.refreshNotifications) window.refreshNotifications();
+            loadDashboardStats();
+            loadChatBatchContexts();
+            if (data.status !== 'Failed' && localStorage.getItem('pref_auto_ai') !== 'false') {
+                fetchSelectedBatchInsights(state.currentBatchId);
             }
         } catch (e) {
             loggerError('polling', e);
@@ -1602,28 +1281,7 @@ function playAlertChime(success) {
     } catch (e) { /* audio is optional */ }
 }
 
-// Equalizer dynamic pulsation helper
-function startEqualizerPulsing() {
-    if (state.equalizerInterval) clearInterval(state.equalizerInterval);
-    
-    const equalizer = document.getElementById('quality-equalizer');
-    if (!equalizer) return;
-    const bars = equalizer.querySelectorAll('.eq-bar');
-    
-    state.equalizerInterval = setInterval(() => {
-        bars.forEach(bar => {
-            const randHeight = Math.floor(Math.random() * 85) + 15;
-            bar.style.height = `${randHeight}%`;
-        });
-    }, 120);
-}
 
-function stopEqualizerPulsing() {
-    if (state.equalizerInterval) {
-        clearInterval(state.equalizerInterval);
-        state.equalizerInterval = null;
-    }
-}
 
 function updateLogsConsole(logs) {
     const consoleBody = document.getElementById('console-logs');
@@ -1653,135 +1311,10 @@ function updateLogsConsole(logs) {
     consoleBody.scrollTop = consoleBody.scrollHeight;
 }
 
-function updateFlowVisualFromStages(stages) {
-    if (!stages) return;
-    
-    Object.keys(stages).forEach(stageId => {
-        const stage = stages[stageId];
-        const status = stage.status || 'waiting';
-        
-        let statusText = 'Waiting';
-        if (status === 'processing') {
-            if (stageId === 'intake') statusText = 'Profiling...';
-            else if (stageId === 'transformation') statusText = 'Cleaning...';
-            else if (stageId === 'storage') statusText = 'Formatting...';
-            else if (stageId === 'report') statusText = 'Generating PDF...';
-            else if (stageId === 'pbi') statusText = 'Refreshing Sync...';
-            else statusText = 'Running...';
-        } else if (status === 'completed') {
-            if (stageId === 'storage') statusText = 'Stored';
-            else if (stageId === 'report') statusText = 'Report Ready';
-            else if (stageId === 'pbi') statusText = 'Refreshed';
-            else statusText = 'Completed';
-        } else if (status === 'failed') {
-            statusText = 'Crashed';
-        }
-        
-        setStepStatus(stageId, status, statusText);
-    });
-}
 
-function updateFlowVisualFromLogs(logs) {
-    let hasIntake = false;
-    let hasTransform = false;
-    let hasStorage = false;
-    let hasReport = false;
-    let hasPbi = false;
-    
-    logs.forEach(log => {
-        if (log.includes('Data Intake Agent') || log.includes('IntakeAgent')) hasIntake = true;
-        if (log.includes('Transformation Agent') || log.includes('TransformationAgent')) hasTransform = true;
-        if (log.includes('Intelligent Storage Agent') || log.includes('StorageAgent')) hasStorage = true;
-        if (log.includes('Report Generation Agent') || log.includes('ReportAgent')) hasReport = true;
-        if (log.includes('Power BI') || log.includes('pbi_refresh')) hasPbi = true;
-    });
-    
-    if (hasPbi) {
-        setStepStatus('intake', 'completed', 'Completed');
-        setStepStatus('transformation', 'completed', 'Completed');
-        setStepStatus('storage', 'completed', 'Stored');
-        setStepStatus('report', 'completed', 'Report Ready');
-        setStepStatus('pbi', 'processing', 'Refreshing Sync...');
-    } else if (hasReport) {
-        setStepStatus('intake', 'completed', 'Completed');
-        setStepStatus('transformation', 'completed', 'Completed');
-        setStepStatus('storage', 'completed', 'Stored');
-        setStepStatus('report', 'processing', 'Generating PDF...');
-        setStepStatus('pbi', 'waiting', 'Waiting');
-    } else if (hasStorage) {
-        setStepStatus('intake', 'completed', 'Completed');
-        setStepStatus('transformation', 'completed', 'Completed');
-        setStepStatus('storage', 'processing', 'Formatting...');
-        setStepStatus('report', 'waiting', 'Waiting');
-        setStepStatus('pbi', 'waiting', 'Waiting');
-    } else if (hasTransform) {
-        setStepStatus('intake', 'completed', 'Completed');
-        setStepStatus('transformation', 'processing', 'Cleaning...');
-        setStepStatus('storage', 'waiting', 'Waiting');
-        setStepStatus('pbi', 'waiting', 'Waiting');
-    } else if (hasIntake) {
-        setStepStatus('intake', 'processing', 'Profiling...');
-        setStepStatus('transformation', 'waiting', 'Waiting');
-        setStepStatus('pbi', 'waiting', 'Waiting');
-    }
-}
 
-function getActiveStep(logs) {
-    if (logs.length === 0) return 'intake';
-    const lastLog = logs[logs.length - 1];
-    if (lastLog.includes('Power BI') || lastLog.includes('pbi')) return 'pbi';
-    if (lastLog.includes('Report')) return 'report';
-    if (lastLog.includes('Storage') || lastLog.includes('DB Sync')) return 'storage';
-    if (lastLog.includes('Cleansed') || lastLog.includes('Transformation')) return 'transformation';
-    return 'intake';
-}
 
-function setStepStatus(step, status, text) {
-    const stepEl = document.getElementById(`flow-${step}`);
-    if (!stepEl) return;
-    
-    stepEl.className = `flow-step ${status}`;
-    
-    let htmlContent = text;
-    
-    if (status === 'completed' && state.currentPipelineData) {
-        const data = state.currentPipelineData;
-        const batchId = data.batch_id || state.currentBatchId;
-        const filename = data.filename || 'dataset.csv';
-        const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-        const emailPath = email.replace('@','_').replace('.','_');
-        
-        let linksHtml = '';
-        if (step === 'intake') {
-            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
-        } else if (step === 'transformation') {
-            const rel_clean = (data.stages && data.stages.transformation && data.stages.transformation.output && data.stages.transformation.output.clean_dataset_path) || `Accounts/${emailPath}/cleaned data/${filename}`;
-            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
-        } else if (step === 'storage') {
-            linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
-        } else if (step === 'report') {
-            linksHtml = `
-                <div class="step-card-links">
-                    <a href="#" onclick="downloadReport('${batchId}', 'pdf'); event.stopPropagation();" class="node-inline-link" title="PDF Report"><i class="fa-solid fa-file-pdf"></i> PDF</a>
-                    <a href="#" onclick="downloadReport('${batchId}', 'docx'); event.stopPropagation();" class="node-inline-link" title="Word Report"><i class="fa-solid fa-file-word"></i> Word</a>
-                </div>`;
-        } else if (step === 'pbi') {
-            linksHtml = `<div class="step-card-links"><span class="node-inline-link text-green"><i class="fa-solid fa-circle-check"></i> Sync OK</span></div>`;
-        }
-        htmlContent = `<div>${text}</div>${linksHtml}`;
-    }
-    
-    stepEl.querySelector('.flow-status-text').innerHTML = htmlContent;
-    drawNetworkConnections();
-}
 
-function resetFlowVisual() {
-    setStepStatus('intake', 'waiting', 'Pending Ingest');
-    setStepStatus('transformation', 'waiting', 'Waiting');
-    setStepStatus('storage', 'waiting', 'Waiting');
-    setStepStatus('report', 'waiting', 'Waiting');
-    setStepStatus('pbi', 'waiting', 'Waiting');
-}
 
 function clearConsole() {
     document.getElementById('console-logs').innerHTML = '';
@@ -1799,168 +1332,28 @@ function writeConsoleLog(text, colorClass = '') {
 }
 
 // Fetch insights details with a smooth fade animation
+// Shows a finished (or running) batch on the Pipeline page: flow nodes, stats, console and chat context
 async function fetchSelectedBatchInsights(batchId) {
     if (!batchId) return;
-    
-    const wrapper = document.querySelector('.sidebar-scroll-wrapper');
-    if (wrapper) wrapper.classList.add('fade-out'); 
-
-    setTimeout(async () => {
-        state.currentBatchId = batchId;
-        const dBatch = document.getElementById('details-active-batch');
-        if (dBatch) dBatch.textContent = batchId;
-        const dMeta = document.getElementById('details-batch-meta');
-        if (dMeta) dMeta.textContent = `Showing analytics for selected run.`;
-        const mBatch = document.getElementById('monitor-batch-id');
-        if (mBatch) mBatch.textContent = batchId;
-
-        try {
-            const qRes = await fetch(`/api/v1/data-quality?batch_id=${batchId}`);
-            if (qRes.ok) {
-                const reports = await qRes.json();
-                if (reports && reports.length > 0) {
-                    const report = reports[0];
-                    const score = report.quality_score;
-                    
-                    const monScore = document.getElementById('monitor-stat-quality');
-                    if (monScore) monScore.textContent = `${score}%`;
-                    
-                    const equalizer = document.getElementById('quality-equalizer');
-                    if (equalizer) {
-                        const bars = equalizer.querySelectorAll('.eq-bar');
-                        bars.forEach((bar, idx) => {
-                            const offset = (Math.sin(idx) * 6) + (score - 5);
-                            const clampedHeight = Math.min(100, Math.max(15, offset));
-                            bar.style.height = `${clampedHeight}%`;
-                        });
-                    }
-                    
-                }
-            }
-            
-            const rcaRes = await fetch(`/api/v1/root-cause?batch_id=${batchId}`);
-            const rcaBody = document.getElementById('rca-details-body');
-            if (rcaBody) {
-                rcaBody.innerHTML = '';
-                
-                if (rcaRes.ok) {
-                    const rcas = await rcaRes.json();
-                    if (rcas && rcas.length > 0) {
-                        rcas.forEach(rca => {
-                            const div = document.createElement('div');
-                            div.className = 'rca-item';
-                            div.innerHTML = `
-                                <div class="rca-title">${rca.issue}</div>
-                                <p class="text-secondary"><strong>Root Cause:</strong> ${rca.root_cause}</p>
-                                <p class="text-green"><strong>Recommendation:</strong> ${rca.recommendation}</p>
-                            `;
-                            rcaBody.appendChild(div);
-                        });
-                    } else {
-                        rcaBody.innerHTML = `<p class="text-secondary text-center">Batch processed cleanly with no data quality alerts.</p>`;
-                    }
-                }
-            }
-
-            const repRes = await fetch('/api/v1/reports/folders');
-            const container = document.getElementById('pdf-reports-container');
-            if (container) {
-                container.innerHTML = '';
-                
-                if (repRes.ok) {
-                    const folders = await repRes.json();
-                    if (folders && folders.length > 0) {
-                        const batchFolder = folders.find(r => r.batch_id === batchId) || folders[0];
-                        const reportId = batchFolder.batch_id;
-                        const folderName = batchFolder.folder_name || 'dataset';
-                        const dateStr = batchFolder.created_at ? parseUTCDate(batchFolder.created_at).toLocaleDateString() : 'Active';
-                        
-                        let switcherHtml = '';
-                        if (folders.length > 1) {
-                            switcherHtml = `
-                                <div style="margin-bottom: 8px;">
-                                    <label style="font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Switch Report Folder:</label>
-                                    <select id="reports-folder-switcher" style="width: 100%; margin-top: 3px; padding: 5px 8px; font-size: 11px; background: #0f172a; color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; cursor: pointer;" onchange="fetchSelectedBatchInsights(this.value)">
-                                        ${folders.map(f => `<option value="${f.batch_id}" ${f.batch_id === reportId ? 'selected' : ''}>📁 reports/${f.folder_name}/ (${f.batch_id})</option>`).join('')}
-                                    </select>
-                                </div>
-                            `;
-                        }
-                        
-                        container.innerHTML = `
-                            <div class="report-item-download" style="flex-direction: column; align-items: stretch; gap: 10px; background: rgba(15, 23, 42, 0.6); padding: 14px; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.2);">
-                                ${switcherHtml}
-                                <div class="report-info-text" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
-                                    <div>
-                                        <h4 style="color: #60a5fa; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                                            <i class="fa-solid fa-folder-open text-yellow"></i> reports/${folderName}/
-                                        </h4>
-                                        <span style="font-size: 11px; color: #94a3b8;">Batch: <code>${reportId}</code> | ${dateStr}</span>
-                                    </div>
-                                    <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 10px; padding: 2px 6px;">4 Formats</span>
-                                </div>
-                                <p style="font-size: 11px; color: #cbd5e1; margin: 0;">Multi-format executive reports ready for download:</p>
-                                <div class="report-download-buttons-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                    <button class="btn-download-pdf" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(225,29,72,0.2);" onclick="downloadReport('${reportId}', 'pdf')">
-                                        <i class="fa-solid fa-file-pdf"></i> PDF (.pdf)
-                                    </button>
-                                    <button class="btn-download-word" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(37,99,235,0.2);" onclick="downloadReport('${reportId}', 'docx')">
-                                        <i class="fa-solid fa-file-word"></i> Word (.docx)
-                                    </button>
-                                    <button class="btn-download-markdown" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(14,165,233,0.2);" onclick="downloadReport('${reportId}', 'markdown')">
-                                        <i class="fa-solid fa-file-code"></i> Markdown (.md)
-                                    </button>
-                                    <button class="btn-download-json" style="padding: 7px 10px; font-size: 11px; font-weight: 600; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 4px rgba(245,158,11,0.2);" onclick="downloadReport('${reportId}', 'json')">
-                                        <i class="fa-solid fa-braces"></i> JSON (.json)
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    } else {
-                        container.innerHTML = `
-                            <div class="no-data-card text-center">
-                                <i class="fa-solid fa-file-pdf"></i>
-                                <p>No analytical report generated yet. Run pipeline to generate reports.</p>
-                            </div>`;
-                    }
-                }
-            }
-
-            // Fetch pipeline status to update 4 Sidebar KPIs and flowchart nodes dynamically
-            try {
-                const pipeStatusRes = await fetch(`/api/v1/pipeline/status?pipeline_id=pipe_${batchId}`);
-                if (pipeStatusRes.ok) {
-                    const pipeData = await pipeStatusRes.json();
-                    if (pipeData) {
-                        state.currentPipelineData = pipeData;
-                        
-                        // Update main flowchart nodes visually to match selected batch status
-                        if (pipeData.stages) {
-                            updateFlowVisualFromStages(pipeData.stages);
-                        }
-                        updatePipelineMonitorUI(pipeData);
-                        const bBadge = document.getElementById('batch-badge-id');
-                        if (bBadge) bBadge.textContent = `Batch: ${batchId}`;
-                        updateLogsConsole(pipeData.logs || []);
-                        
-                    }
-                }
-            } catch (err) {
-                loggerError('fetchSelectedBatchInsights.pipeStatus', err);
-            }
-
-            const chatSelect = document.getElementById('chat-batch-select');
-            if (chatSelect) {
-                chatSelect.value = batchId;
-            }
-            state.chatContextBatchId = batchId;
-
-        } catch (e) {
-            loggerError('fetchSelectedBatchInsights', e);
-        }
-
-        if (wrapper) wrapper.classList.remove('fade-out');
-    }, 250);
+    state.currentBatchId = batchId;
+    try {
+        const res = await fetch(`/api/v1/pipeline/status?pipeline_id=pipe_${batchId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        state.currentPipelineData = data;
+        updatePipelineMonitorUI(data);
+        updateLogsConsole(data.logs || []);
+        const bBadge = document.getElementById('batch-badge-id');
+        if (bBadge) bBadge.textContent = `Batch: ${batchId}`;
+        const rawFile = document.getElementById('mnode-raw-file');
+        if (rawFile && data.filename && !rawFile.querySelector('.node-card-links')) rawFile.textContent = data.filename;
+        if (data.status === 'Running' && !state.pipelinePollingInterval) startPipelinePolling(`pipe_${batchId}`);
+    } catch (e) {
+        loggerError('fetchSelectedBatchInsights', e);
+    }
+    const chatSelect = document.getElementById('chat-batch-select');
+    if (chatSelect) chatSelect.value = batchId;
+    state.chatContextBatchId = batchId;
 }
 
 // Load Global Dashboard statistics
@@ -2074,83 +1467,8 @@ function renderCharts(recentRuns) {
     });
 }
 
-// Storage Explorer Operations
-function initExplorer() {
-    const searchInput = document.getElementById('explorer-search');
-    searchInput.addEventListener('input', (e) => {
-        state.explorerSearchQuery = e.target.value.toLowerCase();
-        renderExplorerFiles();
-    });
-    
-    const folderCards = document.querySelectorAll('.folder-card');
-    folderCards.forEach(card => {
-        card.addEventListener('click', () => {
-            folderCards.forEach(c => c.classList.remove('active'));
-            card.classList.add('active');
-            
-            const folder = card.getAttribute('data-folder');
-            state.explorerFolderFilter = folder;
-            
-            renderExplorerFiles();
-        });
-    });
-}
 
-async function loadExplorerFiles() {
-    try {
-        const response = await fetch('/api/v1/dashboard/datasets');
-        if (!response.ok) return;
-        const data = await response.json();
-        
-        state.explorerFiles = data.files || [];
-        
-        document.getElementById('folder-all-count').textContent = `${state.explorerFiles.length} files`;
-        document.getElementById('folder-csv-count').textContent = `${state.explorerFiles.filter(f => f.format === 'CSV').length} files`;
-        document.getElementById('folder-word-count').textContent = `${state.explorerFiles.filter(f => f.format === 'WORD').length} files`;
-        document.getElementById('folder-sql-count').textContent = `${state.explorerFiles.filter(f => f.format === 'SQL').length} files`;
-        const logCountEl = document.getElementById('folder-log-count');
-        if (logCountEl) logCountEl.textContent = `${state.explorerFiles.filter(f => f.format === 'LOG').length} files`;
-        
-        renderExplorerFiles();
-    } catch (e) {
-        loggerError('loadExplorerFiles', e);
-    }
-}
 
-function renderExplorerFiles() {
-    const tableBody = document.querySelector('#explorer-files-table tbody');
-    tableBody.innerHTML = '';
-    
-    let filtered = state.explorerFiles;
-    if (state.explorerFolderFilter !== 'all') {
-        filtered = filtered.filter(f => f.format.toLowerCase() === state.explorerFolderFilter);
-    }
-    
-    if (state.explorerSearchQuery) {
-        filtered = filtered.filter(f => f.name.toLowerCase().includes(state.explorerSearchQuery) || f.path.toLowerCase().includes(state.explorerSearchQuery));
-    }
-    
-    if (filtered.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No formatted datasets found.</td></tr>';
-        return;
-    }
-    
-    filtered.forEach(file => {
-        const tr = document.createElement('tr');
-        const fileIcon = file.format === 'CSV' ? 'fa-file-csv text-green' : file.format === 'WORD' ? 'fa-file-word text-blue' : file.format === 'LOG' ? 'fa-file-lines text-yellow' : file.format === 'PDF' ? 'fa-file-pdf text-red' : 'fa-database text-purple';
-        
-        tr.innerHTML = `
-            <td><i class="fa-solid ${fileIcon}"></i> <strong>${file.name}</strong></td>
-            <td><code>${file.directory}</code></td>
-            <td><span class="badge ${file.format.toLowerCase() === 'csv' ? 'success' : file.format.toLowerCase() === 'word' ? 'running' : 'warning'}">${file.format}</span></td>
-            <td>${new Date(file.modified_time).toLocaleString()}</td>
-            <td>
-                <button class="btn-download-file" onclick="downloadDataFile('${file.path}')"><i class="fa-solid fa-download"></i> Get</button>
-            </td>
-        `;
-        tableBody.appendChild(tr);
-    });
-}
 
 function downloadDataFile(filePath) {
     const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
@@ -2158,28 +1476,17 @@ function downloadDataFile(filePath) {
 }
 
 // PDF Reports List Operations
-async function loadReportsList() {
+// After sign-in, show the most recent run on the Pipeline page
+async function loadLatestRun() {
     if (!getAuthToken()) return;
     try {
-        const response = await fetch('/api/v1/reports/folders');
+        const response = await fetch('/api/v1/history?limit=20');
         if (!response.ok) return;
-        const folders = await response.json();
-        
-        if (folders && folders.length > 0) {
-            const targetBatch = state.currentBatchId || folders[0].batch_id;
-            fetchSelectedBatchInsights(targetBatch);
-        } else {
-            const repRes = await fetch('/api/v1/reports/history');
-            if (repRes.ok) {
-                const reports = await repRes.json();
-                if (reports && reports.length > 0) {
-                    const targetBatch = state.currentBatchId || reports[0].batch_id;
-                    fetchSelectedBatchInsights(targetBatch);
-                }
-            }
-        }
+        const runs = await response.json();
+        const latest = runs.find(r => r.status !== 'Not Run');
+        if (latest) fetchSelectedBatchInsights(state.currentBatchId || latest.batch_id);
     } catch (e) {
-        loggerError('loadReportsList', e);
+        loggerError('loadLatestRun', e);
     }
 }
 
@@ -2328,6 +1635,12 @@ function initChat() {
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
+}
+
+// Encodes a value as a JavaScript string literal that is safe inside an HTML attribute
+// (e.g. onclick="fn(${jsArg(path)})"), so Windows paths and quotes cannot break the handler.
+function jsArg(value) {
+    return escapeHtml(JSON.stringify(String(value ?? '')));
 }
 
 function escapeHtml(value) {
@@ -2492,105 +1805,31 @@ function initChatbotToggle() {
 }
 
 // User Profile Username Manager & First-Time Setup Modal
+// Header profile (name, email, avatar) from the signed-in account
 function initUserProfileManager() {
-    const modal = document.getElementById('user-profile-modal');
-    const inputUsername = document.getElementById('input-username');
-    const saveBtn = document.getElementById('btn-save-username');
-    const closeBtn = document.getElementById('btn-close-user-modal');
-    const userDisplayName = document.getElementById('user-display-name');
-    const userDisplayEmail = document.getElementById('user-display-email');
-    const btnProfileSettings = document.getElementById('btn-dropdown-profile');
-    const btnToggleProfile = document.getElementById('btn-toggle-profile');
-
-    // Update profile text in header dropdown
     const updateProfileUI = () => {
-        let storedName = localStorage.getItem('controlai_username');
-        if (storedName && storedName.includes('@')) {
-            localStorage.removeItem('controlai_username');
-            storedName = null;
-        }
-
-        if (storedName && storedName.trim() !== '') {
-            if (userDisplayName) userDisplayName.textContent = storedName.trim();
-        } else {
-            if (userDisplayName) userDisplayName.textContent = 'System Administrator';
-        }
-
-        const storedEmail = localStorage.getItem('controlai_email');
-        if (storedEmail && storedEmail.trim() !== '' && userDisplayEmail) {
-            userDisplayEmail.textContent = storedEmail.trim();
-        }
-
-        const storedAvatar = localStorage.getItem('controlai_avatar');
+        const nameEl = document.getElementById('user-display-name');
+        const emailEl = document.getElementById('user-display-email');
         const avatarImg = document.getElementById('user-display-avatar');
-        if (storedAvatar && avatarImg) {
-            avatarImg.src = storedAvatar;
-        } else if (avatarImg) {
-            avatarImg.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80';
+        const storedName = (localStorage.getItem('controlai_username') || '').trim();
+        const storedEmail = (localStorage.getItem('controlai_email') || '').trim();
+        if (nameEl) nameEl.textContent = storedName || (storedEmail ? storedEmail.split('@')[0] : 'Signed in');
+        if (emailEl) emailEl.textContent = storedEmail;
+        if (avatarImg) {
+            const storedAvatar = localStorage.getItem('controlai_avatar');
+            avatarImg.src = storedAvatar || initialsAvatar(storedName || storedEmail || '?');
         }
     };
-
-    // Show Modal helper
-    const openUserModal = () => {
-        if (!modal) return;
-        const currentName = localStorage.getItem('controlai_username') || '';
-        if (inputUsername) inputUsername.value = currentName;
-
-        const titleEl = document.getElementById('user-modal-title');
-        const subtitleEl = document.getElementById('user-modal-subtitle');
-        if (titleEl) titleEl.textContent = 'Account Profile';
-        if (subtitleEl) subtitleEl.textContent = 'Enter your username to personalize your account profile.';
-        if (closeBtn) closeBtn.style.display = 'block';
-
-        modal.classList.add('active');
-        if (inputUsername) setTimeout(() => inputUsername.focus(), 150);
-    };
-
-    const closeUserModal = () => {
-        if (modal) modal.classList.remove('active');
-    };
-
-    // Save Action
-    const handleSaveUsername = () => {
-        const name = inputUsername ? inputUsername.value.trim() : '';
-        if (!name) {
-            showToast('error', 'Please enter a valid username.');
-            if (inputUsername) inputUsername.focus();
-            return;
-        }
-
-        localStorage.setItem('controlai_username', name);
-        updateProfileUI();
-        closeUserModal();
-        showToast('success', `Profile updated! Welcome, ${name}.`);
-    };
-
-    if (saveBtn) saveBtn.addEventListener('click', handleSaveUsername);
-    if (inputUsername) {
-        inputUsername.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') handleSaveUsername();
-        });
-    }
-
-    if (closeBtn) closeBtn.addEventListener('click', closeUserModal);
-
-    // Click outside modal to close
-    if (modal) {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                closeUserModal();
-            }
-        });
-    }
-
-    // Initial update of UI without forcing auto pop-up modal
     updateProfileUI();
     window.updateProfileUI = updateProfileUI;
+    window.addEventListener('controlai_login_success', updateProfileUI);
+}
 
-    // Update profile on login success without forcing auto pop-up modal
-    window.addEventListener('controlai_login_success', () => {
-        updateProfileUI();
-    });
+// Local SVG avatar with the user's initials (no external image service)
+function initialsAvatar(name) {
+    const initials = name.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="32" fill="#4f46e5"/><text x="32" y="41" font-family="Arial" font-size="24" font-weight="700" fill="#fff" text-anchor="middle">${initials}</text></svg>`;
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
 // Helper to escape HTML characters
@@ -2606,7 +1845,6 @@ function initSettingsPage() {
     const overlay = document.getElementById('settings-page-overlay');
     if (!overlay) return;
 
-    const btnBackDashboard = document.getElementById('btn-back-dashboard');
     const tabBtns = document.querySelectorAll('.settings-tab-btn');
     const tabPanels = document.querySelectorAll('.settings-tab-panel');
 
@@ -2614,7 +1852,6 @@ function initSettingsPage() {
     const btnDropdownProfile = document.getElementById('btn-dropdown-profile');
     const btnDropdownSecurity = document.getElementById('btn-dropdown-security');
     const btnDropdownPreferences = document.getElementById('btn-dropdown-preferences');
-    const btnToggleProfile = document.getElementById('btn-toggle-profile');
 
     // Profile Tab Inputs & Buttons
     const inputUsername = document.getElementById('settings-username');
@@ -2678,20 +1915,12 @@ function initSettingsPage() {
     const closeSettingsPage = function() {
         overlay.style.display = 'none';
         overlay.classList.remove('active');
-        if (window.closeAllMenus) window.closeAllMenus();
-        const btnGraph = document.getElementById('btn-toggle-graph');
-        if (btnGraph) btnGraph.classList.add('active');
     };
 
-    // Bind Back to Dashboard
-    if (btnBackDashboard) {
-        btnBackDashboard.addEventListener('click', () => {
-            closeSettingsPage();
-            showToast('info', 'Returned to Dashboard.');
-        });
-    }
+    const btnBack = document.getElementById('btn-back-dashboard');
+    if (btnBack) btnBack.addEventListener('click', closeSettingsPage);
 
-    // Bind Tab switching
+    // Tab switching
     tabBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             const tabId = btn.getAttribute('data-tab');
@@ -2703,44 +1932,16 @@ function initSettingsPage() {
         });
     });
 
-    // Bind Navbar / Dropdown Triggers
-    if (btnDropdownProfile) {
-        btnDropdownProfile.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.closeAllMenus) window.closeAllMenus();
-            if (btnToggleProfile) btnToggleProfile.classList.add('active');
-            openSettingsPage('tab-profile-settings');
-        });
-    }
-    if (btnDropdownSecurity) {
-        btnDropdownSecurity.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.closeAllMenus) window.closeAllMenus();
-            if (btnToggleProfile) btnToggleProfile.classList.add('active');
-            openSettingsPage('tab-api-keys');
-        });
-    }
-    if (btnDropdownPreferences) {
-        btnDropdownPreferences.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (window.closeAllMenus) window.closeAllMenus();
-            if (btnToggleProfile) btnToggleProfile.classList.add('active');
-            openSettingsPage('tab-preferences');
-        });
-    }
-    if (btnToggleProfile) {
-        btnToggleProfile.addEventListener('click', (e) => {
-            e.preventDefault();
-            const wasActive = overlay && overlay.classList.contains('active');
-            if (!wasActive) {
+    // Profile dropdown entries (the sidebar "Settings" item forwards to the first one)
+    [[btnDropdownProfile, 'tab-profile-settings'], [btnDropdownSecurity, 'tab-api-keys'], [btnDropdownPreferences, 'tab-preferences']]
+        .forEach(([btn, tab]) => {
+            if (!btn) return;
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
                 if (window.closeAllMenus) window.closeAllMenus();
-                btnToggleProfile.classList.add('active');
-                openSettingsPage('tab-profile-settings');
-            } else {
-                closeSettingsPage();
-            }
+                openSettingsPage(tab);
+            });
         });
-    }
 
     // Load Profile Data from the server
     async function loadProfileData() {
@@ -3002,414 +2203,8 @@ function applyAccentTheme(theme) {
     }
 }
 
-// SnapLogic Stage Inspector modal initialization
-function initStageInspector() {
-    const stages = ['intake', 'transformation', 'storage', 'report', 'pbi'];
-    stages.forEach(stageId => {
-        const el = document.getElementById(`flow-${stageId}`);
-        if (el) {
-            el.addEventListener('click', () => {
-                openStageInspector(stageId);
-            });
-            el.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openStageInspector(stageId);
-                }
-            });
-        }
-    });
 
-    const closeBtn = document.getElementById('btn-close-stage-inspector');
-    const modal = document.getElementById('stage-inspector-modal');
-    if (closeBtn && modal) {
-        closeBtn.addEventListener('click', () => {
-            modal.style.display = 'none';
-            state.activeInspectedStageId = null;
-        });
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.style.display = 'none';
-                state.activeInspectedStageId = null;
-            }
-        });
-    }
-}
 
-// Opens the stage inspector overlay and queries stage processed data in real time
-function renderPreviewTable(previewData, title) {
-    if (!previewData || !Array.isArray(previewData) || previewData.length === 0) return '';
-    
-    const headers = Object.keys(previewData[0]);
-    let html = `
-        <div style="margin-top: 10px; margin-bottom: 14px;">
-            <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-table"></i> ${title}</h4>
-            <div style="max-height: 180px; overflow-x: auto; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
-                <table class="inspector-table" style="font-size:10px; margin-bottom:0; width:100%; white-space:nowrap;">
-                    <thead>
-                        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
-                    </thead>
-                    <tbody>
-                        ${previewData.map(row => `
-                            <tr>${headers.map(h => {
-                                const val = row[h];
-                                return `<td>${val === null || val === undefined ? '<em>null</em>' : val}</td>`;
-                            }).join('')}</tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-    return html;
-}
-
-function openStageInspector(stageId) {
-    const modal = document.getElementById('stage-inspector-modal');
-    if (!modal) return;
-    
-    state.activeInspectedStageId = stageId;
-    
-    const titleEl = document.getElementById('stage-inspector-title');
-    const subtitleEl = document.getElementById('stage-inspector-subtitle');
-    const iconEl = document.getElementById('stage-inspector-icon');
-    const metaComponent = document.getElementById('stage-meta-component');
-    const metaStatus = document.getElementById('stage-meta-status');
-    const metaQuality = document.getElementById('stage-meta-quality');
-    const metaType = document.getElementById('stage-meta-type');
-    const previewContainer = document.getElementById('stage-inspector-data-preview');
-    
-    const pipeData = state.currentPipelineData || {};
-    const stages = pipeData.stages || {};
-    const stage = stages[stageId] || {
-        status: 'waiting',
-        start_time: null,
-        end_time: null,
-        input: {},
-        output: {},
-        logs: [],
-        metadata: {}
-    };
-    
-    let componentName = '';
-    let iconClass = '';
-    let stageTitle = '';
-    let subtitle = '';
-    let statusText = 'Waiting';
-    let statusClass = 'badge warning';
-    let qualityText = 'N/A';
-    let typeText = 'N/A';
-    
-    const status = stage.status || 'waiting';
-    if (status === 'completed') {
-        statusText = 'Completed';
-        statusClass = 'badge success';
-    } else if (status === 'processing') {
-        statusText = 'Running / Executing';
-        statusClass = 'badge running';
-    } else if (status === 'failed') {
-        statusText = 'Failed / Error';
-        statusClass = 'badge failed';
-    }
-    
-    if (stageId === 'intake') {
-        stageTitle = 'File Reader & Iris AI Intake Snap';
-        subtitle = 'Ingests raw files and analyzes metadata profiling';
-        componentName = 'com.snaplogic.snaps.ai.IrisIntakeSnap';
-        iconClass = 'fa-solid fa-inbox';
-        qualityText = stage.output && stage.output.estimated_quality ? `${stage.output.estimated_quality}%` : 'N/A';
-        typeText = stage.metadata && stage.metadata.file_type ? stage.metadata.file_type : 'N/A';
-    } 
-    else if (stageId === 'transformation') {
-        stageTitle = 'Data Cleanser Snap';
-        subtitle = 'Applies schema profiling, duplicate removal, date formatting, and null imputation';
-        componentName = 'com.snaplogic.snaps.transform.DataCleanserSnap';
-        iconClass = 'fa-solid fa-wand-magic-sparkles';
-        qualityText = stage.output && stage.output.quality_after ? `${stage.output.quality_after}%` : 'N/A';
-        typeText = 'Dataset';
-    }
-    else if (stageId === 'storage') {
-        stageTitle = 'SQL Staging & Target Format Snap';
-        subtitle = 'Orchestrates loading into MySQL staging databases and selects optimal physical formats';
-        componentName = 'com.snaplogic.snaps.database.MySQLStagingSnap';
-        iconClass = 'fa-solid fa-database';
-        typeText = stage.output && stage.output.format_selected ? stage.output.format_selected : 'N/A';
-    }
-    else if (stageId === 'report') {
-        stageTitle = 'Docx & Report Exporter Snap';
-        subtitle = 'Generates PDF analysis reports and saves Microsoft Word (.docx) copies to Cleaned Data';
-        componentName = 'com.snaplogic.snaps.docx.DocxReportSnap';
-        iconClass = 'fa-solid fa-file-word';
-        typeText = 'DOCX/PDF';
-    }
-    else if (stageId === 'pbi') {
-        stageTitle = 'Power BI Gateway Sync Snap';
-        subtitle = 'Connected directly to SnapLogic pipeline for real-time model updates';
-        componentName = 'com.snaplogic.snaps.powerbi.PowerBIGatewaySnap';
-        iconClass = 'fa-solid fa-chart-column';
-        typeText = 'Star Schema';
-    }
-    
-    // Format timestamps
-    const startTimeStr = stage.start_time ? parseUTCDate(stage.start_time).toLocaleTimeString() : 'N/A';
-    const endTimeStr = stage.end_time ? parseUTCDate(stage.end_time).toLocaleTimeString() : (status === 'processing' ? 'Running...' : 'N/A');
-    const duration = stage.start_time && stage.end_time 
-        ? ((parseUTCDate(stage.end_time) - parseUTCDate(stage.start_time)) / 1000).toFixed(2) + 's' 
-        : (status === 'processing' ? 'Running' : 'N/A');
-        
-    let dataPreviewHtml = '';
-    
-    if (status === 'waiting') {
-        dataPreviewHtml = `
-            <div style="text-align: center; padding: 40px 20px;">
-                <div style="font-size: 32px; margin-bottom: 12px; color: rgba(255,255,255,0.2);"><i class="fa-solid fa-hourglass-start"></i></div>
-                <h4 style="margin-bottom: 6px;">Awaiting Pipeline Execution</h4>
-                <p class="text-secondary" style="font-size:12px;">This stage is waiting for the upstream SnapLogic execution nodes to complete.</p>
-            </div>
-        `;
-    } else {
-        // Inputs table rows
-        let inputRows = '';
-        Object.keys(stage.input || {}).forEach(k => {
-            if (k !== 'preview') {
-                inputRows += `<tr><td>${k}</td><td><code>${stage.input[k]}</code></td></tr>`;
-            }
-        });
-        if (!inputRows) inputRows = '<tr><td colspan="2" class="text-secondary">No input parameters registered.</td></tr>';
-        
-        // Outputs table rows
-        let outputRows = '';
-        Object.keys(stage.output || {}).forEach(k => {
-            if (k !== 'preview' && k !== 'sql_preview') {
-                outputRows += `<tr><td>${k}</td><td><strong>${stage.output[k]}</strong></td></tr>`;
-            }
-        });
-        if (!outputRows) outputRows = '<tr><td colspan="2" class="text-secondary">No processed output data yet.</td></tr>';
-        
-        // Metadata table rows
-        let metaRows = '';
-        Object.keys(stage.metadata || {}).forEach(k => {
-            if (k !== 'transformation_history') {
-                const val = typeof stage.metadata[k] === 'object' ? JSON.stringify(stage.metadata[k], null, 1) : stage.metadata[k];
-                metaRows += `<tr><td>${k}</td><td><code>${val}</code></td></tr>`;
-            }
-        });
-        if (!metaRows) metaRows = '<tr><td colspan="2" class="text-secondary">No additional metadata parameters.</td></tr>';
-        
-        // Logs lines
-        let logLinesHtml = '';
-        if (stage.logs && stage.logs.length > 0) {
-            stage.logs.forEach(log => {
-                logLinesHtml += `<div style="color: rgba(255,255,255,0.85); margin-bottom: 4px;"><span style="color: var(--color-blue); margin-right: 6px;">[${startTimeStr}]</span>${log}</div>`;
-            });
-        } else {
-            logLinesHtml = '<div class="text-secondary">No execution logs recorded for this stage.</div>';
-        }
-        
-        // Side-by-side or singular Previews
-        let previewHtml = '';
-        
-        // 1. Intake Stage Raw Data Preview
-        if (stageId === 'intake' && stage.output && stage.output.preview) {
-            previewHtml += renderPreviewTable(stage.output.preview, 'Ingested Raw Data Preview (First 5 Rows)');
-        }
-        
-        // 2. Transformation Stage Raw Input vs Cleaned Output Previews
-        if (stageId === 'transformation') {
-            if (stage.input && stage.input.preview) {
-                previewHtml += renderPreviewTable(stage.input.preview, 'Raw Data Before Cleansing (Input)');
-            }
-            if (stage.output && stage.output.preview) {
-                previewHtml += renderPreviewTable(stage.output.preview, 'Standardized Clean Data After Cleansing (Output)');
-            }
-            
-            // Add column-by-column transformation history timeline/table
-            let historyRows = '';
-            const historyList = stage.metadata ? stage.metadata.transformation_history : null;
-            if (historyList && Array.isArray(historyList) && historyList.length > 0) {
-                historyList.forEach(step => {
-                    historyRows += `
-                        <tr>
-                            <td><code>${step.column_name || 'General'}</code></td>
-                            <td><span style="color:var(--color-red); text-decoration:line-through; font-size:10px;">${step.old_value !== null ? step.old_value : 'null'}</span></td>
-                            <td><span style="color:var(--color-green); font-weight:600;">${step.new_value !== null ? step.new_value : 'null'}</span></td>
-                            <td><span style="font-size:10px; color:rgba(255,255,255,0.7);">${step.reason || 'Auto-cleansed'}</span></td>
-                        </tr>
-                    `;
-                });
-                
-                previewHtml += `
-                    <div style="margin-top: 10px; margin-bottom: 14px;">
-                        <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-clock-rotate-left"></i> Column Transformation Audit Log (Transformation History)</h4>
-                        <div style="max-height: 180px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
-                            <table class="inspector-table" style="font-size:10px; margin-bottom:0; width:100%;">
-                                <thead>
-                                    <tr><th>Target Column</th><th>Original State</th><th>Cleaned State</th><th>Operation Performed</th></tr>
-                                </thead>
-                                <tbody>
-                                    ${historyRows}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-        
-        // 3. Storage Stage Clean Input vs SQL Script Preview
-        if (stageId === 'storage') {
-            if (stage.input && stage.input.preview) {
-                previewHtml += renderPreviewTable(stage.input.preview, 'Clean Data Before Loading (Input)');
-            }
-            if (stage.output && stage.output.sql_preview) {
-                previewHtml += `
-                    <div style="margin-top: 10px; margin-bottom: 14px;">
-                        <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue);"><i class="fa-solid fa-code"></i> Generated SQL Schema & Insert Statements (Output Preview)</h4>
-                        <pre style="background: rgba(0,0,0,0.45); border-radius:6px; padding:10px; font-family:monospace; font-size:10px; border:1px solid rgba(255,255,255,0.08); overflow-x:auto; color:#ccc; max-height: 180px; margin:0;">${stage.output.sql_preview}</pre>
-                    </div>
-                `;
-            }
-        }
-        
-        // 4. Report Stage Download Action
-        if (stageId === 'report' && stage.output && (stage.output.pdf_path || stage.output.docx_path)) {
-            previewHtml += `
-                <div style="margin-top: 10px; margin-bottom: 14px; padding: 12px; background: rgba(20, 184, 166, 0.06); border-radius: 6px; border: 1px dashed var(--color-blue); font-size:12px;">
-                    <h5 style="margin-top:0; margin-bottom:8px; color:var(--color-blue); font-weight:600;"><i class="fa-solid fa-file-arrow-down" style="margin-right:4px;"></i> Download Exported Documents</h5>
-                    <div style="display:flex; gap:16px;">
-            `;
-            if (stage.output.pdf_path) {
-                previewHtml += `<div><i class="fa-regular fa-file-pdf" style="color:var(--color-red); margin-right:4px;"></i> <a href="/api/v1/dashboard/download?file_path=${encodeURIComponent(stage.output.pdf_path)}" target="_blank" style="color:#fff; text-decoration:underline; font-weight:600;">Executive PDF Report</a></div>`;
-            }
-            if (stage.output.docx_path) {
-                previewHtml += `<div><i class="fa-regular fa-file-word" style="color:var(--color-blue); margin-right:4px;"></i> <a href="/api/v1/dashboard/download?file_path=${encodeURIComponent(stage.output.docx_path)}" target="_blank" style="color:#fff; text-decoration:underline; font-weight:600;">Microsoft Word (.docx) Clean Export</a></div>`;
-            }
-            previewHtml += `
-                    </div>
-                </div>
-            `;
-        }
-
-        // Build dynamic button generator for premium aesthetics
-        const makeDownloadButton = (label, iconClass, onClickString, themeColor = 'rgba(255,255,255,0.06)', textColor = '#fff', borderColor = 'rgba(255,255,255,0.15)') => {
-            return `<button style="padding: 6px 12px; font-size: 11px; background: ${themeColor}; border: 1px solid ${borderColor}; color: ${textColor}; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-family:inherit; font-weight:500; transition: all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.2)';" onmouseout="this.style.transform='none'; this.style.boxShadow='none';" onclick="${onClickString}"><i class="${iconClass}"></i> ${label}</button>`;
-        };
-
-        // Construct dynamic actions html
-        const batchId = pipeData.batch_id || state.currentBatchId || '';
-        const filename = pipeData.dataset_name || (state.selectedFile ? state.selectedFile.name : 'dataset.csv');
-        
-        let downloadActionsHtml = `
-            <div style="margin-bottom: 14px; padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08);">
-                <h4 style="font-size:12px; margin-top:0; margin-bottom:8px; color: var(--color-blue); font-weight:600;"><i class="fa-solid fa-cloud-arrow-down" style="margin-right:4px;"></i> Node Data & Outputs Download</h4>
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        `;
-
-        if (stageId === 'intake') {
-            downloadActionsHtml += makeDownloadButton('Download Raw Input', 'fa-solid fa-file-import', `downloadNodeData('data/raw/${filename}')`, 'rgba(0, 240, 255, 0.15)', '#fff', 'var(--color-blue)') + ' ';
-            downloadActionsHtml += makeDownloadButton('Download Profile (JSON)', 'fa-solid fa-code', "downloadStageMetadata('intake')", 'rgba(20, 184, 166, 0.15)', '#fff', 'var(--color-teal)') + ' ';
-        } else if (stageId === 'transformation') {
-            downloadActionsHtml += makeDownloadButton('Download Raw Input', 'fa-solid fa-file-import', `downloadNodeData('data/raw/${filename}')`) + ' ';
-            downloadActionsHtml += makeDownloadButton('Download Cleaned Output', 'fa-solid fa-wand-magic-sparkles', `downloadNodeData('cleaned data/${filename}')`, 'rgba(16, 185, 129, 0.15)', '#fff', '#10b981') + ' ';
-            downloadActionsHtml += makeDownloadButton('Download Audit Log (JSON)', 'fa-solid fa-clock-rotate-left', "downloadStageMetadata('transformation')", 'rgba(245, 158, 11, 0.15)', '#fff', '#f59e0b') + ' ';
-        } else if (stageId === 'storage') {
-            downloadActionsHtml += makeDownloadButton('Download Cleaned Input', 'fa-solid fa-wand-magic-sparkles', `downloadNodeData('cleaned data/${filename}')`) + ' ';
-            if (stage.output && stage.output.formatted_file_path) {
-                const fmt = stage.output.format_selected || 'Export';
-                downloadActionsHtml += makeDownloadButton(`Download Target ${fmt}`, 'fa-solid fa-database', `downloadNodeData('${stage.output.formatted_file_path.replace(/\\/g, '/')}')`, 'rgba(59, 130, 246, 0.15)', '#fff', '#3b82f6') + ' ';
-            }
-        } else if (stageId === 'report') {
-            if (stage.output && stage.output.pdf_path) {
-                downloadActionsHtml += makeDownloadButton('Download PDF Report', 'fa-solid fa-file-pdf', `downloadReport('${batchId}', 'pdf')`, 'rgba(239, 68, 68, 0.15)', '#fff', '#ef4444') + ' ';
-            }
-            if (stage.output && stage.output.docx_path) {
-                downloadActionsHtml += makeDownloadButton('Download Word Doc', 'fa-solid fa-file-word', `downloadReport('${batchId}', 'docx')`, 'rgba(59, 130, 246, 0.15)', '#fff', '#3b82f6') + ' ';
-            }
-        } else if (stageId === 'pbi') {
-            downloadActionsHtml += makeDownloadButton('Download Schema Metadata', 'fa-solid fa-chart-column', "downloadStageMetadata('pbi')", 'rgba(245, 158, 11, 0.15)', '#fff', '#f59e0b') + ' ';
-        }
-
-        downloadActionsHtml += makeDownloadButton('Download Graph JSON', 'fa-solid fa-network-wired', `downloadGraphJson('${batchId}')`, 'rgba(168, 85, 247, 0.15)', '#fff', 'var(--color-blue)') + ' ';
-        downloadActionsHtml += makeDownloadButton('Download Flowchart (SVG)', 'fa-solid fa-project-diagram', `downloadFlowchart('${batchId}')`, 'rgba(20, 184, 166, 0.15)', '#fff', 'var(--color-teal)') + ' ';
-        downloadActionsHtml += makeDownloadButton('Download Stage Logs', 'fa-solid fa-terminal', `downloadStageLogs('${stageId}')`) + ' ';
-
-        downloadActionsHtml += `
-                </div>
-            </div>
-        `;
-        
-        dataPreviewHtml = `
-            <!-- Timings Section -->
-            <div style="display:flex; justify-content:space-between; margin-bottom:14px; padding: 10px; background: rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.05); font-size:12px;">
-                <div><i class="fa-regular fa-clock" style="margin-right:4px;"></i> Started: <strong>${startTimeStr}</strong></div>
-                <div><i class="fa-solid fa-clock-rotate-left" style="margin-right:4px;"></i> Ended: <strong>${endTimeStr}</strong></div>
-                <div><i class="fa-solid fa-stopwatch" style="margin-right:4px;"></i> Duration: <strong style="color: var(--color-blue);">${duration}</strong></div>
-            </div>
-            
-            <!-- Real-time Flowchart Diagram -->
-            <div style="margin-bottom:14px;">
-                <h4 style="font-size:12px; margin-bottom:6px; color:var(--color-blue); font-weight:600;"><i class="fa-solid fa-project-diagram"></i> Real-time Ingestion Data Flow</h4>
-                <div style="background: rgba(15, 23, 42, 0.45); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.08); text-align: center; overflow: hidden;">
-                    <img src="/api/v1/pipeline/flowchart?batch_id=${batchId}&t=${Date.now()}" style="width:100%; max-height:160px; object-fit:contain;" alt="Pipeline Flowchart">
-                </div>
-            </div>
-            
-            ${downloadActionsHtml}
-            
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
-                <!-- Inputs Section -->
-                <div>
-                    <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-sign-in" style="margin-right:4px;"></i> Input Received</h4>
-                    <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
-                        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
-                        <tbody>${inputRows}</tbody>
-                    </table>
-                </div>
-                
-                <!-- Outputs Section -->
-                <div>
-                    <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-sign-out" style="margin-right:4px;"></i> Processed Output</h4>
-                    <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
-                        <thead><tr><th>Metric</th><th>Staging Value</th></tr></thead>
-                        <tbody>${outputRows}</tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <!-- Dynamic Previews (Tables, Timelines, SQL scripts) -->
-            ${previewHtml}
-            
-            <!-- Metadata & Config Section -->
-            <div style="margin-bottom:14px;">
-                <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-circle-info" style="margin-right:4px;"></i> Metadata & Configuration Parameters</h4>
-                <table class="inspector-table" style="font-size:11px; margin-bottom:0;">
-                    <thead><tr><th>Config Key</th><th>Value</th></tr></thead>
-                    <tbody>${metaRows}</tbody>
-                </table>
-            </div>
-            
-            <!-- Logs Terminal -->
-            <div>
-                <h4 style="font-size:13px; margin-bottom:6px; color:rgba(255,255,255,0.7);"><i class="fa-solid fa-terminal" style="margin-right:4px;"></i> Stage-Specific Execution Log</h4>
-                <div style="background: rgba(0, 0, 0, 0.45); border-radius: 6px; padding: 12px; font-family: monospace; max-height: 180px; overflow-y: auto; font-size: 11px; border: 1px solid rgba(255,255,255,0.08); line-height: 1.5; color: #ccc;">
-                    ${logLinesHtml}
-                </div>
-            </div>
-        `;
-    }
-    
-    titleEl.textContent = stageTitle;
-    subtitleEl.textContent = subtitle;
-    iconEl.innerHTML = `<i class="${iconClass}"></i>`;
-    metaComponent.textContent = componentName;
-    metaStatus.textContent = statusText;
-    metaStatus.className = statusClass;
-    metaQuality.textContent = qualityText;
-    metaType.textContent = typeText;
-    previewContainer.innerHTML = dataPreviewHtml;
-    
-    modal.style.display = 'flex';
-}
 
 // Global download helpers
 window.downloadNodeData = function(path) {
@@ -3430,58 +2225,15 @@ window.downloadStageMetadata = function(stageId) {
     downloadAnchor.remove();
 };
 
-window.downloadStageLogs = function(stageId) {
-    const pipeData = state.currentPipelineData || {};
-    const stages = pipeData.stages || {};
-    const stage = stages[stageId] || {};
-    const logs = stage.logs || [];
-    const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(logs.join("\n"));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href",     dataStr);
-    downloadAnchor.setAttribute("download", `${stageId}_stage_logs.txt`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-};
 
-window.downloadReport = function(batchId, format) {
-    // Fall back to the batch currently shown when a caller has no id (e.g. before status data arrives)
-    const id = (batchId && batchId !== 'undefined' && batchId !== 'null') ? batchId : state.currentBatchId;
-    if (!id) {
-        showToast('error', 'No processed batch selected yet. Run a pipeline first.');
-        return;
-    }
-    window.open(`/api/v1/reports/download/${encodeURIComponent(id)}?format=${format}`, '_blank');
-};
 
-window.downloadGraphJson = function(batchId) {
-    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-    window.open(`/api/v1/pipeline/graph-json?batch_id=${encodeURIComponent(batchId)}&email=${encodeURIComponent(email)}`, '_blank');
-};
 
-window.downloadFlowchart = function(batchId) {
-    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-    window.open(`/api/v1/pipeline/flowchart?batch_id=${encodeURIComponent(batchId)}&email=${encodeURIComponent(email)}`, '_blank');
-};
 
 /* ==========================================================================
    Real-Time Pipeline Ingestion Monitor & RAG Handlers
    ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Accordion Toggle for Ingest URL
-    const toggleUrlBtn = document.getElementById('toggle-url-input');
-    const urlInputBody = document.getElementById('url-input-body');
-    if (toggleUrlBtn && urlInputBody) {
-        toggleUrlBtn.addEventListener('click', () => {
-            const isHidden = urlInputBody.style.display === 'none';
-            urlInputBody.style.display = isHidden ? 'block' : 'none';
-            toggleUrlBtn.querySelector('.arrow-icon').className = isHidden 
-                ? 'fa-solid fa-chevron-up arrow-icon' 
-                : 'fa-solid fa-chevron-down arrow-icon';
-        });
-    }
-
     // RAG Drawer Open/Close Toggle
     const chatAttachBtn = document.getElementById('chat-attach-btn');
     const chatAttachDrawer = document.getElementById('chat-attach-drawer');
@@ -3571,16 +2323,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Exit Pipeline Monitor button handler
-    const btnCloseMonitorPage = document.getElementById('btn-close-monitor-page');
-    if (btnCloseMonitorPage) {
-        btnCloseMonitorPage.addEventListener('click', () => {
-            if (state.monitorTimerInterval) {
-                clearInterval(state.monitorTimerInterval);
-                state.monitorTimerInterval = null;
-            }
-        });
-    }
 
     // Monitor canvas click listeners for inspection nodes
     const mnodes = ['raw', 'intake', 'transformation', 'storage', 'report', 'pbi'];
@@ -3852,7 +2594,7 @@ function updatePipelineMonitorUI(data) {
                 linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
             } else if (key === 'transformation') {
                 const rel_clean = (data.stages && data.stages.transformation && data.stages.transformation.output && data.stages.transformation.output.clean_dataset_path) || `Accounts/${emailPath}/cleaned data/${filename}`;
-                linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
+                linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadNodeData(${jsArg(rel_clean)}); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
             } else if (key === 'storage') {
                 linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
             } else if (key === 'report') {
@@ -3922,7 +2664,7 @@ function updatePipelineMonitorUI(data) {
         if (intakeStage.status === 'completed' || intakeStage.status === 'processing') {
             const filename = data.filename || data.batch_id || '-';
             const rawLink = data.raw_file_path
-                ? `<div class="node-card-links"><a href="#" onclick="downloadNodeData('${data.raw_file_path}'); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>`
+                ? `<div class="node-card-links"><a href="#" onclick="downloadNodeData(${jsArg(data.raw_file_path)}); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>`
                 : '';
             rawNodeEl.querySelector('.node-desc').innerHTML = `<div>${escapeHtml(filename)}</div>${rawLink}`;
             
@@ -4182,14 +2924,7 @@ function renderInspectorGrid(records) {
     `;
 }
 
-// 6. Gamification XP Engine (Deprecated & Removed)
-function awardXpPoints(rejectionsCount, qualityScore) {
-    // XP and Gamification removed as per requirement
-}
 
-function unlockBadge(badgeId, message) {
-    // Badges removed as per requirement
-}
 
 // Gamification Canvas Particles System
 let animFrameId = null;
@@ -4222,17 +2957,6 @@ function initGamificationCanvas() {
     animFrameId = requestAnimationFrame(canvasAnimationLoop);
 }
 
-function spawnBanner(title, subtitle, color = "#00f0ff") {
-    canvasBanners.push({
-        title: title,
-        subtitle: subtitle,
-        color: color,
-        alpha: 0,
-        scale: 0.8,
-        life: 150, // frames (~2.5 seconds)
-        maxLife: 150
-    });
-}
 
 function spawnExplosion(x, y, color = "#ffb703") {
     for (let i = 0; i < 60; i++) {
@@ -4252,17 +2976,6 @@ function spawnExplosion(x, y, color = "#ffb703") {
     }
 }
 
-function spawnFloatingText(x, y, text, color = "#00f0ff") {
-    canvasFloatingTexts.push({
-        x: x,
-        y: y,
-        text: text,
-        color: color,
-        vy: -1.2,
-        alpha: 1,
-        decay: 0.012
-    });
-}
 
 function canvasAnimationLoop() {
     const canvas = document.getElementById('gamification-canvas');
