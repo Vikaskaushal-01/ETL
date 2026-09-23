@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control AI - ETL Automation Platform</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 22V10h14M9 16h10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Modern Typography: Plus Jakarta Sans, Outfit, JetBrains Mono -->
@@ -12,7 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=2.0">
+    <link rel="stylesheet" href="style.css?v=2.3">
 </head>
 <body>
 
@@ -42,14 +43,14 @@
                         <label for="login-username">Email Address</label>
                         <div class="input-with-icon">
                             <i class="fa-regular fa-envelope input-icon"></i>
-                            <input type="text" id="login-username" placeholder="admin@controlai.net" value="admin@controlai.net" required>
+                            <input type="text" id="login-username" placeholder="you@company.com" autocomplete="username" required>
                         </div>
                     </div>
                     <div class="form-group-light">
                         <label for="login-password">Password</label>
                         <div class="input-with-icon">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="login-password" placeholder="••••••" value="admin" required>
+                            <input type="password" id="login-password" placeholder="••••••" autocomplete="current-password" required>
                         </div>
                     </div>
                     
@@ -212,11 +213,12 @@
                     <button class="app-nav-item active" id="nav-pipeline" data-view="pipeline-monitor-page"><i class="fa-solid fa-diagram-project"></i><span class="app-nav-label">Pipeline</span></button>
                     <button class="app-nav-item" id="nav-ingestion"><i class="fa-solid fa-cloud-arrow-up"></i><span class="app-nav-label">Data Ingestion</span></button>
                     <span class="app-sidebar-section-label">Insights</span>
-                    <button class="app-nav-item" id="nav-history" data-forward="btn-toggle-explorer"><i class="fa-solid fa-clock-rotate-left"></i><span class="app-nav-label">History</span></button>
-                    <button class="app-nav-item" id="nav-reports" data-forward="btn-toggle-explorer"><i class="fa-solid fa-file-lines"></i><span class="app-nav-label">Reports</span></button>
-                    <button class="app-nav-item" id="nav-powerbi" data-forward="btn-toggle-powerbi"><i class="fa-solid fa-chart-column"></i><span class="app-nav-label">Power BI</span></button>
+                    <button class="app-nav-item" id="nav-history" data-view="history-view"><i class="fa-solid fa-clock-rotate-left"></i><span class="app-nav-label">History</span></button>
+                    <button class="app-nav-item" id="nav-reports" data-view="reports-view"><i class="fa-solid fa-file-lines"></i><span class="app-nav-label">Reports</span></button>
+                    <button class="app-nav-item" id="nav-logs" data-view="logs-view"><i class="fa-solid fa-terminal"></i><span class="app-nav-label">Logs</span></button>
+                    <button class="app-nav-item" id="nav-storage" data-view="storage-view"><i class="fa-solid fa-database"></i><span class="app-nav-label">Storage</span></button>
+                    <button class="app-nav-item" id="nav-powerbi" data-view="powerbi-view"><i class="fa-solid fa-chart-column"></i><span class="app-nav-label">Power BI</span></button>
                     <button class="app-nav-item" id="nav-ai-assistant" data-forward="chatbot-trigger-btn"><i class="fa-solid fa-robot"></i><span class="app-nav-label">AI Assistant</span></button>
-                    <button class="app-nav-item" id="nav-storage" data-forward="btn-toggle-explorer"><i class="fa-solid fa-database"></i><span class="app-nav-label">Storage</span></button>
                     <span class="app-sidebar-section-label">Account</span>
                     <button class="app-nav-item" id="nav-settings" data-forward="btn-dropdown-profile"><i class="fa-solid fa-sliders"></i><span class="app-nav-label">Settings</span></button>
                 </nav>
@@ -270,7 +272,7 @@
                             <div class="kpi-card">
                                 <div class="kpi-card-head"><span>Success Rate</span><div class="kpi-card-icon green"><i class="fa-solid fa-circle-check"></i></div></div>
                                 <div class="kpi-card-value" id="stat-success-rate">100%</div>
-                                <div class="kpi-card-sub">Pipeline runs completed successfully</div>
+                                <div class="kpi-card-sub">Rows loaded without rejection</div>
                             </div>
                             <div class="kpi-card">
                                 <div class="kpi-card-head"><span>Avg Processing Time</span><div class="kpi-card-icon"><i class="fa-solid fa-stopwatch"></i></div></div>
@@ -293,10 +295,183 @@
                                 <h3>Recent Pipeline Runs</h3>
                                 <div class="table-scroll">
                                     <table class="data-table" id="recent-runs-table">
-                                        <thead><tr><th>Batch ID</th><th>Started</th><th>Runtime</th><th>Status</th><th>Actions</th></tr></thead>
+                                        <thead><tr><th>File</th><th>Started</th><th>Runtime</th><th>Status</th><th>Actions</th></tr></thead>
                                         <tbody><tr><td colspan="5" class="text-center text-secondary">Loading recent runs...</td></tr></tbody>
                                     </table>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History View: every batch with its real run results -->
+                    <div id="history-view" class="app-view page-view">
+                        <div class="page-toolbar">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="history-search" placeholder="Search by file name or batch ID...">
+                            </div>
+                            <select id="history-status-filter" class="page-select">
+                                <option value="all">All statuses</option>
+                                <option value="Success">Success</option>
+                                <option value="Passed with Warnings">Passed with Warnings</option>
+                                <option value="Failed">Failed</option>
+                                <option value="Running">Running</option>
+                                <option value="Not Run">Not Run</option>
+                            </select>
+                            <button class="btn-refresh-table" id="btn-refresh-history"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                        </div>
+                        <div class="kpi-grid" id="history-kpis"></div>
+                        <div class="dash-panel">
+                            <div class="table-scroll">
+                                <table class="data-table" id="history-table">
+                                    <thead>
+                                        <tr>
+                                            <th>File</th>
+                                            <th>Batch</th>
+                                            <th>Uploaded</th>
+                                            <th>Status</th>
+                                            <th>Rows (loaded / rejected)</th>
+                                            <th>Quality</th>
+                                            <th>Runtime</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody><tr><td colspan="8" class="text-center text-secondary">Loading run history...</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reports View -->
+                    <div id="reports-view" class="app-view page-view">
+                        <div class="page-toolbar">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="reports-search" placeholder="Search reports by dataset...">
+                            </div>
+                            <button class="btn-refresh-table" id="btn-refresh-reports"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                        </div>
+                        <div class="reports-grid" id="reports-grid">
+                            <p class="text-secondary">Loading reports...</p>
+                        </div>
+                    </div>
+
+                    <!-- Logs View: process log per run -->
+                    <div id="logs-view" class="app-view page-view">
+                        <div class="logs-layout">
+                            <div class="dash-panel logs-list-panel">
+                                <div class="page-toolbar compact">
+                                    <div class="search-bar">
+                                        <i class="fa-solid fa-magnifying-glass"></i>
+                                        <input type="text" id="logs-search" placeholder="Filter runs...">
+                                    </div>
+                                    <button class="btn-refresh-table" id="btn-refresh-logs" title="Refresh"><i class="fa-solid fa-rotate-right"></i></button>
+                                </div>
+                                <div class="logs-run-list" id="logs-run-list">
+                                    <p class="text-secondary">Loading runs...</p>
+                                </div>
+                            </div>
+                            <div class="dash-panel logs-viewer-panel">
+                                <div class="logs-viewer-header">
+                                    <div>
+                                        <h3 id="logs-viewer-title">Process Log</h3>
+                                        <span class="text-secondary" id="logs-viewer-meta">Select a run to view its full process log.</span>
+                                    </div>
+                                    <div class="logs-viewer-actions">
+                                        <button class="btn-refresh-table" id="btn-logs-copy" disabled><i class="fa-regular fa-copy"></i> Copy</button>
+                                        <button class="btn-download-file" id="btn-logs-download" disabled><i class="fa-solid fa-download"></i> Download .log</button>
+                                    </div>
+                                </div>
+                                <pre class="log-viewer" id="log-viewer-content">No run selected.</pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storage View: every file in the workspace -->
+                    <div id="storage-view" class="app-view page-view">
+                        <div class="folders-grid storage-folders" id="storage-folders">
+                            <div class="folder-card active" data-folder="all">
+                                <div class="folder-icon"><i class="fa-solid fa-folder-open text-blue"></i></div>
+                                <div class="folder-details"><h4>All Files</h4><span id="folder-all-count">- files</span></div>
+                            </div>
+                            <div class="folder-card" data-folder="raw">
+                                <div class="folder-icon"><i class="fa-solid fa-file-import text-purple"></i></div>
+                                <div class="folder-details"><h4>Raw Uploads</h4><span id="folder-raw-count">- files</span></div>
+                            </div>
+                            <div class="folder-card" data-folder="cleaned">
+                                <div class="folder-icon"><i class="fa-solid fa-broom text-green"></i></div>
+                                <div class="folder-details"><h4>Cleaned Data</h4><span id="folder-cleaned-count">- files</span></div>
+                            </div>
+                            <div class="folder-card" data-folder="report">
+                                <div class="folder-icon"><i class="fa-solid fa-file-pdf text-red"></i></div>
+                                <div class="folder-details"><h4>Reports</h4><span id="folder-report-count">- files</span></div>
+                            </div>
+                            <div class="folder-card" data-folder="log">
+                                <div class="folder-icon"><i class="fa-solid fa-file-lines text-yellow"></i></div>
+                                <div class="folder-details"><h4>Logs</h4><span id="folder-log-count">- files</span></div>
+                            </div>
+                            <div class="folder-card" data-folder="powerbi">
+                                <div class="folder-icon"><i class="fa-solid fa-chart-column text-orange"></i></div>
+                                <div class="folder-details"><h4>Power BI</h4><span id="folder-powerbi-count">- files</span></div>
+                            </div>
+                        </div>
+                        <div class="dash-panel">
+                            <div class="page-toolbar compact">
+                                <div class="search-bar">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    <input type="text" id="explorer-search" placeholder="Search by file name...">
+                                </div>
+                                <button class="btn-refresh-table" id="btn-refresh-explorer"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                            </div>
+                            <div class="table-scroll">
+                                <table class="data-table" id="explorer-files-table">
+                                    <thead>
+                                        <tr>
+                                            <th>File Name</th>
+                                            <th>Folder</th>
+                                            <th>Format</th>
+                                            <th>Size</th>
+                                            <th>Modified</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody><tr><td colspan="6" class="text-center text-secondary">Loading storage files...</td></tr></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Power BI View: real exports of the star schema -->
+                    <div id="powerbi-view" class="app-view page-view">
+                        <div class="pbi-status-banner card-glass">
+                            <div class="pbi-banner-info">
+                                <div class="pbi-icon-badge"><i class="fa-solid fa-database"></i></div>
+                                <div>
+                                    <h4 id="pbi-conn-status">Checking warehouse connection...</h4>
+                                    <p id="pbi-sync-meta">-</p>
+                                </div>
+                            </div>
+                            <button class="btn-primary-glow" id="btn-trigger-pbi-refresh">
+                                <i class="fa-solid fa-rotate"></i> Export / Refresh Dataset
+                            </button>
+                        </div>
+                        <div class="dash-grid-2">
+                            <div class="dash-panel">
+                                <h3>Data Model Tables</h3>
+                                <div class="table-scroll">
+                                    <table class="data-table" id="pbi-tables-table">
+                                        <thead><tr><th>Table</th><th>Source</th><th>Columns</th><th>Rows</th><th>Export</th></tr></thead>
+                                        <tbody><tr><td colspan="5" class="text-center text-secondary">Loading...</td></tr></tbody>
+                                    </table>
+                                </div>
+                                <p class="text-secondary pbi-help">
+                                    Load the exported CSV files in Power BI Desktop via <strong>Get Data &gt; Folder</strong> using the export folder above,
+                                    then relate <code>FactSales[order_id]</code> to <code>FactOrders[order_id]</code> and <code>FactOrders[customer_id]</code> to <code>DimCustomer[customer_id]</code>.
+                                </p>
+                            </div>
+                            <div class="dash-panel">
+                                <h3>DAX Measures</h3>
+                                <div id="pbi-measures-list"><p class="text-secondary">Loading...</p></div>
                             </div>
                         </div>
                     </div>
@@ -347,19 +522,28 @@
                                 <button class="mode-tab-btn active" id="tab-mode-batch" onclick="switchIngestMode('batch')">
                                     <i class="fa-solid fa-file-arrow-up"></i> Batch Upload
                                 </button>
-                                <button class="mode-tab-btn" id="tab-mode-realtime" onclick="switchIngestMode('realtime')">
-                                    <i class="fa-solid fa-satellite-dish"></i> Real-Time Stream
+                                <button class="mode-tab-btn" id="tab-mode-url" onclick="switchIngestMode('url')">
+                                    <i class="fa-solid fa-link"></i> From URL
                                 </button>
+                                <button class="mode-tab-btn" id="tab-mode-realtime" onclick="switchIngestMode('realtime')">
+                                    <i class="fa-solid fa-satellite-dish"></i> Real-Time
+                                </button>
+                            </div>
+
+                            <!-- URL Ingestion Panel -->
+                            <div class="url-ingest-panel" id="url-ingest-panel" style="display: none;">
+                                <label for="ingest-url-input" class="stream-config-label"><span>Direct link to a CSV / JSON / XML / Excel file</span></label>
+                                <input type="url" id="ingest-url-input" class="page-input" placeholder="https://example.com/data/sales.csv">
                             </div>
                             
                             <!-- Batch Upload Dropzone -->
                             <div class="sidebar-upload-card" id="file-drop-zone">
                                 <div class="upload-drop-content">
                                     <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
-                                    <p class="upload-title">Drop CSV / JSON / Excel</p>
+                                    <p class="upload-title">Drop CSV / JSON / XML / Excel</p>
                                     <span class="upload-sub">or click to browse local files</span>
                                 </div>
-                                <input type="file" id="file-input" style="display:none;" accept=".csv,.json,.xlsx,.tsv,.txt">
+                                <input type="file" id="file-input" style="display:none;" accept=".csv,.tsv,.txt,.json,.jsonl,.xml,.xlsx,.xls,.parquet">
                                 <div class="selected-file-banner" id="file-banner" style="display:none;">
                                     <i class="fa-solid fa-file-code file-icon"></i>
                                     <div class="file-details">
@@ -374,19 +558,34 @@
                             <div class="realtime-stream-panel" id="realtime-stream-panel" style="display: none;">
                                 <div class="stream-config-row">
                                     <div class="stream-config-label">
-                                        <span>Stream Generator</span>
-                                        <span class="badge-mini text-teal"><i class="fa-solid fa-bolt"></i> Synthetic Live</span>
+                                        <span>Stream Source</span>
                                     </div>
                                     <select class="stream-type-select" id="stream-type-select">
-                                        <option value="transactions">💳 Financial & Payments (TXN)</option>
-                                        <option value="iot_sensors">📡 Industrial IoT Telemetry (IOT)</option>
-                                        <option value="ecommerce_orders">📦 Global Logistics & Orders (ORD)</option>
+                                        <option value="live_url">Live URL Feed (real data)</option>
+                                        <option value="transactions">Simulator: Financial &amp; Payments</option>
+                                        <option value="iot_sensors">Simulator: Industrial IoT Telemetry</option>
+                                        <option value="ecommerce_orders">Simulator: Logistics &amp; Orders</option>
                                     </select>
                                 </div>
 
+                                <div class="stream-config-row" id="stream-url-row">
+                                    <div class="stream-config-label"><span>Feed URL (polled every cycle)</span></div>
+                                    <input type="url" id="stream-url-input" class="page-input" placeholder="https://api.example.com/latest.csv">
+                                </div>
+
                                 <div class="stream-config-row">
+                                    <div class="stream-config-label"><span>Poll Interval</span></div>
+                                    <select class="stream-type-select" id="stream-interval-select">
+                                        <option value="15000">Every 15 seconds</option>
+                                        <option value="30000" selected>Every 30 seconds</option>
+                                        <option value="60000">Every minute</option>
+                                        <option value="300000">Every 5 minutes</option>
+                                    </select>
+                                </div>
+
+                                <div class="stream-config-row" id="stream-size-row" style="display:none;">
                                     <div class="stream-config-label">
-                                        <span>Batch Size per Cycle</span>
+                                        <span>Simulator Rows per Cycle</span>
                                         <span id="stream-size-label" class="text-blue">30 rows</span>
                                     </div>
                                     <div class="stream-batch-size-group">
@@ -564,203 +763,6 @@
             </div>
         </div>
 
-        <!-- Storage & Executions Explorer Slide-out Drawer -->
-        <div class="explorer-drawer" id="explorer-drawer">
-            <div class="drawer-header">
-                <h2><i class="fa-solid fa-database"></i> Storage & Execution History</h2>
-                <button class="drawer-close-btn" id="btn-close-explorer"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div class="drawer-body">
-                <div class="drawer-section-title">
-                    <h3>Processed Files Directory</h3>
-                </div>
-
-                <div class="folders-grid">
-                    <div class="folder-card active" data-folder="all">
-                        <div class="folder-icon"><i class="fa-solid fa-folder-open text-blue"></i></div>
-                        <div class="folder-details">
-                            <h4>All Storage</h4>
-                            <span id="folder-all-count">- files</span>
-                        </div>
-                    </div>
-                    <div class="folder-card" data-folder="csv">
-                        <div class="folder-icon"><i class="fa-solid fa-file-csv text-green"></i></div>
-                        <div class="folder-details">
-                            <h4>CSV</h4>
-                            <span id="folder-csv-count">- files</span>
-                        </div>
-                    </div>
-                    <div class="folder-card" data-folder="word">
-                        <div class="folder-icon"><i class="fa-solid fa-file-word text-blue"></i></div>
-                        <div class="folder-details">
-                            <h4>Word</h4>
-                            <span id="folder-word-count">- files</span>
-                        </div>
-                    </div>
-                    <div class="folder-card" data-folder="sql">
-                        <div class="folder-icon"><i class="fa-solid fa-database text-purple"></i></div>
-                        <div class="folder-details">
-                            <h4>SQL DB</h4>
-                            <span id="folder-sql-count">- files</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="table-container card-glass">
-                    <div class="table-header">
-                        <div class="search-bar">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                            <input type="text" id="explorer-search" placeholder="Search by file name...">
-                        </div>
-                        <button class="btn-refresh-table" id="btn-refresh-explorer"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
-                    </div>
-                    <div class="table-scroll">
-                        <table class="data-table" id="explorer-table">
-                            <thead>
-                                <tr>
-                                    <th>File Name</th>
-                                    <th>Folder Type</th>
-                                    <th>Size</th>
-                                    <th>Modified</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="explorer-table-body">
-                                <tr><td colspan="5" class="text-center text-secondary">Loading storage files...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="drawer-section-title" style="margin-top:24px;">
-                    <h3>Historical Pipeline Batches</h3>
-                </div>
-                <div class="table-container card-glass">
-                    <div class="table-scroll">
-                        <table class="data-table" id="recent-runs-table">
-                            <thead>
-                                <tr>
-                                    <th>Batch ID</th>
-                                    <th>File Name</th>
-                                    <th>Status</th>
-                                    <th>Execution Time</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr><td colspan="5" class="text-center text-secondary">Loading batch runs...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Power BI Integration Slide-out Drawer -->
-        <div class="explorer-drawer powerbi-drawer" id="powerbi-drawer">
-            <div class="drawer-header">
-                <h2><i class="fa-solid fa-chart-column text-yellow"></i> Power BI Integration & Data Models</h2>
-                <button class="drawer-close-btn" id="btn-close-powerbi"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div class="drawer-body">
-                <!-- Top Connection Status Banner -->
-                <div class="pbi-status-banner card-glass">
-                    <div class="pbi-banner-info">
-                        <div class="pbi-icon-badge"><i class="fa-solid fa-database"></i></div>
-                        <div>
-                            <h4 id="pbi-conn-status">MySQL Engine: Connected (localhost:3306)</h4>
-                            <p id="pbi-sync-meta">Database: agentic_ai_etl | Target: Power BI Desktop & Service</p>
-                        </div>
-                    </div>
-                    <button class="btn-primary-glow" id="btn-trigger-pbi-refresh">
-                        <i class="fa-solid fa-rotate"></i> Trigger Dataset Refresh
-                    </button>
-                </div>
-
-                <!-- Power BI Data Model Architecture (Star Schema) -->
-                <div class="drawer-section-title">
-                    <h3>Power BI Star/Snowflake Data Model</h3>
-                </div>
-
-                <div class="pbi-schema-grid">
-                    <div class="pbi-table-card fact-card card-glass">
-                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> FactSales</div>
-                        <span class="pbi-tag">Fact Table</span>
-                        <ul class="pbi-col-list">
-                            <li><code>sale_id</code> (PK)</li>
-                            <li><code>order_id</code> (FK)</li>
-                            <li><code>quantity</code>, <code>unit_price</code>, <code>total_price</code></li>
-                        </ul>
-                    </div>
-                    <div class="pbi-table-card fact-card card-glass">
-                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> FactOrders</div>
-                        <span class="pbi-tag">Fact Table</span>
-                        <ul class="pbi-col-list">
-                            <li><code>order_id</code> (PK)</li>
-                            <li><code>customer_id</code> (FK)</li>
-                            <li><code>order_date</code>, <code>total_amount</code></li>
-                        </ul>
-                    </div>
-                    <div class="pbi-table-card dim-card card-glass">
-                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> DimCustomer</div>
-                        <span class="pbi-tag dim">Dimension</span>
-                        <ul class="pbi-col-list">
-                            <li><code>customer_id</code> (PK)</li>
-                            <li><code>customer_name</code>, <code>email</code>, <code>region</code></li>
-                        </ul>
-                    </div>
-                    <div class="pbi-table-card dim-card card-glass">
-                        <div class="pbi-card-head"><i class="fa-solid fa-table"></i> DimAgent</div>
-                        <span class="pbi-tag dim">Dimension</span>
-                        <ul class="pbi-col-list">
-                            <li><code>agent_id</code> (PK)</li>
-                            <li><code>agent_name</code>, <code>role</code></li>
-                        </ul>
-                    </div>
-                </div>
-
-                <!-- 6 Power BI Report Pages Grid -->
-                <div class="drawer-section-title">
-                    <h3>Power BI Embedded Reports & Layouts</h3>
-                </div>
-
-                <div class="pbi-pages-grid">
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-gauge-high text-blue"></i></div>
-                        <h4>1. Executive Dashboard</h4>
-                        <p>Total Rows Processed, Success Rate, Active Pipelines, Pipeline Runtime Trends</p>
-                    </div>
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-shield-halved text-teal"></i></div>
-                        <h4>2. Data Quality Dashboard</h4>
-                        <p>Integrity Score, Completeness Null %, Duplicate Records Over Time</p>
-                    </div>
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-bolt text-green"></i></div>
-                        <h4>3. ETL Performance</h4>
-                        <p>Average Runtime per Agent, Data Volume vs Duration, Bottlenecks Matrix</p>
-                    </div>
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-triangle-exclamation text-orange"></i></div>
-                        <h4>4. Root Cause Analysis</h4>
-                        <p>Error Categories, RCA Severity Treemap, AI Action Recommendations</p>
-                    </div>
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-chart-line text-purple"></i></div>
-                        <h4>5. Business Analytics</h4>
-                        <p>Revenue over Time, Top Products by Sales, Regional Distribution Map</p>
-                    </div>
-                    <div class="pbi-page-card card-glass">
-                        <div class="pbi-page-icon"><i class="fa-solid fa-brain text-yellow"></i></div>
-                        <h4>6. AI & Agent Metrics</h4>
-                        <p>Agent Action History, AI Decision Confidence, Narrative Summaries</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <!-- Chatbot Popup Window -->
@@ -897,7 +899,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="settings-email"><i class="fa-solid fa-envelope"></i> Email Address</label>
-                                <input type="email" id="settings-email" class="settings-input" placeholder="admin@controlai.net">
+                                <input type="email" id="settings-email" class="settings-input" readonly style="opacity:0.75;" title="Your sign-in email identifies your account and cannot be changed here">
                             </div>
                             <div class="form-group">
                                 <label for="settings-dob"><i class="fa-solid fa-cake-candles"></i> Date of Birth</label>
@@ -989,8 +991,8 @@
 
                     <div class="settings-section">
                         <div class="section-header">
-                            <h3><i class="fa-solid fa-list-check"></i> API Request Logs & Activity</h3>
-                            <p>Recent authentication requests processed by the API gateway</p>
+                            <h3><i class="fa-solid fa-list-check"></i> API Key Usage</h3>
+                            <p>Requests authenticated with each of your keys (send the key in the <code>X-API-Key</code> header)</p>
                         </div>
                         <div class="api-logs-container" id="api-logs-list">
                             <!-- Dynamic log entries -->
@@ -1040,12 +1042,8 @@
                         </div>
                         <div class="settings-grid">
                             <div class="form-group">
-                                <label for="pref-db-engine"><i class="fa-solid fa-server"></i> Default Database Target</label>
-                                <select id="pref-db-engine" class="settings-select">
-                                    <option value="sqlite">SQLite (Agentic Embedded DB)</option>
-                                    <option value="postgresql">PostgreSQL Enterprise</option>
-                                    <option value="mysql">MySQL Server</option>
-                                </select>
+                                <label for="pref-db-engine"><i class="fa-solid fa-server"></i> Active Database Engine</label>
+                                <input type="text" id="pref-db-engine" class="settings-input" readonly style="opacity:0.75;" value="Detecting..." title="Configured on the server via MYSQL_* / DATABASE_URL in .env">
                             </div>
                             <div class="form-group">
                                 <label for="pref-log-level"><i class="fa-solid fa-terminal"></i> Console Log Level</label>
@@ -1173,6 +1171,7 @@
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js?v=2.0"></script>
+    <script src="app.js?v=2.3"></script>
+    <script src="views.js?v=2.3"></script>
 </body>
 </html>
