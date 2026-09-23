@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-09-24
+
+### 🚀 Added
+- Dedicated **History**, **Reports**, **Logs**, **Storage** and **Power BI** pages (previously History/Reports/Storage all opened one drawer whose tables never loaded). History shows every upload with status, rows loaded/rejected, quality and runtime, with log, report, cleaned-file and re-run actions; Logs shows the full process log of any run (live while running) with copy/download.
+- `/api/v1/history` and `/api/v1/history/{batch_id}/log` endpoints.
+- Server-side **API keys** (hashed, per user, usable via `X-API-Key`, with real usage counts), **profile** and **password change** endpoints; Settings now uses them instead of browser-only fake data.
+- **Power BI export**: refresh writes the user's star schema (facts + dimensions) as CSV files for Power BI Desktop; the Power BI stage of every pipeline run performs this export.
+- **URL ingestion** tab and a **live URL feed** source for real-time streaming (polled on an interval); the synthetic generators remain, labelled as simulators.
+- Header notifications for finished runs; working "Remember me", console log level, audio alert and glass-intensity preferences.
+
+### 🐛 Fixed / Changed
+- Reports no longer contain invented insights: dataset insights, root cause analysis and recommendations are computed from the cleaned data and the actual rejection reasons; the LLM only narrates those facts.
+- Kaggle links no longer silently return a generated sample dataset.
+- Pipeline monitor could freeze on "processing" at the end of a run; raw-file links used a wrong account folder; selecting a batch overwrote the dashboard's global totals.
+- Duplicate `recent-runs-table` id and wrong explorer table id that left tables empty; login form no longer pre-fills credentials.
+
+---
+
+## [2.2.0] - 2026-09-23
+
+### 🔐 Security
+- **Real authentication**: login issues signed, expiring session tokens; all API routes except auth/health require one. The caller's identity comes from the token, so the spoofable `X-User-Email` header no longer grants access to other accounts.
+- Passwords are stored as salted PBKDF2 hashes (legacy plaintext rows are upgraded on next login).
+- Password reset codes expire after 15 minutes and lock after 5 wrong attempts; demo codes and demo social login are disabled when `ENV=production`. Social login can no longer take over a password account.
+- Removed arbitrary file read: `/dashboard/download` served any workspace file (including the SQLite database with passwords and `.env`); `/pipeline/start` and the SnapLogic agent endpoints accepted any server path. All file access is now confined to the caller's workspace.
+- Upload filenames are sanitized (`../` path traversal wrote outside the upload folder); executable/pickle uploads are blocked and `.pkl` reading removed (unpickling uploads allowed code execution); uploads are size-limited.
+- URL ingestion (`/upload/url`, `/rag/upload/url`) rejects private/loopback addresses (SSRF).
+- Chat maintenance commands: questions such as "how do I clear data?" no longer wipe the platform; workspace reset / log clearing are administrator-only, and "clear cleaned data" only clears the caller's own folder.
+- Replaced `eval` in the chat calculator with a bounded AST evaluator (`9**9**9**9` could hang the server).
+- Chat answers are HTML-escaped in the UI (scraped RAG content could inject script).
+- Reports are no longer copied into the shared `reports/` folder, and report listings no longer fall back to other users' data.
+
+### 🐛 Fixed
+- Storage load: files missing optional columns (e.g. customers without `email`) and the real-time *transactions* / *e-commerce orders* streams had **every row rejected** due to SQL bind errors; one bad value (e.g. `quantity=abc`) rolled back the whole batch. Rows are now validated individually and rejected with a reason.
+- Transaction logs containing `customer_id` were misclassified as customer master data and overwrote customers with fabricated `_dup_` IDs.
+- Date standardization no longer destroys columns whose names merely contain "date"/"time" (e.g. `runtime_sec`) or values that do not parse.
+- Transformation crashed when `total_price` had nulls but `unit_price`/`quantity` columns were absent.
+- Row counts, rows loaded and quality scores are measured from the data instead of being taken from LLM output.
+- Empty / header-only files reported `Success`; they now fail at intake with a clear message. Runs with zero loaded rows report `Failed`.
+- Dashboard: recent runs, active pipelines, average runtime and telemetry were always empty (tuple `IN` binding + SQLite datetime handling), availability counted a non-existent `Completed` status, and generic datasets were missing from row totals.
+- Unknown pipeline IDs reported `Running` forever (now 404); runs longer than 60s were marked `Failed` when another run started; concurrent status polling could read a half-written state file.
+- `raw_uploads.status` now moves through `Processing` → `Processed`/`Failed`.
+- Report download fell back to *any* report whose name contained `_report`; report history crashed on reports with a missing format path.
+- Power BI status reported a hard-coded MySQL connection; DAX success-rate measure used a status value that never occurs.
+- Chat: latest-batch lookup used MySQL-only `CONCAT`; log-question answers used the wrong intent; download links with spaces were broken.
+- `cleanup_all.py` deleted all user accounts and depended on the working directory.
+- `verify_pipeline.py` dropped the real database and emptied real data folders; it now runs fully isolated.
+
+### ⚙️ Changed
+- Added `.env.example`, `.dockerignore` (the image previously bundled `.env`, the virtualenv and the database), persistent `Accounts/` volume and `.env` loading in Docker Compose.
+- CI runs `pytest` against an isolated database with the offline LLM; added `tests/test_platform_regressions.py` (auth, isolation, file safety, full pipeline).
+
+---
+
 ## [2.1.0] - 2026-09-22
 
 ### 🚀 Added
