@@ -1,6 +1,4 @@
-import os
 import logging
-import json
 
 logger = logging.getLogger("flowchart_generator")
 
@@ -151,89 +149,6 @@ def generate_svg_fallback(batch_id: str, stages: dict, filename: str) -> str:
 """
     return svg_content
 
-def generate_pydot_flowchart(batch_id: str, stages: dict, filename: str) -> str:
-    """
-    Programmatically creates the DOT flowchart representing the stage nodes using pydot,
-    tries to render it to SVG via Graphviz, and falls back to a custom-designed SVG if not possible.
-    """
-    try:
-        import pydot
-        # Define status text mapping
-        status_map = {
-            "completed": "Completed",
-            "processing": "Executing",
-            "failed": "Failed",
-            "waiting": "Waiting"
-        }
-        
-        # Colors matching the dashboard styling
-        colors = {
-            "completed": "#10b981", # Green
-            "processing": "#f59e0b", # Orange
-            "failed": "#ef4444", # Red
-            "waiting": "#475569" # Gray
-        }
-        
-        # Extract status
-        intake_s = stages.get("intake", {}).get("status", "waiting")
-        trans_s = stages.get("transformation", {}).get("status", "waiting")
-        storage_s = stages.get("storage", {}).get("status", "waiting")
-        report_s = stages.get("report", {}).get("status", "waiting")
-        pbi_s = stages.get("pbi", {}).get("status", "waiting")
-        raw_s = "completed" if intake_s != "waiting" else "waiting"
-
-        # Initialize Digraph
-        graph = pydot.Dot(graph_type="digraph", rankdir="LR", bgcolor="transparent")
-        
-        # Helper to define nodes with appropriate color borders
-        def add_stage_node(node_id, label, status):
-            border_color = colors.get(status, "#475569")
-            node_label = f"{label}\nStatus: {status_map.get(status, 'Waiting')}"
-            n = pydot.Node(
-                node_id,
-                label=node_label,
-                shape="box",
-                style="filled,rounded",
-                fillcolor="#0f172a",
-                color=border_color,
-                fontcolor="#ffffff",
-                fontsize="10",
-                penwidth="1.8"
-            )
-            graph.add_node(n)
-
-        # Create Nodes
-        add_stage_node("raw", f"Raw Ingestion Input\n({filename})", raw_s)
-        add_stage_node("intake", "1. File Reader & Iris AI\nIntake Snap", intake_s)
-        add_stage_node("transform", "2. Data Cleanser\nTransformation Snap", trans_s)
-        add_stage_node("storage", "3. SQL Staging\nMySQL Database Load", storage_s)
-        add_stage_node("report", "4. Docx & Reports\nAnalytical Summary", report_s)
-        add_stage_node("pbi", "5. Power BI Gateway\nStar Schema Sync", pbi_s)
-
-        # Add edges
-        def add_edge_flow(src, dest, status):
-            edge_color = "#14b8a6" if status != "waiting" else "#1e293b"
-            style_type = "solid" if status != "waiting" else "dashed"
-            e = pydot.Edge(
-                src, 
-                dest, 
-                color=edge_color, 
-                style=style_type,
-                penwidth="1.5",
-                arrowsize="0.8"
-            )
-            graph.add_edge(e)
-
-        add_edge_flow("raw", "intake", intake_s)
-        add_edge_flow("intake", "transform", trans_s)
-        add_edge_flow("transform", "storage", storage_s)
-        add_edge_flow("storage", "report", report_s)
-        add_edge_flow("report", "pbi", pbi_s)
-
-        # Convert to SVG bytes
-        # Note: create_svg requires the Graphviz dot binary to be on PATH.
-        svg_bytes = graph.create_svg()
-        return svg_bytes.decode('utf-8')
-    except Exception as e:
-        logger.warning(f"pydot SVG rendering failed: {e}. Falling back to custom SVG generator.")
-        return generate_svg_fallback(batch_id, stages, filename)
+def generate_flowchart_svg(batch_id: str, stages: dict, filename: str) -> str:
+    """SVG flowchart of the pipeline stages and their current status."""
+    return generate_svg_fallback(batch_id, stages, filename)

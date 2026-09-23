@@ -601,7 +601,7 @@ def get_data_quality(batch_id: Optional[str] = None, db: Session = Depends(get_d
 
 @router.get("/pipeline/flowchart")
 def get_pipeline_flowchart_endpoint(batch_id: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
-    from backend.utils.flowchart_generator import generate_pydot_flowchart
+    from backend.utils.flowchart_generator import generate_flowchart_svg
 
     _require_batch_access(db, batch_id, x_user_email)
     pipeline_id = f"pipe_{batch_id}"
@@ -618,7 +618,7 @@ def get_pipeline_flowchart_endpoint(batch_id: str, db: Session = Depends(get_db)
     except Exception:
         pass
 
-    svg_content = generate_pydot_flowchart(batch_id, state.get("stages", {}), filename)
+    svg_content = generate_flowchart_svg(batch_id, state.get("stages", {}), filename)
     return Response(content=svg_content, media_type="image/svg+xml")
 
 @router.get("/pipeline/graph-json")
