@@ -5,7 +5,6 @@ import re
 import time
 import warnings
 import pandas as pd
-import numpy as np
 from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder, detect_file_info
 from backend.core.llm import query_llm
 
@@ -241,7 +240,7 @@ class TransformationAgent:
             PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
             output_dir = os.path.join(PROJECT_ROOT, output_dir)
         os.makedirs(output_dir, exist_ok=True)
-        clean_file_path = os.path.join(output_dir, base_name)
+        clean_file_path = os.path.join(output_dir, base_name).replace("\\", "/")
         
         _, ext = os.path.splitext(clean_file_path.lower())
         
