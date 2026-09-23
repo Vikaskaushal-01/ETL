@@ -10,6 +10,8 @@ from agents.report_agent.report_agent import ReportAgent
 logger = logging.getLogger("etl_nodes")
 
 PIPELINE_STEP_DELAY = float(os.getenv("PIPELINE_STEP_DELAY", "0.0"))
+# Short pause so the Power BI stage is visible in the UI; set to 0 for tests and batch runs
+PBI_REFRESH_DELAY = float(os.getenv("PBI_REFRESH_DELAY", "1.2"))
 
 def intake_node(state: PipelineState) -> dict:
     """
@@ -316,7 +318,7 @@ def storage_node(state: PipelineState) -> dict:
         
         # Load SQL preview if format is SQL
         sql_preview = ""
-        if res.get("format_selected") == "SQL" and os.path.exists(res.get("formatted_file_path")):
+        if res.get("format_selected") == "SQL" and res.get("formatted_file_path") and os.path.exists(res.get("formatted_file_path")):
             try:
                 with open(res.get("formatted_file_path"), "r", encoding="utf-8") as sf:
                     sql_preview = "".join(sf.readlines()[:12])
@@ -372,7 +374,8 @@ def storage_node(state: PipelineState) -> dict:
         "validation_results": val_res,
         "staging_status": val_res.get("staging_status"),
         "mysql_status": val_res.get("production_status"),
-        "pipeline_status": "Success" if val_res.get("rows_rejected") == 0 else "Passed with Warnings",
+        # "Failed" when no row could be loaded, "Passed with Warnings" when some rows were rejected
+        "pipeline_status": val_res.get("validation_status") or ("Success" if val_res.get("rows_rejected") == 0 else "Passed with Warnings"),
         "execution_logs": logs
     }
 
@@ -458,43 +461,51 @@ def report_node(state: PipelineState) -> dict:
 
 def pbi_refresh_node(state: PipelineState) -> dict:
     """
-    Triggers/simulates refreshing the Power BI dashboards.
+    Exports the uploader's Power BI star schema (fact/dimension CSV files) from the warehouse.
     """
     from backend.api.pipeline import update_pipeline_stage
-    
+    from backend.database.mysql import SessionLocal, check_database_health
+    from sqlalchemy import text
+
     batch_id = state.get("batch_id")
     pipeline_id = f"pipe_{batch_id}"
-    
-    # 1. Update status to processing
+    db_health = check_database_health()
+
     update_pipeline_stage(
         pipeline_id,
         "pbi",
         "processing",
         input={
-            "data_source": "MySQL (agentic_ai_etl)",
-            "gateway_url": "localhost:3306"
+            "data_source": db_health.get("dialect", "unknown"),
+            "database_latency_ms": db_health.get("latency_ms")
         },
         logs=[
-            "Power BI Gateway Sync Snap initialized.",
-            "Opening gateway tunnel to relational engine...",
-            "Validating schema alignment for FactSales and FactOrders tables...",
-            "Broadcasting dataset refresh signal to Power BI Desktop service endpoint..."
+            "Power BI dataset export started.",
+            f"Reading star schema tables from the {db_health.get('dialect', 'unknown')} warehouse..."
         ],
         metadata={
             "component": "com.snaplogic.snaps.powerbi.PowerBIGatewaySnap"
         }
     )
-    
-    time.sleep(1.2)
-    
+
+    if PBI_REFRESH_DELAY > 0:
+        time.sleep(PBI_REFRESH_DELAY)
+
     logs = state.get("execution_logs", [])
-    
+    start = time.time()
+
     try:
-        from backend.api.powerbi import trigger_powerbi_refresh
-        trigger_powerbi_refresh()
-        
-        # Write agent log to DB for Power BI
-        from backend.database.mysql import SessionLocal
+        from backend.api.powerbi import export_powerbi_dataset
+        db_user = SessionLocal()
+        try:
+            uploaded_by = db_user.execute(text("SELECT uploaded_by FROM raw_uploads WHERE batch_id = :b LIMIT 1"), {"b": batch_id}).scalar()
+        finally:
+            db_user.close()
+        meta = export_powerbi_dataset(uploaded_by)
+        tables = meta.get("tables", {})
+        table_summary = ", ".join(f"{name} ({info['rows']} rows)" for name, info in tables.items())
+        elapsed = time.time() - start
+
         from backend.database.repository import log_agent_decision
         db_log = SessionLocal()
         try:
@@ -502,32 +513,30 @@ def pbi_refresh_node(state: PipelineState) -> dict:
                 db_log,
                 batch_id=batch_id,
                 agent_name="Power BI Gateway",
-                task="Dashboard refresh",
-                reasoning="Simulated refresh triggered successfully via SnapLogic Power BI Gateway Snap.",
+                task="Export Power BI dataset",
+                reasoning=f"Exported {len(tables)} model tables: {table_summary}.",
                 confidence=100.0,
-                execution_time=0.02
+                execution_time=elapsed
             )
         except Exception as err:
             logger.warning(f"Failed to log Power BI decision: {err}")
         finally:
             db_log.close()
-            
-        # 2. Update status to completed
+
         update_pipeline_stage(
             pipeline_id,
             "pbi",
             "completed",
             output={
                 "refresh_status": "Success",
-                "workspace_target": "Control AI Workspace"
+                "last_refresh": meta.get("last_refresh"),
+                "tables": {name: info["rows"] for name, info in tables.items()}
             },
-            logs=[
-                "Power BI Gateway refresh request accepted by remote service.",
-                "Dataset synchronization completed successfully.",
-                "Live dashboard metrics and charts model updated."
+            logs=[f"Exported {name}.csv with {info['rows']} rows." for name, info in tables.items()] + [
+                f"Power BI dataset files written to {os.path.dirname(next(iter(tables.values()))['file']) if tables else '-'}."
             ],
             metadata={
-                "target_tables": ["FactSales", "FactOrders", "DimCustomer", "DimAgent"]
+                "target_tables": list(tables.keys())
             }
         )
     except Exception as e:
@@ -536,14 +545,13 @@ def pbi_refresh_node(state: PipelineState) -> dict:
             "pbi",
             "failed",
             logs=[
-                f"Power BI Refresh failed: {str(e)}"
+                f"Power BI dataset export failed: {str(e)}"
             ]
         )
         raise e
-        
-    logs.append("[Power BI Gateway] Successfully issued dataset refresh request to Power BI REST Service.")
-    logs.append("[Power BI Gateway] Power BI dataset 'agentic_ai_etl' synced and dashboard models updated.")
-    
+
+    logs.append(f"[Power BI Gateway] Exported Power BI dataset: {table_summary}.")
+
     return {
         "dashboard_status": "Refreshed",
         "execution_logs": logs
