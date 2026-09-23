@@ -46,30 +46,51 @@ A production-ready, autonomous data engineering platform that ingests raw datase
 
 ## 🌐 Complete API Specification (`/api/v1`)
 
-The backend exposes a RESTful API organized into specialized domain routers:
+The backend exposes a RESTful API organized into specialized domain routers. Interactive docs are served at `/docs`.
+
+### 🔐 Authentication
+Every endpoint except `/api/v1/auth/*` and `/api/v1/health` requires a session token:
+
+1. `POST /api/v1/auth/login` with `{"username": "<email>", "password": "..."}` returns `{"token": "..."}`.
+2. Send it as `Authorization: Bearer <token>` (or as `?token=<token>` on plain download links).
+
+The account is always derived from the token; a client-supplied `X-User-Email` header is ignored. Each account only sees its own uploads, pipeline runs, cleaned files and reports (the `admin@controlai.net` administrator can open any batch). Passwords are stored as salted PBKDF2 hashes. Automation such as SnapLogic can call the API with `X-API-Key: $SERVICE_API_KEY` plus `X-User-Email`.
+
+On a fresh database the administrator `admin@controlai.net` is created with the password from `DEFAULT_ADMIN_PASSWORD` (default `admin`, **change it outside local development**).
 
 | Router | Endpoint | Method | Description |
 | :--- | :--- | :---: | :--- |
-| **Authentication** | `/api/v1/auth/login` | `POST` | Authenticate user and issue session token |
-| | `/api/v1/auth/me` | `GET` | Retrieve current authenticated user profile |
-| **Data Ingestion** | `/api/v1/upload` | `POST` | Accept CSV/XLSX file uploads for processing |
-| **Pipeline Engine** | `/api/v1/pipeline/execute` | `POST` | Trigger full LangGraph multi-agent ETL workflow |
-| | `/api/v1/pipeline/status/{batch_id}` | `GET` | Query batch execution status and progress logs |
-| **SnapLogic Integration**| `/api/v1/pipeline/start` | `POST` | SnapLogic workflow initialization endpoint |
-| | `/api/v1/pipeline/intake` | `POST` | SnapLogic Agent 1: Data collection & schema profiling |
-| | `/api/v1/pipeline/transform` | `POST` | SnapLogic Agent 2: Data cleaning & transformation |
-| | `/api/v1/pipeline/store` | `POST` | SnapLogic Agent 3: Database loading & constraint check |
-| | `/api/v1/pipeline/report` | `POST` | SnapLogic Agent 4: PDF & DOCX executive report generation |
-| **Dashboard Analytics**| `/api/v1/dashboard/metrics` | `GET` | System summary KPIs, quality scores, & row counts |
-| | `/api/v1/dashboard/batches` | `GET` | List all processed data batch records |
-| | `/api/v1/dashboard/dataset/{batch_id}` | `GET` | Fetch raw vs clean records for interactive table viewer |
-| **Reports Exporter** | `/api/v1/reports/list` | `GET` | List all generated PDF/Word/Markdown/JSON reports |
-| | `/api/v1/reports/download/{filename}` | `GET` | Download executive report files |
-| | `/api/v1/reports/summary/{batch_id}` | `GET` | Get structured JSON report summary |
-| **AI Assistant Chat** | `/api/v1/chat` | `POST` | Interactive natural language dataset queries with Gemini |
-| **Power BI Integration**| `/api/v1/powerbi/datasets` | `GET` | Export structured data models for Power BI |
-| | `/api/v1/powerbi/refresh` | `POST` | Trigger automated Power BI dashboard dataset refresh |
-| **System Diagnostics**| `/api/v1/health` | `GET` | System health check (Database, Redis, LLM connections) |
+| **Authentication** | `/api/v1/auth/signup` | `POST` | Create an account |
+| | `/api/v1/auth/login` | `POST` | Authenticate and issue a session token |
+| | `/api/v1/auth/me` | `GET` | Current authenticated user |
+| | `/api/v1/auth/forgot-password` · `/verify-reset-code` · `/reset-password` | `POST` | Password reset (15 min codes, 5 attempts) |
+| | `/api/v1/auth/profile` · `/change-password` | `GET`/`PUT`/`POST` | Profile (display name, date of birth) and password change |
+| | `/api/v1/auth/api-keys` | `GET`/`POST`/`DELETE` | Personal API keys, sent as `X-API-Key` (only a hash is stored) |
+| **Data Ingestion** | `/api/v1/upload` | `POST` | Upload a dataset file (CSV, TSV, XLSX, JSON, XML, ...) |
+| | `/api/v1/upload/url` | `POST` | Ingest a dataset from a public URL |
+| | `/api/v1/upload/realtime` | `POST` | Generate and register a synthetic streaming batch |
+| **Pipeline Engine** | `/api/v1/pipeline/start` | `POST` | Run the full LangGraph multi-agent ETL workflow for an uploaded batch |
+| | `/api/v1/pipeline/status?pipeline_id=pipe_<batch_id>` | `GET` | Stage-by-stage status, previews and logs |
+| | `/api/v1/pipeline/flowchart?batch_id=` · `/graph-json?batch_id=` | `GET` | Pipeline flowchart (SVG) / graph JSON |
+| **SnapLogic Agents** | `/api/v1/pipeline/intake` · `/transform` · `/store` · `/report` | `POST` | Run a single agent (called by SnapLogic IIP) |
+| **Quality & Logs** | `/api/v1/data-quality` · `/api/v1/root-cause` · `/api/v1/logs` | `GET` | Quality scores, RCA findings and agent logs (optional `batch_id`) |
+| **Run History** | `/api/v1/history` · `/api/v1/history/{batch_id}/log` | `GET` | Every upload with its run results / the full process log of a run |
+| **Dashboard Analytics**| `/api/v1/dashboard/summary` | `GET` | KPIs: rows processed, success rate, quality, recent runs |
+| | `/api/v1/dashboard/metrics` | `GET` | Run telemetry: totals, availability, latency |
+| | `/api/v1/dashboard/datasets` · `/download?file_path=` | `GET` | List / download cleaned datasets and reports |
+| **Reports Exporter** | `/api/v1/reports/folders` · `/history` | `GET` | Reports grouped per dataset / report history |
+| | `/api/v1/reports/download/{batch_id}?format=pdf\|docx\|markdown\|json` | `GET` | Download a batch report |
+| | `/api/v1/reports/latest?format=` · `/download-file?path=` | `GET` | Latest report / any file in your workspace |
+| **AI Assistant Chat** | `/api/v1/agent/chat` | `POST` | Natural-language questions about runs, RCA, schema, SQL |
+| **RAG Knowledge Base** | `/api/v1/rag/upload` · `/upload/url` · `/documents` · `/search` | `POST`/`GET`/`DELETE` | Index documents and search them |
+| **Power BI Integration**| `/api/v1/powerbi/status` · `/schema` · `/measures` | `GET` | Connector status, per-table row counts, star schema and DAX measures |
+| | `/api/v1/powerbi/refresh` | `POST` | Export the star schema (FactSales, FactOrders, DimCustomer, ...) as CSV files for Power BI Desktop |
+| **System Diagnostics**| `/api/v1/health` | `GET` | Health check (database connectivity) |
+
+### ✅ Validation Rules Applied During Load
+- Rows missing a primary key, duplicating a primary key within the batch, missing `customer_name` (customers), or holding non-numeric quantities/prices or unparseable dates are **rejected individually** with a reason; the rest of the batch still loads. Rejections feed the Root Cause Analysis reports.
+- A run is `Success` when every row loads, `Passed with Warnings` when some rows are rejected, and `Failed` when nothing could be loaded (including empty files).
+- Files that reference an identifier of their own (e.g. `transaction_id`) are stored as generic datasets instead of overwriting the customer master table.
 
 ---
 
@@ -106,24 +127,31 @@ ETL-A/
 
 ### 1. Install Dependencies
 ```bash
+python -m venv .venv
+.venv/Scripts/activate        # Windows  (Linux/macOS: source .venv/bin/activate)
 pip install -r requirements.txt
+cp .env.example .env          # optional: set GEMINI_API_KEY, SECRET_KEY, DEFAULT_ADMIN_PASSWORD
 ```
 
-### 2. Local Simulation & Verification Test
-Run offline verification (uses local SQLite and mock heuristics):
+### 2. Run the Platform Locally
 ```bash
-# Generate sample datasets
-python generate_sample_data.py
-
-# Execute test suite
-python verify_pipeline.py
+uvicorn backend.main:app --port 8000
 ```
+Open `http://localhost:8000/` and sign in as `admin@controlai.net` (password `admin` unless `DEFAULT_ADMIN_PASSWORD` is set), or create an account. Without MySQL the backend falls back to a local SQLite file (`agentic_ai_etl.db`); without a Gemini key it uses the offline reasoning engine.
 
-### 3. Launch Stack via Docker Compose
-Launch MySQL, Redis, SnapLogic IIP, Ollama, and FastAPI Backend:
+### 3. Tests & End-to-End Verification
+```bash
+pip install pytest
+python -m pytest            # unit + API regression suite (isolated temp database, offline LLM)
+python verify_pipeline.py   # full upload -> pipeline -> reports -> chat run in an isolated sandbox
+```
+Neither command touches your real database, uploads or reports.
+
+### 4. Launch Stack via Docker Compose
+Launch MySQL, Redis, SnapLogic IIP, Ollama, and FastAPI Backend (reads secrets from the project `.env`):
 ```bash
 cd docker
-docker-compose up --build
+docker compose up --build
 ```
 
 Access Services:
@@ -167,4 +195,4 @@ Control AI ETL Platform supports high-throughput real-time streaming ingestion a
 
 ---
 
-After this we can handle complex data and build complex reports which gives us more insights of the data.
+After this we can handle complex data and build complex reports which gives us more insights of the data.
