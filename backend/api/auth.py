@@ -194,6 +194,10 @@ def get_current_user(authorization: Optional[str] = Header(None)):
 def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     email = req.email.strip().lower()
 
+    # There is no mail service; in production a code that nobody can receive would be misleading
+    if is_production():
+        raise HTTPException(status_code=503, detail="Password reset by email is not configured on this server. Ask an administrator to reset your password.")
+
     seed_default_admin(db)
 
     user = db.query(User).filter(User.email == email).first()
@@ -204,14 +208,12 @@ def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user.reset_code = f"{code}:{time.time() + RESET_CODE_TTL_SECONDS}:0"
     db.commit()
 
-    response = {
+    # No mail server is wired up, so outside production the code is returned to the UI directly
+    return {
         "status": "Success",
-        "message": f"Verification code sent to {email}"
+        "message": "Verification code generated",
+        "demo_code": code
     }
-    # No mail server is wired up, so the code is echoed back for local demos only.
-    if not is_production():
-        response["demo_code"] = code
-    return response
 
 
 @router.post("/verify-reset-code")
