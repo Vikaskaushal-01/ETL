@@ -17,7 +17,7 @@ def intake_node(state: PipelineState) -> dict:
     """
     Executes the Intake Agent (Agent 1) to profile file format and validate readability.
     """
-    from backend.api.pipeline import update_pipeline_stage, read_pipeline_state
+    from backend.api.pipeline import update_pipeline_stage
     
     batch_id = state.get("batch_id")
     pipeline_id = f"pipe_{batch_id}"

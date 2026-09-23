@@ -4,12 +4,10 @@ import re
 import logging
 import time
 import datetime
-import sqlite3
 import pandas as pd
 from sqlalchemy import text
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from backend.database.mysql import engine, SessionLocal
+from backend.database.mysql import SessionLocal
 from backend.database.repository import log_agent_decision
 from backend.core.llm import query_llm
 from backend.utils.file_utils import read_dataset

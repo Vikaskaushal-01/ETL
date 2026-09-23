@@ -72,13 +72,6 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         if len(parts) > 1:
             context_section = parts[1].split("User Query:")[0].strip()
 
-    # 3. Extract conversation history
-    history_section = ""
-    if "conversation history:" in prompt.lower():
-        parts = prompt.split("Conversation History:")
-        if len(parts) > 1:
-            history_section = parts[1].split("User Query:")[0].strip()
-
     # Check for basic math/calculation queries (e.g. "what is 25 * 4?", "2+2", "calculate 100 / 4", "15% of 200")
     pct_match = re.search(r'(?:what is\s+)?([\d\.]+)\s*%\s*(?:of\s+)([\d\.]+)', query_text.strip(), re.IGNORECASE)
     if pct_match:

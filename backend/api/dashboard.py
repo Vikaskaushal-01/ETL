@@ -7,7 +7,7 @@ from sqlalchemy import text, bindparam
 from backend.database.mysql import get_db
 from backend.database.models import RawUpload
 from backend.schemas.schemas import DashboardSummary
-from typing import List, Dict, Any, Optional
+from typing import Optional
 from backend.core.security import DEFAULT_ADMIN_EMAIL
 from backend.utils.account_utils import is_path_accessible, resolve_project_path
 

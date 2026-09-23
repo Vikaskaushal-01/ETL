@@ -1,11 +1,9 @@
 import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 from datetime import datetime
 from backend.database.models import (
-    RawUpload, StagingDataset, ProductionDataset, Customer, StagingCustomer,
-    Order, StagingOrder, Sale, StagingSale, TransformationLog, ValidationLog,
-    PipelineLog, AgentLog, QualityReport, RootCauseReport, GeneratedReport
+    RawUpload, PipelineLog, AgentLog,
+    QualityReport, RootCauseReport, GeneratedReport
 )
 
 logger = logging.getLogger("etl_repository")
@@ -15,13 +13,6 @@ def create_raw_upload(db: Session, filename: str, source: str, file_type: str, b
     db.add(upload)
     db.commit()
     db.refresh(upload)
-    return upload
-
-def update_raw_upload_status(db: Session, upload_id: int, status: str):
-    upload = db.query(RawUpload).filter(RawUpload.id == upload_id).first()
-    if upload:
-        upload.status = status
-        db.commit()
     return upload
 
 def update_raw_upload_status_by_batch(db: Session, batch_id: str, status: str):
@@ -52,30 +43,6 @@ def log_agent_decision(db: Session, batch_id: str, agent_name: str, task: str, r
         reasoning=reasoning,
         confidence=confidence,
         execution_time=execution_time
-    )
-    db.add(log)
-    db.commit()
-    return log
-
-def log_transformation(db: Session, batch_id: str, agent_name: str, column_name: str, old_value: str, new_value: str, reason: str):
-    log = TransformationLog(
-        batch_id=batch_id,
-        agent_name=agent_name,
-        column_name=column_name,
-        old_value=str(old_value),
-        new_value=str(new_value),
-        reason=reason
-    )
-    db.add(log)
-    db.commit()
-    return log
-
-def log_validation(db: Session, batch_id: str, validation_type: str, status: str, message: str):
-    log = ValidationLog(
-        batch_id=batch_id,
-        validation_type=validation_type,
-        status=status,
-        message=message
     )
     db.add(log)
     db.commit()
@@ -119,10 +86,3 @@ def save_generated_reports(db: Session, batch_id: str, pdf_path: str, docx_path:
     db.add(report)
     db.commit()
     return report
-
-def clear_staging_by_batch(db: Session, batch_id: str, table_model):
-    """
-    Clears out any staging data for a given batch ID to avoid duplicate staging records
-    """
-    db.query(table_model).filter(table_model.batch_id == batch_id).delete()
-    db.commit()
