@@ -3,14 +3,23 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from backend.database.mysql import get_db
 from backend.database.models import RawUpload
 from backend.schemas.schemas import DashboardSummary
 from typing import List, Dict, Any, Optional
+from backend.core.security import DEFAULT_ADMIN_EMAIL
+from backend.utils.account_utils import is_path_accessible, resolve_project_path
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger("etl_dashboard_api")
+
+
+def _iso(value) -> Optional[str]:
+    """Raw SQL returns datetimes on MySQL but ISO strings on SQLite."""
+    if value is None:
+        return None
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 @router.get("/summary", response_model=DashboardSummary)
 def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
@@ -44,8 +53,8 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
     active_count = 0
     try:
         active_count = db.execute(
-            text("SELECT COUNT(*) FROM pipeline_logs WHERE status = 'Running' AND pipeline_id IN :pids"),
-            {"pids": tuple(f"pipe_{bid}" for bid in batch_ids)}
+            text("SELECT COUNT(*) FROM pipeline_logs WHERE status = 'Running' AND pipeline_id IN :pids").bindparams(bindparam("pids", expanding=True)),
+            {"pids": [f"pipe_{bid}" for bid in batch_ids]}
         ).scalar() or 0
     except Exception:
         pass
@@ -55,8 +64,8 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
     recent_runs = []
     try:
         runs = db.execute(
-            text("SELECT pipeline_id, start_time, status, execution_time FROM pipeline_logs WHERE pipeline_id IN :pids ORDER BY start_time DESC LIMIT 10"),
-            {"pids": tuple(f"pipe_{bid}" for bid in batch_ids)}
+            text("SELECT pipeline_id, start_time, status, execution_time FROM pipeline_logs WHERE pipeline_id IN :pids ORDER BY start_time DESC LIMIT 10").bindparams(bindparam("pids", expanding=True)),
+            {"pids": [f"pipe_{bid}" for bid in batch_ids]}
         ).fetchall()
         runtimes = [r[3] for r in runs if r[3] is not None]
         if runtimes:
@@ -68,12 +77,12 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
             recent_runs.append({
                 "pipeline_id": r[0],
                 "filename": file_name,
-                "start_time": r[1].isoformat() if r[1] else None,
+                "start_time": _iso(r[1]),
                 "status": r[2],
                 "execution_time": r[3]
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Error compiling recent pipeline runs: {e}")
 
     # 3. Data quality and record counts
     total_processed = 0
@@ -89,53 +98,29 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
                 AVG(quality_score) as avg_q
             FROM quality_reports
             WHERE batch_id IN :bids
-        """), {"bids": tuple(batch_ids)}).first()
+        """).bindparams(bindparam("bids", expanding=True)), {"bids": list(batch_ids)}).first()
         
         if res and res[2] is not None:
             quality_score_avg = float(res[2])
     except Exception:
         pass
 
+    # Row counts come from the staging tables, which hold every row of the user's batches
+    # (including generic datasets) together with its validation outcome.
     try:
-        if x_user_email is None:
-            cust_cnt = db.execute(text("SELECT COUNT(*) FROM customers")).scalar() or 0
-            ord_cnt = db.execute(text("SELECT COUNT(*) FROM orders")).scalar() or 0
-            sales_cnt = db.execute(text("SELECT COUNT(*) FROM sales")).scalar() or 0
-        else:
-            cust_cnt = db.execute(text("SELECT COUNT(*) FROM customers WHERE uploaded_by = :email"), {"email": x_user_email}).scalar() or 0
-            ord_cnt = db.execute(text("SELECT COUNT(*) FROM orders WHERE uploaded_by = :email"), {"email": x_user_email}).scalar() or 0
-            sales_cnt = db.execute(text("SELECT COUNT(*) FROM sales WHERE uploaded_by = :email"), {"email": x_user_email}).scalar() or 0
-        cust_rej = 0
-        ord_rej = 0
-        sales_rej = 0
-        try:
-            cust_rej = db.execute(
-                text("SELECT COUNT(*) FROM staging_customers WHERE validation_status = 'Rejected' AND batch_id IN :bids"),
-                {"bids": tuple(batch_ids)}
-            ).scalar() or 0
-        except Exception:
-            pass
-        try:
-            ord_rej = db.execute(
-                text("SELECT COUNT(*) FROM staging_orders WHERE validation_status = 'Rejected' AND batch_id IN :bids"),
-                {"bids": tuple(batch_ids)}
-            ).scalar() or 0
-        except Exception:
-            pass
-        try:
-            sales_rej = db.execute(
-                text("SELECT COUNT(*) FROM staging_sales WHERE validation_status = 'Rejected' AND batch_id IN :bids"),
-                {"bids": tuple(batch_ids)}
-            ).scalar() or 0
-        except Exception:
-            pass
-            
-        val_fails = cust_rej + ord_rej + sales_rej
-        
-        total_loaded = cust_cnt + ord_cnt + sales_cnt
-        failed_records = val_fails
+        total_loaded = 0
+        failed_records = 0
+        for staging_table in ["staging_customers", "staging_orders", "staging_sales", "staging_dataset"]:
+            counts = db.execute(
+                text(f"SELECT validation_status, COUNT(*) FROM {staging_table} WHERE batch_id IN :bids GROUP BY validation_status").bindparams(bindparam("bids", expanding=True)),
+                {"bids": list(batch_ids)}
+            ).fetchall()
+            for status_val, cnt in counts:
+                if status_val == "Rejected":
+                    failed_records += cnt
+                else:
+                    total_loaded += cnt
         total_processed = total_loaded + failed_records
-        
         if total_processed > 0:
             success_rate = round((total_loaded / total_processed) * 100, 2)
     except Exception as e:
@@ -151,70 +136,50 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
         "recent_runs": recent_runs
     }
 
+_FORMAT_ALIASES = {"XLSX": "EXCEL", "XLS": "EXCEL", "DOCX": "WORD", "MD": "MARKDOWN"}
+# Workspace folders shown in the Storage explorer: (relative folder, category)
+_STORAGE_FOLDERS = [
+    ("data/raw", "raw"),
+    ("cleaned data", "cleaned"),
+    ("reports", "report"),
+    ("logs", "log"),
+    ("powerbi", "powerbi"),
+]
+
+
 @router.get("/datasets")
 def list_datasets(x_user_email: Optional[str] = Header(None)):
     """
-    Scans the user-specific clean data and reports directories and returns a list of processed files.
+    Lists every file in the caller's workspace: raw uploads, cleaned datasets, reports,
+    process logs and Power BI exports, each tagged with its category.
     """
-    files_list = []
     from backend.utils.account_utils import get_user_path
-    active_email = x_user_email or "admin@controlai.net"
-    
-    # 1. Cleaned Data folder
-    clean_dir = os.path.dirname(get_user_path(active_email, "cleaned data/dummy.txt"))
-    if os.path.exists(clean_dir):
-        for file in os.listdir(clean_dir):
-            file_path = os.path.join(clean_dir, file)
-            if os.path.isfile(file_path):
+    active_email = x_user_email or DEFAULT_ADMIN_EMAIL
+    files_list = []
+    for folder, category in _STORAGE_FOLDERS:
+        base_dir = os.path.dirname(get_user_path(active_email, f"{folder}/dummy.txt"))
+        for root, _, filenames in os.walk(base_dir):
+            for file in sorted(filenames):
+                file_path = os.path.join(root, file)
+                if category == "powerbi" and not file.endswith(".csv"):
+                    continue
                 try:
                     stat_res = os.stat(file_path)
-                    _, ext = os.path.splitext(file.lower())
-                    fmt = ext[1:].upper()
-                    if fmt in ["XLSX", "XLS"]:
-                        fmt = "EXCEL"
-                    files_list.append({
-                        "name": file,
-                        "directory": "cleaned data/",
-                        "path": file_path.replace("\\", "/"),
-                        "format": fmt,
-                        "size": stat_res.st_size,
-                        "modified_time": stat_res.st_mtime * 1000
-                    })
-                except Exception as e:
-                    logger.error(f"Failed stating file {file}: {e}")
-
-    # 2. Reports folder (per-file subfolders)
-    reports_base_dir = os.path.dirname(get_user_path(active_email, "reports/dummy.txt"))
-    if os.path.exists(reports_base_dir):
-        for root, dirs, filenames in os.walk(reports_base_dir):
-            for file in filenames:
-                file_path = os.path.join(root, file)
-                if os.path.isfile(file_path):
-                    try:
-                        stat_res = os.stat(file_path)
-                        _, ext = os.path.splitext(file.lower())
-                        fmt = ext[1:].upper()
-                        if fmt == "DOCX":
-                            fmt = "WORD"
-                        elif fmt == "MD":
-                            fmt = "MARKDOWN"
-                        rel_dir = os.path.relpath(root, reports_base_dir).replace("\\", "/")
-                        if rel_dir == ".":
-                            dir_label = "reports/"
-                        else:
-                            dir_label = f"reports/{rel_dir}/"
-                            
-                        files_list.append({
-                            "name": file,
-                            "directory": dir_label,
-                            "path": file_path.replace("\\", "/"),
-                            "format": fmt,
-                            "size": stat_res.st_size,
-                            "modified_time": stat_res.st_mtime * 1000
-                        })
-                    except Exception as e:
-                        logger.error(f"Failed stating report file {file}: {e}")
-                        
+                except OSError as e:
+                    logger.error(f"Failed stating file {file_path}: {e}")
+                    continue
+                ext = os.path.splitext(file.lower())[1][1:].upper() or "FILE"
+                rel_dir = os.path.relpath(root, base_dir).replace("\\", "/")
+                files_list.append({
+                    "name": file,
+                    "category": category,
+                    "directory": f"{folder}/" if rel_dir == "." else f"{folder}/{rel_dir}/",
+                    "path": file_path.replace("\\", "/"),
+                    "format": _FORMAT_ALIASES.get(ext, ext),
+                    "size": stat_res.st_size,
+                    "modified_time": stat_res.st_mtime * 1000
+                })
+    files_list.sort(key=lambda f: f["modified_time"], reverse=True)
     return {"files": files_list}
 
 @router.get("/download")
@@ -222,21 +187,12 @@ def download_dataset(file_path: str, x_user_email: Optional[str] = Header(None),
     """
     Download a data file from the processed folders.
     """
-    active_email = x_user_email or email or "admin@controlai.net"
-    if not os.path.exists(file_path):
+    active_email = x_user_email or email or DEFAULT_ADMIN_EMAIL
+    abs_path = resolve_project_path(file_path)
+    # Only the caller's own workspace files are downloadable (never the database, .env, source code, ...)
+    if not abs_path or not os.path.isfile(abs_path) or not is_path_accessible(abs_path, active_email):
         raise HTTPException(status_code=404, detail="File not found.")
-        
-    abs_path = os.path.abspath(file_path)
-    workspace_root = os.path.abspath(".")
-    if not abs_path.replace("\\", "/").startswith(workspace_root.replace("\\", "/")):
-        raise HTTPException(status_code=403, detail="Access denied: outside workspace path.")
-        
-    # Ownership check: if the path is inside Accounts/, ensure it matches active_email's folder
-    if "Accounts" in abs_path.replace("\\", "/").split("/"):
-        sanitized_email = active_email.replace("@", "_").replace(".", "_")
-        if f"Accounts/{sanitized_email}" not in abs_path.replace("\\", "/"):
-            raise HTTPException(status_code=403, detail="Access denied: file belongs to another user account.")
-        
+
     media_type = "application/octet-stream"
     if file_path.endswith(".csv"):
         media_type = "text/csv"
@@ -279,11 +235,11 @@ def get_extended_dashboard_metrics(db: Session = Depends(get_db), x_user_email: 
     if batch_ids:
         try:
             runs = db.execute(
-                text("SELECT status, execution_time FROM pipeline_logs WHERE pipeline_id IN :pids"),
-                {"pids": tuple(f"pipe_{bid}" for bid in batch_ids)}
+                text("SELECT status, execution_time FROM pipeline_logs WHERE pipeline_id IN :pids").bindparams(bindparam("pids", expanding=True)),
+                {"pids": [f"pipe_{bid}" for bid in batch_ids]}
             ).fetchall()
             total_pipeline_runs = len(runs)
-            successful_runs = sum(1 for r in runs if str(r[0]).lower() == "completed")
+            successful_runs = sum(1 for r in runs if str(r[0]).lower() in ("success", "passed with warnings", "completed"))
             failed_runs = sum(1 for r in runs if str(r[0]).lower() == "failed")
             total_execution_seconds = sum(float(r[1] or 0.0) for r in runs)
         except Exception:
