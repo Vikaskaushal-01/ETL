@@ -200,6 +200,8 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     password = Column(String(255), nullable=False)
     reset_code = Column(String(50), nullable=True)
+    display_name = Column(String(255), nullable=True)
+    date_of_birth = Column(String(20), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -215,3 +217,19 @@ class RagDocument(Base):
     uploaded_by = Column(String(100))
 
 
+
+
+class ApiKey(Base):
+    """Per-user API keys for programmatic access (X-API-Key header). Only a SHA-256 hash is stored."""
+    __tablename__ = 'api_keys'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    environment = Column(String(50), default='Production')
+    key_prefix = Column(String(20), nullable=False)
+    key_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime, server_default=func.now())
+    last_used_at = Column(DateTime, nullable=True)
+    request_count = Column(Integer, default=0)
+    revoked = Column(Boolean, default=False)
