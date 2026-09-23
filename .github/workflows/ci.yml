@@ -27,11 +27,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install pytest
 
-    - name: Run Unittest Test Suite
+    - name: Run Test Suite
+      # conftest.py points the suite at a throwaway SQLite database and the offline LLM engine
       run: |
-        python -m unittest discover -s tests -p "test_*.py" -v
+        python -m pytest -v
 
     - name: Verify Offline Pipeline Runner
+      env:
+        LLM_PROVIDER: mock
+        DATABASE_URL: sqlite:///./ci_verify.db
       run: |
         python verify_pipeline.py
