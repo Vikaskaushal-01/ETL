@@ -1,0 +1,21 @@
+.git
+.github
+.venv
+venv
+env
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+!.env.example
+.secret_key
+*.db
+*.db-wal
+*.db-shm
+Accounts
+data
+cleaned data
+reports
+logs
+.last_cleaned_backup.json
