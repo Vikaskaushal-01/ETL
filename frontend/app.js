@@ -2010,8 +2010,8 @@ async function loadDashboardStats() {
                         <td>${runtimeStr}</td>
                         <td><span class="badge ${badgeClass}">${run.status}</span></td>
                         <td>
-                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="viewRunLogs('${run.pipeline_id}')"><i class="fa-solid fa-code"></i> Logs</button>
-                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="selectBatchDetail('${run.pipeline_id.replace('pipe_', '')}')"><i class="fa-solid fa-eye"></i> Insights</button>
+                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="openRunLog('${runBatch}')"><i class="fa-solid fa-code"></i> Logs</button>
+                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="selectBatchDetail('${runBatch}')"><i class="fa-solid fa-eye"></i> Open</button>
                         </td>
                     `;
                     tableBody.appendChild(tr);
@@ -2029,23 +2029,9 @@ async function loadDashboardStats() {
 
 window.selectBatchDetail = function(batchId) {
     if (window.closeAllMenus) window.closeAllMenus();
-    const btnGraph = document.getElementById('btn-toggle-graph');
-    if (btnGraph) btnGraph.classList.add('active');
-    
+    if (window.activateView) window.activateView('pipeline-monitor-page');
     fetchSelectedBatchInsights(batchId);
-    showToast('info', `Loaded insights: ${batchId}`);
 };
-
-function viewRunLogs(pipelineId) {
-    if (window.closeAllMenus) window.closeAllMenus();
-    const cDrawer = document.getElementById('console-drawer');
-    if (cDrawer) cDrawer.classList.add('active');
-    const tLogs = document.getElementById('btn-toggle-logs');
-    if (tLogs) tLogs.classList.add('active');
-    const ws = document.querySelector('.network-workspace') || document.getElementById('pipeline-monitor-page');
-    if (ws) ws.classList.add('blur-bg');
-    startPipelinePolling(pipelineId);
-}
 
 function renderCharts(recentRuns) {
     const canvas = document.getElementById('executionHistoryChart');
@@ -2053,7 +2039,7 @@ function renderCharts(recentRuns) {
     const ctxHistory = canvas.getContext('2d');
     if (state.historyChart) state.historyChart.destroy();
     
-    const labels = recentRuns.map(r => r.pipeline_id.replace('pipe_batch_', '')).reverse();
+    const labels = recentRuns.map(r => r.filename || r.pipeline_id.replace('pipe_', '')).reverse();
     const runtimes = recentRuns.map(r => r.execution_time || 0.0).reverse();
     
     state.historyChart = new Chart(ctxHistory, {
@@ -2105,7 +2091,6 @@ function initExplorer() {
             const folder = card.getAttribute('data-folder');
             state.explorerFolderFilter = folder;
             
-            document.getElementById('explorer-folder-title').textContent = `${folder.toUpperCase()} Storage Directory`;
             renderExplorerFiles();
         });
     });
@@ -2123,6 +2108,8 @@ async function loadExplorerFiles() {
         document.getElementById('folder-csv-count').textContent = `${state.explorerFiles.filter(f => f.format === 'CSV').length} files`;
         document.getElementById('folder-word-count').textContent = `${state.explorerFiles.filter(f => f.format === 'WORD').length} files`;
         document.getElementById('folder-sql-count').textContent = `${state.explorerFiles.filter(f => f.format === 'SQL').length} files`;
+        const logCountEl = document.getElementById('folder-log-count');
+        if (logCountEl) logCountEl.textContent = `${state.explorerFiles.filter(f => f.format === 'LOG').length} files`;
         
         renderExplorerFiles();
     } catch (e) {
@@ -2150,7 +2137,7 @@ function renderExplorerFiles() {
     
     filtered.forEach(file => {
         const tr = document.createElement('tr');
-        const fileIcon = file.format === 'CSV' ? 'fa-file-csv text-green' : file.format === 'WORD' ? 'fa-file-word text-blue' : 'fa-database text-purple';
+        const fileIcon = file.format === 'CSV' ? 'fa-file-csv text-green' : file.format === 'WORD' ? 'fa-file-word text-blue' : file.format === 'LOG' ? 'fa-file-lines text-yellow' : file.format === 'PDF' ? 'fa-file-pdf text-red' : 'fa-database text-purple';
         
         tr.innerHTML = `
             <td><i class="fa-solid ${fileIcon}"></i> <strong>${file.name}</strong></td>
@@ -2172,6 +2159,7 @@ function downloadDataFile(filePath) {
 
 // PDF Reports List Operations
 async function loadReportsList() {
+    if (!getAuthToken()) return;
     try {
         const response = await fetch('/api/v1/reports/folders');
         if (!response.ok) return;
@@ -2196,12 +2184,18 @@ async function loadReportsList() {
 }
 
 window.downloadReport = function(batchId, format) {
-    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-    window.open(`/api/v1/reports/download/${batchId}?format=${format}&email=${encodeURIComponent(email)}`, '_blank');
+    // Fall back to the batch currently shown when a caller has no id (e.g. before status data arrives)
+    const id = (batchId && batchId !== 'undefined' && batchId !== 'null') ? batchId : state.currentBatchId;
+    if (!id) {
+        showToast('error', 'No processed batch selected yet. Run a pipeline first.');
+        return;
+    }
+    window.open(`/api/v1/reports/download/${encodeURIComponent(id)}?format=${format}`, '_blank');
 };
 
 // AI Assistant Chat operations
 async function loadChatBatchContexts() {
+    if (!getAuthToken()) return;
     try {
         const response = await fetch('/api/v1/reports/folders');
         if (!response.ok) return;
@@ -2294,7 +2288,7 @@ function initChat() {
                 body: JSON.stringify({ 
                     message: message, 
                     batch_id: state.chatContextBatchId || null,
-                    history: state.chatHistory
+                    history: state.chatHistory.slice(-10)
                 })
             });
             
@@ -2311,9 +2305,10 @@ function initChat() {
             const hasNegation = /\b(don'?t|no|without|never|stop|not)\b/i.test(message);
             const isDownloadRequested = hasDownloadWord && !hasNegation;
             if (isDownloadRequested) {
-                const downloadMatch = data.response.match(/\[Download [^\]]+\]\(([^\)]+)\)/);
-                if (downloadMatch) {
-                    const downloadUrl = downloadMatch[1];
+                // Only when exactly one downloadable item was returned (e.g. "download the pdf report")
+                const apiLinks = [...data.response.matchAll(/\]\((\/api\/v1\/[^\)\s]+)\)/g)].map(m => m[1]);
+                if (apiLinks.length === 1) {
+                    const downloadUrl = withAuthToken(apiLinks[0]);
                     const tempLink = document.createElement('a');
                     tempLink.href = downloadUrl;
                     tempLink.setAttribute('download', '');
@@ -2335,6 +2330,65 @@ function initChat() {
     });
 }
 
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Minimal, safe Markdown renderer for assistant replies: everything is HTML-escaped first,
+// then headings, emphasis, lists, inline code, fenced code blocks and safe links are formatted.
+function renderChatMarkdown(markdown) {
+    const codeBlocks = [];
+    let src = String(markdown || '').replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code) => {
+        codeBlocks.push(code.replace(/\n$/, ''));
+        return `\u0000CODE${codeBlocks.length - 1}\u0000`;
+    });
+
+    const inline = (text) => escapeHtml(text)
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[\s(])\*([^*\s][^*]*)\*(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>')
+        .replace(/(^|[\s(])_([^_\s][^_]*)_(?=[\s).,!?:;]|$)/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\(([^\)\s]+)\)/g, (match, label, url) => {
+            if (!/^(https?:\/\/|\/)/i.test(url.replace(/&amp;/g, '&'))) return match;
+            return `<a href="${url}" class="chat-link" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        });
+
+    const html = [];
+    let list = null;
+    const closeList = () => { if (list) { html.push(`</${list}>`); list = null; } };
+    src.split('\n').forEach(rawLine => {
+        const line = rawLine.trimEnd();
+        const codeMatch = line.match(/^\u0000CODE(\d+)\u0000$/);
+        const heading = line.match(/^(#{1,6})\s+(.*)$/);
+        const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+        const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (codeMatch) {
+            closeList();
+            html.push(`<pre class="chat-code"><code>${escapeHtml(codeBlocks[Number(codeMatch[1])])}</code></pre>`);
+        } else if (heading) {
+            closeList();
+            html.push(`<h4 class="chat-heading">${inline(heading[2])}</h4>`);
+        } else if (bullet || numbered) {
+            const tag = bullet ? 'ul' : 'ol';
+            if (list !== tag) { closeList(); html.push(`<${tag}>`); list = tag; }
+            html.push(`<li>${inline((bullet || numbered)[1])}</li>`);
+        } else if (!line.trim()) {
+            closeList();
+        } else {
+            closeList();
+            html.push(`<p>${inline(line)}</p>`);
+        }
+    });
+    closeList();
+    // Code placeholders that ended up inline (unusual) are restored as inline code
+    return html.join('').replace(/\u0000CODE(\d+)\u0000/g, (_, i) => `<code>${escapeHtml(codeBlocks[Number(i)])}</code>`);
+}
+
 function appendChatMessage(sender, content, isHtml = false) {
     const container = document.getElementById('chat-messages-container');
     const msgDiv = document.createElement('div');
@@ -2344,10 +2398,11 @@ function appendChatMessage(sender, content, isHtml = false) {
     msgDiv.setAttribute('data-raw-content', content);
     
     const icon = sender === 'user' ? 'fa-user' : 'fa-robot';
-    let bubbleContent = isHtml ? content : `<p>${content.replace(/\n/g, '<br>')}</p>`;
+    // Message text can contain LLM output and scraped document text, so it is escaped before rendering
+    let bubbleContent = isHtml ? content : (sender === 'user'
+        ? `<p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>`
+        : renderChatMarkdown(content));
     if (!isHtml) {
-        // Convert Markdown links [text](url) to HTML anchors
-        bubbleContent = bubbleContent.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href="$2" class="chat-link" target="_blank">$1</a>');
         // Store in local history for context awareness
         state.chatHistory.push({ role: sender === 'user' ? 'user' : 'assistant', content: content });
     }
@@ -2687,220 +2742,240 @@ function initSettingsPage() {
         });
     }
 
-    // Load Profile Data
-    function loadProfileData() {
-        const storedName = localStorage.getItem('controlai_username') || 'System Administrator';
-        const storedEmail = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-        const storedDob = localStorage.getItem('controlai_dob') || '';
-
-        if (inputUsername) inputUsername.value = storedName;
-        if (inputEmail) inputEmail.value = storedEmail;
-        if (inputDob) inputDob.value = storedDob;
+    // Load Profile Data from the server
+    async function loadProfileData() {
         if (inputCurrentPass) inputCurrentPass.value = '';
         if (inputNewPass) inputNewPass.value = '';
         if (inputConfirmPass) inputConfirmPass.value = '';
+        try {
+            const res = await fetch('/api/v1/auth/profile');
+            if (!res.ok) throw new Error('Could not load profile');
+            const profile = await res.json();
+            if (inputUsername) inputUsername.value = profile.display_name || '';
+            if (inputEmail) inputEmail.value = profile.email;
+            if (inputDob) inputDob.value = profile.date_of_birth || '';
+            const roleEl = document.getElementById('settings-role');
+            if (roleEl) roleEl.value = profile.role;
+            const passwordDisabled = profile.sign_in_method !== 'password';
+            [inputCurrentPass, inputNewPass, inputConfirmPass].forEach(el => {
+                if (!el) return;
+                el.disabled = passwordDisabled;
+                el.placeholder = passwordDisabled ? 'Social sign-in: no password' : el.placeholder;
+            });
+        } catch (e) {
+            showToast('error', 'Failed to load your profile.');
+        }
     }
 
-    // Save Profile Action
+    // Save Profile Action (display name / date of birth, plus optional password change)
     if (btnSaveProfile) {
-        btnSaveProfile.addEventListener('click', () => {
+        btnSaveProfile.addEventListener('click', async () => {
             const username = inputUsername ? inputUsername.value.trim() : '';
-            const email = inputEmail ? inputEmail.value.trim() : '';
             const dob = inputDob ? inputDob.value : '';
+            const currentPass = inputCurrentPass ? inputCurrentPass.value : '';
             const newPass = inputNewPass ? inputNewPass.value : '';
             const confirmPass = inputConfirmPass ? inputConfirmPass.value : '';
 
             if (!username) {
-                showToast('error', 'Please enter a valid username.');
+                showToast('error', 'Please enter a display name.');
                 if (inputUsername) inputUsername.focus();
                 return;
             }
-
-            if (newPass !== '' && newPass !== confirmPass) {
-                showToast('error', 'New passwords do not match!');
-                if (inputConfirmPass) inputConfirmPass.focus();
-                return;
+            if (newPass || confirmPass || currentPass) {
+                if (!currentPass) { showToast('error', 'Enter your current password to change it.'); return; }
+                if (newPass !== confirmPass) { showToast('error', 'New passwords do not match!'); return; }
             }
 
-            // Save to localStorage
-            localStorage.setItem('controlai_username', username);
-            if (email) localStorage.setItem('controlai_email', email);
-            if (dob) localStorage.setItem('controlai_dob', dob);
+            btnSaveProfile.disabled = true;
+            try {
+                const res = await fetch('/api/v1/auth/profile', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ display_name: username, date_of_birth: dob || '' })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Failed to save profile');
 
-            // Synchronize UI display names across whole project
-            const userDisplayName = document.getElementById('user-display-name');
-            const userDisplayEmail = document.getElementById('user-display-email');
-            if (userDisplayName) userDisplayName.textContent = username;
-            if (userDisplayEmail && email) userDisplayEmail.textContent = email;
+                if (newPass) {
+                    const pwRes = await fetch('/api/v1/auth/change-password', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ current_password: currentPass, new_password: newPass })
+                    });
+                    const pwData = await pwRes.json();
+                    if (!pwRes.ok) throw new Error(pwData.detail || 'Failed to change password');
+                    showToast('success', 'Password changed.');
+                }
 
-            showToast('success', `Profile updated! Welcome, ${username}.`);
-            closeSettingsPage();
+                localStorage.setItem('controlai_username', data.display_name);
+                if (window.updateProfileUI) window.updateProfileUI();
+                showToast('success', `Profile saved. Welcome, ${data.display_name}.`);
+                closeSettingsPage();
+            } catch (err) {
+                showToast('error', err.message);
+            } finally {
+                btnSaveProfile.disabled = false;
+            }
         });
     }
 
-    // API Keys State & Rendering
-    function getStoredApiKeys() {
-        const raw = localStorage.getItem('controlai_apikeys');
-        if (raw) {
-            try { return JSON.parse(raw); } catch (e) {}
+    // API Keys: stored on the server (only a hash); the secret is shown once at creation
+    async function loadApiKeysData() {
+        if (!apiKeysTbody) return;
+        try {
+            const res = await fetch('/api/v1/auth/api-keys');
+            if (!res.ok) throw new Error();
+            const keys = await res.json();
+            renderApiKeysTable(keys);
+            renderApiLogs(keys);
+        } catch (e) {
+            apiKeysTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px;">Failed to load API keys.</td></tr>`;
         }
-        // Initial Default Keys if none exist
-        const initialKeys = [
-            { id: '1', name: 'Production Pipeline Automation', key: 'ctl_live_8f93a74b12e0912c', env: 'Production', created: '2026-07-28' },
-            { id: '2', name: 'Staging Analytics Integration', key: 'ctl_live_3b11c900e57211fa', env: 'Staging', created: '2026-08-01' }
-        ];
-        localStorage.setItem('controlai_apikeys', JSON.stringify(initialKeys));
-        return initialKeys;
-    }
-
-    function loadApiKeysData() {
-        const keys = getStoredApiKeys();
-        renderApiKeysTable(keys);
-        renderApiLogs();
     }
 
     function renderApiKeysTable(keys) {
-        if (!apiKeysTbody) return;
         apiKeysTbody.innerHTML = '';
         if (keys.length === 0) {
             apiKeysTbody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-secondary); padding:20px;">No API keys created yet.</td></tr>`;
             return;
         }
-
         keys.forEach(k => {
             const tr = document.createElement('tr');
-            const masked = k.key.substring(0, 9) + '••••••••' + k.key.substring(k.key.length - 4);
-            const envClass = k.env.toLowerCase();
             tr.innerHTML = `
                 <td><strong>${escapeHTML(k.name)}</strong></td>
-                <td>
-                    <div class="key-code-wrapper">
-                        <span class="key-code">${masked}</span>
-                        <button class="btn-icon-subtle copy-key-btn" data-key="${k.key}" title="Copy API Key"><i class="fa-solid fa-copy"></i></button>
-                    </div>
-                </td>
-                <td><span class="env-badge ${envClass}">${k.env}</span></td>
-                <td><span style="color:var(--text-secondary); font-size:0.85rem;">${k.created}</span></td>
-                <td>
-                    <button class="btn-icon-subtle delete delete-key-btn" data-id="${k.id}" title="Delete Key"><i class="fa-solid fa-trash-can"></i></button>
-                </td>
+                <td><span class="key-code">${escapeHTML(k.key_preview)}</span></td>
+                <td><span class="env-badge ${k.environment.toLowerCase()}">${k.environment}</span></td>
+                <td><span style="color:var(--text-secondary); font-size:0.85rem;">${k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '-'}</span></td>
+                <td><button class="btn-icon-subtle delete delete-key-btn" data-id="${k.id}" title="Revoke key"><i class="fa-solid fa-trash-can"></i></button></td>
             `;
             apiKeysTbody.appendChild(tr);
         });
-
-        // Copy Key event handlers
-        apiKeysTbody.querySelectorAll('.copy-key-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const keyVal = btn.getAttribute('data-key');
-                navigator.clipboard.writeText(keyVal).then(() => {
-                    showToast('success', 'API Secret Key copied to clipboard!');
-                }).catch(() => {
-                    showToast('info', `API Key: ${keyVal}`);
-                });
-            });
-        });
-
-        // Delete Key event handlers
         apiKeysTbody.querySelectorAll('.delete-key-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const keyId = btn.getAttribute('data-id');
-                let currentKeys = getStoredApiKeys();
-                currentKeys = currentKeys.filter(item => item.id !== keyId);
-                localStorage.setItem('controlai_apikeys', JSON.stringify(currentKeys));
-                renderApiKeysTable(currentKeys);
-                showToast('info', 'API Key deleted successfully.');
+            btn.addEventListener('click', async () => {
+                if (!confirmAction('Revoke this API key? Integrations using it will stop working.')) return;
+                const res = await fetch(`/api/v1/auth/api-keys/${btn.getAttribute('data-id')}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast('info', 'API key revoked.');
+                    loadApiKeysData();
+                } else {
+                    showToast('error', 'Failed to revoke API key.');
+                }
             });
         });
     }
 
-    // Generate New API Key
     if (btnCreateKey) {
-        btnCreateKey.addEventListener('click', () => {
+        btnCreateKey.addEventListener('click', async () => {
             const keyName = inputKeyName ? inputKeyName.value.trim() : '';
             const env = selectKeyEnv ? selectKeyEnv.value : 'Production';
-
             if (!keyName) {
                 showToast('error', 'Please enter a key description name.');
                 if (inputKeyName) inputKeyName.focus();
                 return;
             }
-
-            const randHex = Array.from({length: 16}, () => Math.floor(Math.random() * 16).toString(16)).join('');
-            const newKeyObj = {
-                id: Date.now().toString(),
-                name: keyName,
-                key: `ctl_live_${randHex}`,
-                env: env,
-                created: new Date().toISOString().split('T')[0]
-            };
-
-            const currentKeys = getStoredApiKeys();
-            currentKeys.unshift(newKeyObj);
-            localStorage.setItem('controlai_apikeys', JSON.stringify(currentKeys));
-            renderApiKeysTable(currentKeys);
-
-            if (inputKeyName) inputKeyName.value = '';
-            showToast('success', `Generated API Key for ${keyName}`);
+            btnCreateKey.disabled = true;
+            try {
+                const res = await fetch('/api/v1/auth/api-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: keyName, environment: env })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Failed to create key');
+                if (inputKeyName) inputKeyName.value = '';
+                showSecretOnce(data.secret, data.name);
+                loadApiKeysData();
+            } catch (err) {
+                showToast('error', err.message);
+            } finally {
+                btnCreateKey.disabled = false;
+            }
         });
     }
 
-    // Render API Activity Logs
-    function renderApiLogs() {
-        if (!apiLogsList) return;
-        const now = new Date();
-        const logs = [
-            { time: new Date(now - 120000).toLocaleTimeString(), endpoint: 'POST /api/pipeline/start', ip: '192.168.1.45', status: '200' },
-            { time: new Date(now - 450000).toLocaleTimeString(), endpoint: 'GET /api/reports/list', ip: '192.168.1.45', status: '200' },
-            { time: new Date(now - 1800000).toLocaleTimeString(), endpoint: 'POST /api/upload', ip: '10.0.0.12', status: '401' }
-        ];
+    function showSecretOnce(secret, name) {
+        const box = document.createElement('div');
+        box.className = 'api-secret-once';
+        box.innerHTML = `
+            <strong>New key "${escapeHTML(name)}" - copy it now, it will not be shown again:</strong>
+            <div class="key-code-wrapper"><code class="key-code">${escapeHTML(secret)}</code>
+            <button class="btn-icon-subtle" title="Copy"><i class="fa-solid fa-copy"></i></button></div>
+            <span class="text-secondary">Use it as the <code>X-API-Key</code> header, e.g. <code>curl -H "X-API-Key: ${escapeHTML(secret)}" ${window.location.origin}/api/v1/dashboard/summary</code></span>`;
+        box.querySelector('button').addEventListener('click', () => {
+            navigator.clipboard.writeText(secret).then(() => showToast('success', 'API key copied.'));
+        });
+        const table = document.getElementById('table-api-keys');
+        const existing = document.querySelector('.api-secret-once');
+        if (existing) existing.remove();
+        if (table) table.parentElement.insertBefore(box, table);
+    }
 
-        apiLogsList.innerHTML = logs.map(l => `
-            <div class="api-log-entry status-${l.status}">
+    // Real usage of each key (request count and last use, recorded by the API)
+    function renderApiLogs(keys) {
+        if (!apiLogsList) return;
+        if (!keys || keys.length === 0) {
+            apiLogsList.innerHTML = `<p class="text-secondary" style="padding:10px;">No API keys yet.</p>`;
+            return;
+        }
+        apiLogsList.innerHTML = keys.map(k => `
+            <div class="api-log-entry">
                 <div class="log-meta">
-                    <span class="log-time">${l.time}</span>
-                    <span class="log-endpoint">${l.endpoint}</span>
-                    <span class="log-ip">(${l.ip})</span>
+                    <span class="log-endpoint">${escapeHTML(k.name)}</span>
+                    <span class="log-time">${k.last_used_at ? 'last used ' + parseUTCDate(k.last_used_at).toLocaleString() : 'never used'}</span>
                 </div>
-                <span class="log-status s${l.status}">${l.status} ${l.status === '200' ? 'OK' : 'UNAUTHORIZED'}</span>
+                <span class="log-status">${k.request_count} request(s)</span>
             </div>
         `).join('');
     }
 
     if (btnSaveApiKeys) {
-        btnSaveApiKeys.addEventListener('click', () => {
-            showToast('success', 'API Keys configuration saved.');
-            closeSettingsPage();
-        });
+        btnSaveApiKeys.addEventListener('click', () => closeSettingsPage());
     }
 
-    // Preferences Tab Load & Save
+    // Preferences Tab Load & Save (per-browser UI preferences)
     function loadPreferencesData() {
         if (selectAccent) selectAccent.value = localStorage.getItem('pref_accent_theme') || 'cyan';
         if (selectGlass) selectGlass.value = localStorage.getItem('pref_glass_intensity') || 'high';
-        if (selectDbEngine) selectDbEngine.value = localStorage.getItem('pref_db_engine') || 'sqlite';
         if (selectLogLevel) selectLogLevel.value = localStorage.getItem('pref_log_level') || 'INFO';
         if (checkAutoAi) checkAutoAi.checked = localStorage.getItem('pref_auto_ai') !== 'false';
         if (checkAudioAlerts) checkAudioAlerts.checked = localStorage.getItem('pref_audio_alerts') !== 'false';
+        if (selectDbEngine) {
+            fetch('/api/v1/powerbi/status').then(r => r.ok ? r.json() : null).then(d => {
+                if (d && d.connector) selectDbEngine.value = `${d.connector.driver} - ${d.connector.database} (${d.connector.status})`;
+            }).catch(() => { selectDbEngine.value = 'Unavailable'; });
+        }
     }
 
     // Apply saved accent theme on init
     applyAccentTheme(localStorage.getItem('pref_accent_theme') || 'cyan');
+    applyGlassIntensity(localStorage.getItem('pref_glass_intensity') || 'high');
 
     if (btnSavePreferences) {
         btnSavePreferences.addEventListener('click', () => {
             const themeVal = selectAccent ? selectAccent.value : 'cyan';
             if (selectAccent) localStorage.setItem('pref_accent_theme', themeVal);
             if (selectGlass) localStorage.setItem('pref_glass_intensity', selectGlass.value);
-            if (selectDbEngine) localStorage.setItem('pref_db_engine', selectDbEngine.value);
             if (selectLogLevel) localStorage.setItem('pref_log_level', selectLogLevel.value);
             if (checkAutoAi) localStorage.setItem('pref_auto_ai', checkAutoAi.checked ? 'true' : 'false');
             if (checkAudioAlerts) localStorage.setItem('pref_audio_alerts', checkAudioAlerts.checked ? 'true' : 'false');
 
             applyAccentTheme(themeVal);
-            showToast('success', 'Preferences saved & applied successfully!');
+            applyGlassIntensity(selectGlass ? selectGlass.value : 'high');
+            showToast('success', 'Preferences saved & applied.');
             closeSettingsPage();
         });
     }
+}
+
+function applyGlassIntensity(level) {
+    document.body.classList.remove('glass-medium', 'glass-solid');
+    if (level === 'medium') document.body.classList.add('glass-medium');
+    if (level === 'solid') document.body.classList.add('glass-solid');
+}
+
+// Native confirm is avoided in automation contexts; this keeps destructive actions explicit
+function confirmAction(message) {
+    return window.confirm(message);
 }
 
 // Accent Theme Dynamic Switcher
@@ -3370,8 +3445,13 @@ window.downloadStageLogs = function(stageId) {
 };
 
 window.downloadReport = function(batchId, format) {
-    const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-    window.open(`/api/v1/reports/download/${batchId}?format=${format}&email=${encodeURIComponent(email)}`, '_blank');
+    // Fall back to the batch currently shown when a caller has no id (e.g. before status data arrives)
+    const id = (batchId && batchId !== 'undefined' && batchId !== 'null') ? batchId : state.currentBatchId;
+    if (!id) {
+        showToast('error', 'No processed batch selected yet. Run a pipeline first.');
+        return;
+    }
+    window.open(`/api/v1/reports/download/${encodeURIComponent(id)}?format=${format}`, '_blank');
 };
 
 window.downloadGraphJson = function(batchId) {
@@ -3541,9 +3621,9 @@ async function loadRagDocuments() {
             const timeStr = new Date(doc.upload_time).toLocaleDateString();
             return `
                 <div class="rag-doc-item">
-                    <div class="rag-doc-info" title="${doc.filename} (Uploaded: ${timeStr})">
+                    <div class="rag-doc-info" title="${escapeHtml(doc.filename)} (Uploaded: ${timeStr})">
                         <i class="fa-solid ${doc.file_type === 'url' ? 'fa-link' : 'fa-file-lines'}"></i>
-                        <span>${doc.filename}</span>
+                        <span>${escapeHtml(doc.filename)}</span>
                     </div>
                     <button class="btn-delete-rag-doc" onclick="deleteRagDocument(${doc.id})" title="Delete knowledge item">
                         <i class="fa-solid fa-trash-can"></i>
@@ -3771,7 +3851,7 @@ function updatePipelineMonitorUI(data) {
             if (key === 'intake') {
                 linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
             } else if (key === 'transformation') {
-                const rel_clean = `Accounts/${emailPath}/cleaned data/${filename}`;
+                const rel_clean = (data.stages && data.stages.transformation && data.stages.transformation.output && data.stages.transformation.output.clean_dataset_path) || `Accounts/${emailPath}/cleaned data/${filename}`;
                 linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
             } else if (key === 'storage') {
                 linksHtml = `<div class="node-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
@@ -3782,7 +3862,7 @@ function updatePipelineMonitorUI(data) {
                         <a href="#" onclick="downloadReport('${batchId}', 'docx'); event.stopPropagation();" class="node-inline-link" title="Word Report"><i class="fa-solid fa-file-word"></i> Word</a>
                     </div>`;
             } else if (key === 'pbi') {
-                linksHtml = `<div class="node-card-links"><span class="node-inline-link text-green"><i class="fa-solid fa-circle-check"></i> Sync OK</span></div>`;
+                linksHtml = `<div class="node-card-links"><a href="#" onclick="window.activateView && window.activateView('powerbi-view'); event.stopPropagation();" class="node-inline-link"><i class="fa-solid fa-chart-column"></i> Exports</a></div>`;
             }
             
             nodeEl.querySelector('.node-desc').innerHTML = `<div>${getStageDesc(key, stage)}</div>${linksHtml}`;
@@ -3840,14 +3920,11 @@ function updatePipelineMonitorUI(data) {
     if (rawNodeEl) {
         const intakeStage = stages['intake'] || {};
         if (intakeStage.status === 'completed' || intakeStage.status === 'processing') {
-            const filename = data.filename || 'dataset.csv';
-            const email = localStorage.getItem('controlai_email') || 'admin@controlai.net';
-            const emailPath = email.replace('@','_').replace('.','_');
-            const rel_raw = `Accounts/${emailPath}/data/raw/${filename}`;
-            rawNodeEl.querySelector('.node-desc').innerHTML = `
-                <div>${filename}</div>
-                <div class="node-card-links"><a href="#" onclick="downloadNodeData('${rel_raw}'); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>
-            `;
+            const filename = data.filename || data.batch_id || '-';
+            const rawLink = data.raw_file_path
+                ? `<div class="node-card-links"><a href="#" onclick="downloadNodeData('${data.raw_file_path}'); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>`
+                : '';
+            rawNodeEl.querySelector('.node-desc').innerHTML = `<div>${escapeHtml(filename)}</div>${rawLink}`;
             
             const rawPath = document.getElementById('path-raw-to-storage');
             if (rawPath) {
@@ -3890,9 +3967,19 @@ function updatePipelineMonitorUI(data) {
     const pFill = document.getElementById('monitor-progress-bar-fill');
     if (pFill) pFill.style.width = `${progress}%`;
 
+    // Header info and real duration from the server
+    const hdrBatch = document.getElementById('monitor-batch-id');
+    if (hdrBatch && data.batch_id) hdrBatch.textContent = data.batch_id;
+    const hdrFile = document.getElementById('monitor-file-name');
+    if (hdrFile && data.filename) hdrFile.textContent = data.filename;
+    if (data.status !== 'Running' && typeof data.execution_time === 'number') {
+        const mDur = document.getElementById('monitor-duration');
+        if (mDur) mDur.textContent = `${data.execution_time.toFixed(1)}s`;
+    }
+
     // Process general state status
     if (data.status === 'Success' || data.status === 'Passed with Warnings') {
-        overallStatus = 'Finished';
+        overallStatus = data.status;
         statusClass = 'monitor-stat-pill success';
         if (pFill) pFill.style.width = '100%';
         if (state.monitorTimerInterval) {
@@ -3919,35 +4006,13 @@ function updatePipelineMonitorUI(data) {
 
 function getStageDesc(key, stage) {
     const output = stage.output || {};
-    if (key === 'intake') return `${output.rows || 0} rows profiled`;
-    if (key === 'transformation') return `Quality: ${output.quality_after || 100}%`;
-    if (key === 'storage') return `${output.format_selected || 'SQL'} | Staged`;
-    if (key === 'report') return 'PDF Exporter ready';
-    if (key === 'pbi') return 'Facts Synced';
+    if (key === 'intake') return `${output.rows ?? '-'} rows profiled`;
+    if (key === 'transformation') return `Quality: ${output.quality_after ?? '-'}%`;
+    if (key === 'storage') return `${output.format_selected || '-'} | ${output.rows_loaded ?? 0} loaded, ${output.rows_rejected ?? 0} rejected`;
+    if (key === 'report') return `${output.rca_alerts_count || 0} RCA finding(s)`;
+    if (key === 'pbi') return `${Object.keys(output.tables || {}).length} tables exported`;
     return 'Completed';
 }
-
-// Intercept polling loop to hook monitor UI updates
-const originalPolling = startPipelinePolling;
-startPipelinePolling = function(pipelineId) {
-    originalPolling(pipelineId);
-    
-    // Poll hook to update full-screen monitor UI
-    const customInterval = setInterval(async () => {
-        if (!state.pipelinePollingInterval) {
-            // Stop this custom hook loop as well if main is cancelled
-            clearInterval(customInterval);
-            return;
-        }
-        try {
-            const res = await fetch(`/api/v1/pipeline/status?pipeline_id=${pipelineId}`);
-            if (res.ok) {
-                const data = await res.json();
-                updatePipelineMonitorUI(data);
-            }
-        } catch (e) {}
-    }, 1500);
-};
 
 // 5. Interactive Inspection of monitor nodes
 function inspectPipelineMonitorNode(nodeId) {
