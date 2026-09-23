@@ -24,8 +24,13 @@ def update_raw_upload_status(db: Session, upload_id: int, status: str):
         db.commit()
     return upload
 
+def update_raw_upload_status_by_batch(db: Session, batch_id: str, status: str):
+    db.query(RawUpload).filter(RawUpload.batch_id == batch_id).update({RawUpload.status: status})
+    db.commit()
+
 def log_pipeline_start(db: Session, pipeline_id: str) -> PipelineLog:
-    log = PipelineLog(pipeline_id=pipeline_id, start_time=datetime.utcnow(), status="Running")
+    # Explicitly reset end_time/execution_time so a re-run does not inherit the previous run's values
+    log = PipelineLog(pipeline_id=pipeline_id, start_time=datetime.utcnow(), end_time=None, execution_time=None, status="Running")
     db.merge(log)
     db.commit()
     return log
