@@ -11,49 +11,24 @@ services:
     ports:
       - "3306:3306"
     volumes:
+      # The backend creates and migrates its own tables on startup
       - mysql_data:/var/lib/mysql
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uetl_user", "-petl_password"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7.0-alpine
-    container_name: etl_redis
-    restart: always
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-
+  # Optional local LLM: `docker compose --profile ollama up`, then `docker exec etl_ollama ollama pull llama3`
   ollama:
     image: ollama/ollama:latest
     container_name: etl_ollama
     restart: always
+    profiles: ["ollama"]
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-
-  snaplogic:
-    build:
-      context: ../
-      dockerfile: docker/Dockerfile.snaplogic
-    container_name: etl_snaplogic
-    restart: always
-    ports:
-      - "8080:8080"
-    environment:
-      - SNAPLOGIC_WEB_HTTP_PORT=8080
-      - SNAPLOGIC_ENVIRONMENT=production
-    volumes:
-      - ./snaplogic_data:/opt/snaplogic/data
-      - ../data:/data
-      - ../cleaned data:/cleaned data
-    depends_on:
-      - db
 
   backend:
     build:
@@ -73,28 +48,19 @@ services:
       - MYSQL_DB=agentic_ai_etl
       - MYSQL_USER=etl_user
       - MYSQL_PASSWORD=etl_password
-      - STAGING_MYSQL_DB=agentic_ai_etl_staging
-      - STAGING_MYSQL_USER=etl_user
-      - STAGING_MYSQL_PASSWORD=etl_password
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - LLM_PROVIDER=gemini
       - OLLAMA_HOST=http://ollama:11434
       - ENV=production
     volumes:
-      # Per-account workspaces (uploads, cleaned data, reports) must survive container rebuilds
+      # Per-account workspaces (uploads, cleaned data, reports, logs) must survive container rebuilds
       - ../Accounts:/app/Accounts
+      # Shared intake folder for SnapLogic (files dropped in data/raw are processed via /pipeline/start)
       - ../data:/app/data
       - ../reports:/app/reports
-      - ../cleaned data:/app/cleaned data
       - ../logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_started
 
 volumes:
   mysql_data:
-  redis_data:
   ollama_data:
