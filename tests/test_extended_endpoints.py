@@ -7,6 +7,8 @@ class TestExtendedEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = TestClient(app)
+        login = cls.client.post("/api/v1/auth/login", json={"username": "admin@controlai.net", "password": "admin"})
+        cls.client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
 
     def test_dashboard_metrics_endpoint(self):
         """Verify dashboard extended telemetry returns operational metrics."""
