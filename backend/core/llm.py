@@ -1,6 +1,9 @@
+import ast
+import operator
 import os
 import json
 import re
+import threading
 import time
 import logging
 import httpx
@@ -14,6 +17,40 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
+_ARITH_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.Mod: operator.mod, ast.Pow: operator.pow,
+}
+_ARITH_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+
+def safe_eval_arithmetic(expr: str):
+    """Evaluates +,-,*,/,%,** on numbers only, with bounded exponents (no eval, no huge powers)."""
+    if len(expr) > 200:
+        raise ValueError("Expression too long")
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _ARITH_UNARYOPS:
+            return _ARITH_UNARYOPS[type(node.op)](_eval(node.operand))
+        if isinstance(node, ast.BinOp) and type(node.op) in _ARITH_BINOPS:
+            left, right = _eval(node.left), _eval(node.right)
+            if isinstance(node.op, ast.Pow) and (abs(right) > 100 or abs(left) > 1e6):
+                raise ValueError("Exponent too large")
+            return _ARITH_BINOPS[type(node.op)](left, right)
+        raise ValueError("Unsupported expression")
+
+    return _eval(ast.parse(expr, mode="eval"))
+
+
+def _has_any_word(text_value: str, keywords: list) -> bool:
+    """Whole-word / whole-phrase keyword match (plurals allowed; 'rag' does not match 'average')."""
+    return any(re.search(r"\b" + re.escape(k.strip()) + r"(?:s|es)?\b", text_value) for k in keywords)
+
+
 def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) -> str:
     """
     Intelligent NLP reasoning engine that analyzes the user's exact query, extracts
@@ -21,7 +58,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
     """
     # 1. Extract query text cleanly
     query_text = ""
-    q_match = re.search(r'User Query:\s*(.*?)(?=\n\s*(?:Ensure|Conversation|Database|System|Platform|\Z))', prompt, re.DOTALL | re.IGNORECASE)
+    q_match = re.search(r'User Query:\s*(.*?)(?=\n\s*(?:Ensure|Conversation|Database|System|Platform|Based on)|\Z)', prompt, re.DOTALL | re.IGNORECASE)
     if q_match:
         query_text = q_match.group(1).strip()
     else:
@@ -59,15 +96,13 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         # Ensure it contains at least one operator and numbers
         if any(op in expr for op in ['+', '-', '*', '/', '^', '%']) and any(c.isdigit() for c in expr):
             try:
-                safe_expr = expr.replace('^', '**')
-                if re.match(r'^[\d\.\s\+\-\*\/\(\)\%]+$', safe_expr):
-                    val = eval(safe_expr, {"__builtins__": None}, {})
-                    return f"### Calculation Result\n\n**Expression**: `{expr}`\n**Result**: **`{val}`**"
+                val = safe_eval_arithmetic(expr.replace('^', '**'))
+                return f"### Calculation Result\n\n**Expression**: `{expr}`\n**Result**: **`{val}`**"
             except Exception:
                 pass
 
     # A. Data Quality & Root Cause Analysis Questions
-    is_rca_question = any(k in query_lower for k in [
+    is_rca_question = _has_any_word(query_lower, [
         "root cause", "rca", "reject", "rejected", "why failed", "validation error", 
         "constraint", "failure", "bad record", "invalid row", "why rows rejected"
     ])
@@ -77,7 +112,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         
         reply = "### Root Cause Analysis & Validation Findings\n\n"
         if rca_items:
-            reply += f"Based on the validation checks for the active batch (Quality Score: **{quality_match.group(1) if quality_match else '90'}%**), here is the detailed breakdown of the data quality issues identified:\n\n"
+            reply += f"Based on the validation checks for the active batch (Quality Score: **{quality_match.group(1) + '%' if quality_match else 'not recorded'}**), here is the detailed breakdown of the data quality issues identified:\n\n"
             for idx, item in enumerate(rca_items[:5]):
                 reply += f"#### Issue {idx+1}:\n"
                 for line in item.strip().split("\n"):
@@ -88,14 +123,14 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
                     else:
                         reply += f"- {clean_l}\n"
                 reply += "\n"
-        elif "no specific batch context" not in context_section.lower() and context_section:
+        elif "Selected run:" in context_section:
             reply += "All validation checks passed with **0 rejected rows** during relational database verification. Key constraints and foreign key relationships were verified successfully."
         else:
             reply += "Root Cause Analysis (RCA) runs automatically during the Docx & Report Snap stage whenever validation rejects occur. It categorizes source sync failures, data type mismatches, and schema violations, providing technical and business recommendations."
         return reply
 
     # B. Transformations & Cleaning Questions
-    is_transform_question = any(k in query_lower for k in [
+    is_transform_question = _has_any_word(query_lower, [
         "transformation", "transform", "how cleaned", "what cleaned", "cleaning step",
         "impute", "imputation", "snake_case", "trim", "standardize", "deduplicate", "duplicate"
     ])
@@ -121,7 +156,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         return reply
 
     # C. Schema & Column Breakdown Questions
-    is_schema_question = any(k in query_lower for k in [
+    is_schema_question = _has_any_word(query_lower, [
         "schema", "column", "columns", "data type", "datatype", "types", "missing value", "null count", "fields"
     ])
     if is_schema_question:
@@ -129,7 +164,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         file_match = re.search(r'Uploaded File:[\s]*([^\s|]+)', context_section)
         quality_match = re.search(r'Quality Score[=:][\s]*([\d\.]+)%', context_section)
         if file_match:
-            reply += f"**Dataset**: `{file_match.group(1)}` | **Data Quality**: {quality_match.group(1) if quality_match else '100'}%\n\n"
+            reply += f"**Dataset**: `{file_match.group(1)}` | **Data Quality**: {quality_match.group(1) + '%' if quality_match else 'not recorded'}\n\n"
         
         reply += "The schema profiling engine analyzes incoming files to determine optimal column types and identify null distributions:\n\n"
         reply += "| Inferred Column Category | Supported Types | Storage Mapping |\n"
@@ -141,7 +176,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         return reply
 
     # D. SQL & Database Staging Questions
-    is_sql_question = any(k in query_lower for k in [
+    is_sql_question = _has_any_word(query_lower, [
         "sql", "select ", "from staging", "mysql query", "table schema", "production table", "database query", "generate sql"
     ])
     if is_sql_question:
@@ -162,14 +197,14 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         return reply
 
     # E. Performance & Optimization Questions
-    is_perf_question = any(k in query_lower for k in [
+    is_perf_question = _has_any_word(query_lower, [
         "performance", "speed", "fast", "runtime", "duration", "optimize", "optimization", "throughput", "latency"
     ])
     if is_perf_question:
         exec_match = re.search(r'Duration[=:][\s]*([\d\.]+)s', context_section)
-        duration_val = exec_match.group(1) if exec_match else "1.5"
         reply = f"### Pipeline Execution Performance & Optimization\n\n"
-        reply += f"The current batch finished processing in **{duration_val} seconds**.\n\n"
+        if exec_match:
+            reply += f"The current batch finished processing in **{exec_match.group(1)} seconds**.\n\n"
         reply += "#### Optimization Recommendations:\n"
         reply += "1. **Database Indexing**: Add composite indices on high-cardinality keys (`customer_id`, `order_id`) to accelerate staging lookups.\n"
         reply += "2. **Stream Chunking**: For files larger than 10MB, streaming chunk size of 50,000 rows reduces memory footprint.\n"
@@ -178,7 +213,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         return reply
 
     # F. Business Insights & Summary Questions
-    is_insights_question = any(k in query_lower for k in [
+    is_insights_question = _has_any_word(query_lower, [
         "executive summary", "business insight", "summary", "kpi", "overview", "what happened", "findings"
     ])
     if is_insights_question:
@@ -194,7 +229,7 @@ def generate_responsive_chat_reply(prompt: str, system_instruction: str = None) 
         return reply
 
     # G. Platform Architecture & Feature Inquiries (SnapLogic, Power BI, RAG, etc.)
-    if any(k in query_lower for k in ["snaplogic", "snap", "iris"]):
+    if _has_any_word(query_lower, ["snaplogic", "snap", "iris"]):
         return """### SnapLogic Integration Architecture
 The ETL pipeline integrates with SnapLogic IIP (Intelligent Integration Platform):
 - **FileReader Snap**: Automates raw dataset intake triggers on file system modifications.
@@ -202,14 +237,14 @@ The ETL pipeline integrates with SnapLogic IIP (Intelligent Integration Platform
 - **SQL Staging Snap**: Validates foreign key constraints and stages data into relational tables.
 - **Docx & Report Snap**: Generates analytical executive summaries in 4 formats (JSON, Word, Markdown, PDF)."""
 
-    if any(k in query_lower for k in ["power bi", "pbi", "dashboard"]):
+    if _has_any_word(query_lower, ["power bi", "pbi", "dashboard"]):
         return """### Power BI Gateway Sync
 Once dataset cleaning finishes:
 1. The **Power BI Gateway Sync Snap** triggers an automated refresh signal.
-2. Relational MySQL records in `agentic_ai_etl` are synchronized into fact and dimension models.
-3. Power BI embedded analytical dashboards update in real time with 100% data consistency."""
+2. Your warehouse rows are exported as fact and dimension CSV files (FactSales, FactOrders, DimCustomer, ...).
+3. Load that export folder in Power BI Desktop via Get Data > Folder (see the Power BI page for the path)."""
 
-    if any(k in query_lower for k in ["rag", "vector", "document", "knowledge"]):
+    if _has_any_word(query_lower, ["rag", "vector", "document", "knowledge"]):
         return """### Retrieval-Augmented Generation (RAG) Architecture
 The platform has a built-in local document and link indexer:
 1. **Document Ingestion**: Attach `.txt`, `.pdf`, `.docx`, or `.md` files or index web URLs using the paperclip tool.
@@ -217,7 +252,7 @@ The platform has a built-in local document and link indexer:
 3. **In-Context Grounding**: Top ranked snippets are injected into the agent reasoning context to answer queries accurately."""
 
     # H. Greetings & Conversational Queries
-    if any(k in query_lower for k in ["hello", "hi", "hey", "greetings", "good morning", "good evening"]):
+    if re.search(r"\b(hello|hi|hey|greetings|good morning|good evening)\b", query_lower):
         return """Hello! I am the **Control AI Data Engineering Chat Assistant**.
 
 I'm here to help you with:
@@ -229,7 +264,7 @@ I'm here to help you with:
 
 How can I assist you with your data pipeline today?"""
 
-    if any(k in query_lower for k in ["who are you", "what can you do", "what are your features", "help"]):
+    if _has_any_word(query_lower, ["who are you", "what can you do", "what are your features", "help"]):
         return """### Control AI Chat Assistant Capabilities
 
 I am an intelligent assistant connected directly to your ETL automation pipeline and database:
@@ -241,19 +276,26 @@ I am an intelligent assistant connected directly to your ETL automation pipeline
 
 Feel free to ask any specific question about your data or platform!"""
 
-    if any(k in query_lower for k in ["thank", "thanks", "appreciate", "great job", "awesome"]):
+    if _has_any_word(query_lower, ["thank", "thanks", "appreciate", "great job", "awesome"]):
         return "You're very welcome! If you have any more questions about your datasets, pipeline runs, or SQL queries, feel free to ask anytime."
 
-    # General Fallback: Construct a contextual, intelligent response directly addressing the query
-    file_match = re.search(r'Uploaded File:[\s]*([^\s|]+)', context_section)
-    fname = file_match.group(1) if file_match else None
-    
-    reply = f"### Pipeline Assistant Analysis\n\n"
-    reply += f"Regarding your question: *\"{query_text}\"*\n\n"
-    if fname:
-        reply += f"For the active dataset (`{fname}`), the autonomous pipeline has completed profiling, data cleansing, constraint validation, and multi-format report generation (JSON, Word, MD, PDF).\n\n"
-    reply += "You can ask me to break down specific column statistics, explain why any validation rejected records occurred, generate customized SQL queries, or troubleshoot pipeline operations."
-    return reply
+    # Questions about the user's runs: answer from the measured run list in the context
+    if _has_any_word(query_lower, ["run", "runs", "status", "upload", "uploads", "latest", "last", "quality", "rows", "processed", "history"]):
+        run_lines = [l.strip() for l in context_section.splitlines() if l.strip().startswith("- ") and "| batch " in l]
+        if run_lines:
+            return "Here are your most recent pipeline runs:\n\n" + "\n".join(run_lines[:10])
+        if "not uploaded or run any datasets" in context_section:
+            return "You haven't uploaded or run any datasets yet. Upload a file on the Pipeline page to get started."
+
+    # General questions need a real language model
+    return (
+        "I couldn't reach the AI model just now - the Gemini service may be busy, or no `GEMINI_API_KEY` "
+        "is configured in `.env`. Please try your question again in a moment.\n\n"
+        "I can still get you files and logs from your runs, for example:\n"
+        "- *give me the cleaned file for sales.csv*\n"
+        "- *download the PDF report*\n"
+        "- *show the log of my last run*"
+    )
 
 def extract_text_from_llm_response(content) -> str:
     """
@@ -277,25 +319,60 @@ def extract_text_from_llm_response(content) -> str:
         return "".join(text_parts)
     return str(content)
 
-gemini_models_to_try = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
-gemini_model = None
+def _discover_gemini_models(api_key: str) -> list:
+    """
+    Text models this key can call, newest first. Google retires model versions regularly, so the list
+    is read from the API instead of being hard-coded: "*-flash-latest" aliases, then versioned flash
+    models (e.g. gemini-3.8-flash), then pro models.
+    """
+    try:
+        res = httpx.get("https://generativelanguage.googleapis.com/v1beta/models",
+                        params={"key": api_key, "pageSize": 200}, timeout=10.0)
+        res.raise_for_status()
+        names = [m["name"].split("/", 1)[-1] for m in res.json().get("models", [])
+                 if "generateContent" in m.get("supportedGenerationMethods", [])]
+    except Exception as e:
+        logger.warning(f"Could not list Gemini models ({e}); using the default model list.")
+        return []
+
+    def version(name: str) -> tuple:
+        match = re.match(r"gemini-(\d+)(?:\.(\d+))?", name)
+        return (int(match.group(1)), int(match.group(2) or 0)) if match else (0, 0)
+
+    flash = sorted([n for n in names if re.fullmatch(r"gemini-\d+(\.\d+)?-flash", n)], key=version, reverse=True)
+    pro = sorted([n for n in names if re.fullmatch(r"gemini-\d+(\.\d+)?-pro", n)], key=version, reverse=True)
+    aliases = [n for n in ("gemini-flash-latest", "gemini-pro-latest") if n in names]
+    return aliases[:1] + flash + aliases[1:] + pro
+
+
+# Tried in order; a model that is overloaded or unavailable is skipped for a cooldown period.
+# GEMINI_MODEL (optional) is tried first.
+gemini_models = []  # list of (name, client)
 
 if LLM_PROVIDER == "gemini" and GEMINI_API_KEY and not GEMINI_API_KEY.startswith("your_gemini_"):
-    try:
-        os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
-        for m_name in gemini_models_to_try:
-            try:
-                gemini_model = ChatGoogleGenerativeAI(model=m_name, temperature=0.2, max_retries=1)
-                logger.info(f"Gemini LLM model '{m_name}' initialized.")
-                break
-            except Exception as init_err:
-                logger.debug(f"Could not init model {m_name}: {init_err}")
-    except Exception as e:
-        logger.warning(f"Failed to initialize Gemini model: {e}")
-        gemini_model = None
+    os.environ["GOOGLE_API_KEY"] = GEMINI_API_KEY
+    gemini_models_to_try = [m for m in [os.getenv("GEMINI_MODEL")] if m] + (
+        _discover_gemini_models(GEMINI_API_KEY) or ["gemini-flash-latest", "gemini-3.6-flash"]
+    )
+    for m_name in list(dict.fromkeys(gemini_models_to_try))[:8]:
+        try:
+            gemini_models.append((m_name, ChatGoogleGenerativeAI(model=m_name, temperature=0.2, max_retries=1)))
+        except Exception as init_err:
+            logger.debug(f"Could not init model {m_name}: {init_err}")
+    if gemini_models:
+        logger.info(f"Gemini models configured: {', '.join(n for n, _ in gemini_models)}")
+gemini_model = gemini_models[0][1] if gemini_models else None
+_model_cooldown_until = {}
 
 _gemini_circuit_open_until = 0.0
 _ollama_circuit_open_until = 0.0
+# Which engine answered the most recent query_llm call on this thread ("gemini", "ollama" or "offline")
+_response_source = threading.local()
+
+
+def is_real_llm_available() -> bool:
+    """True when the last query_llm call on this thread was answered by Gemini or Ollama, not the offline engine."""
+    return getattr(_response_source, "value", "offline") in ("gemini", "ollama")
 
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
     """
@@ -304,40 +381,56 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
     """
     global _gemini_circuit_open_until, _ollama_circuit_open_until
 
+    _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
     if LLM_PROVIDER in ["mock", "offline"]:
         return run_mock_engine(prompt, system_instruction, json_mode)
 
     now = time.time()
 
-    # 1. Try Gemini (if configured, model initialized, and circuit is closed)
-    if LLM_PROVIDER == "gemini" and gemini_model:
-        if now >= _gemini_circuit_open_until:
-            try:
-                logger.info("Querying LLM (provider=gemini)...")
-                messages = []
-                if system_instruction:
-                    messages.append(("system", system_instruction))
-                messages.append(("user", prompt))
-                response = gemini_model.invoke(messages)
-                if response and response.content:
-                    extracted = extract_text_from_llm_response(response.content)
+    # 1. Try each configured Gemini model (skipping ones cooling down after an error)
+    if LLM_PROVIDER == "gemini" and gemini_models and now >= _gemini_circuit_open_until:
+        messages = []
+        if system_instruction:
+            messages.append(("system", system_instruction))
+        messages.append(("user", prompt))
+        overloaded = []
+        key_rejected = False
+        for attempt in range(2):
+            # Second pass: Google's "high demand" 503s are usually momentary, so retry those models once
+            candidates = gemini_models if attempt == 0 else overloaded
+            if attempt == 1:
+                if not overloaded or key_rejected:
+                    break
+                time.sleep(2)
+            overloaded = []
+            for model_name, model in candidates:
+                if attempt == 0 and now < _model_cooldown_until.get(model_name, 0.0):
+                    continue
+                try:
+                    logger.info(f"Querying LLM (gemini: {model_name})...")
+                    response = model.invoke(messages)
+                    extracted = extract_text_from_llm_response(response.content) if response else ""
                     if extracted:
-                        _gemini_circuit_open_until = 0.0
+                        _model_cooldown_until.pop(model_name, None)
+                        _response_source.value = "gemini"
                         return extracted
-            except Exception as e:
-                err_str = str(e)
-                # Check for permanent or blocked API credentials
-                if any(x in err_str for x in ["API_KEY_SERVICE_BLOCKED", "PERMISSION_DENIED", "API key not valid", "has not been used in project", "is disabled", "403"]):
-                    # Cooldown for 5 minutes for blocked/disabled key to prevent hammering
-                    _gemini_circuit_open_until = time.time() + 300
-                    logger.warning(f"Gemini API blocked or disabled: {e}. Opening circuit breaker for 300s. Trying Ollama/Local fallback...")
-                else:
-                    # Transient error, cooldown 30s
-                    _gemini_circuit_open_until = time.time() + 30
-                    logger.warning(f"Gemini API error: {e}. Cooldown 30s. Trying Ollama/Local fallback...")
-        else:
-            logger.debug("Gemini circuit breaker active, skipping to Ollama/Local fallback.")
+                except Exception as e:
+                    err_str = str(e)
+                    if any(x in err_str for x in ["API_KEY_SERVICE_BLOCKED", "PERMISSION_DENIED", "API key not valid", "has not been used in project", "is disabled"]):
+                        # The key itself is unusable: stop trying every model for 5 minutes
+                        _gemini_circuit_open_until = time.time() + 300
+                        logger.warning(f"Gemini API key rejected: {e}. Skipping Gemini for 300s.")
+                        key_rejected = True
+                        break
+                    if "404" in err_str or "not found" in err_str.lower() or "no longer available" in err_str:
+                        # Retired / unknown model: skip it for a day
+                        _model_cooldown_until[model_name] = time.time() + 86400
+                    else:
+                        # Overloaded (503) or rate limited (429): short cooldown, retried once below
+                        _model_cooldown_until[model_name] = time.time() + 20
+                        overloaded.append((model_name, model))
+                    logger.warning(f"Gemini model {model_name} failed ({err_str[:160]}); trying the next model.")
 
     # 2. Try Ollama (if configured and circuit is closed)
     if LLM_PROVIDER in ["gemini", "ollama"]:
@@ -357,11 +450,12 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
                 response = httpx.post(
                     f"{OLLAMA_HOST}/api/chat", 
                     json=payload, 
-                    timeout=httpx.Timeout(2.0, connect=0.5)
+                    timeout=httpx.Timeout(90.0, connect=0.5)
                 )
                 if response.status_code == 200:
                     result_json = response.json()
                     _ollama_circuit_open_until = 0.0
+                    _response_source.value = "ollama"
                     return result_json["message"]["content"]
             except Exception as e:
                 # Ollama is offline or unreachable - open circuit for 60s
@@ -566,11 +660,8 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
             dataset_name = fn_match.group(0)
             
         result = {
-            "executive_summary": f"The autonomous ETL pipeline successfully processed the dataset '{dataset_name}'. Initially, the file contained data quality gaps (null values and duplication) which were cleansed. The pipeline successfully validated schema integrity, stored it in the selected format, and synchronized staging and production schemas.",
-            "business_insights": [
-                "Top billing entity categories account for 45% of total value.",
-                "Regional distribution demonstrates South and West regions leading with 60% transactions."
-            ],
+            "executive_summary": f"The ETL pipeline processed the dataset '{dataset_name}'.",
+            "business_insights": [],
             "recommendations": [
                 "Implement a dynamic product master lookup table to resolve missing prices pre-load.",
                 "Optimize table indices to accelerate dashboard query performance."
@@ -581,11 +672,8 @@ def run_mock_engine(prompt: str, system_instruction: str, json_mode: bool) -> st
     # Fallback
     else:
         result = {
-            "executive_summary": "The autonomous ETL pipeline successfully processed the dataset. The multi-agent pipeline scrubbed errors, validated schema integrity, and synchronized database tables.",
-            "business_insights": [
-                "Top selling category accounts for 42% of revenue.",
-                "Regional distribution shows East and West regions leading with 65% total sales."
-            ],
+            "executive_summary": "The ETL pipeline processed the dataset.",
+            "business_insights": [],
             "recommendations": [
                 "Perform index analysis on table columns to accelerate reports.",
                 "Schedule nightly batch processes during low utilization hours."
