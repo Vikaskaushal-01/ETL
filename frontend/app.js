@@ -1,20 +1,72 @@
-// Hijack window.fetch to inject X-User-Email header for account separation
+// Session token issued by /api/v1/auth/login; the backend derives the account from it
+function getAuthToken() {
+    // "Remember me" keeps the session in localStorage; otherwise it lives only for this browser session
+    return localStorage.getItem('controlai_token') || sessionStorage.getItem('controlai_token');
+}
+
+function storeAuthToken(token, remember) {
+    localStorage.removeItem('controlai_token');
+    sessionStorage.removeItem('controlai_token');
+    (remember ? localStorage : sessionStorage).setItem('controlai_token', token);
+}
+
+function isApiUrl(url) {
+    const path = typeof url === 'string' ? url : (url && url.url) || '';
+    return path.startsWith('/api/v1/') || path.startsWith(`${window.location.origin}/api/v1/`);
+}
+
+// Appends ?token= to API links opened outside fetch (downloads, new tabs, chat links)
+function withAuthToken(url) {
+    const token = getAuthToken();
+    if (!token || typeof url !== 'string' || !isApiUrl(url) || /[?&]token=/.test(url)) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
+
+function handleSessionExpired() {
+    if (localStorage.getItem('isLoggedIn') !== 'true') return;
+    localStorage.setItem('isLoggedIn', 'false');
+    localStorage.removeItem('controlai_token');
+    sessionStorage.removeItem('controlai_token');
+    if (typeof showToast === 'function') showToast('error', 'Your session has expired. Please sign in again.');
+    setTimeout(() => window.location.reload(), 1200);
+}
+
+// Hijack window.fetch to attach the session token to every API request
 const originalFetch = window.fetch;
 window.fetch = function(url, options) {
     options = options || {};
     options.headers = options.headers || {};
-    const email = localStorage.getItem('controlai_email');
-    if (email) {
+    const token = getAuthToken();
+    if (token && isApiUrl(url)) {
         if (options.headers instanceof Headers) {
-            options.headers.set('X-User-Email', email);
+            options.headers.set('Authorization', `Bearer ${token}`);
         } else if (Array.isArray(options.headers)) {
-            options.headers.push(['X-User-Email', email]);
+            options.headers.push(['Authorization', `Bearer ${token}`]);
         } else {
-            options.headers['X-User-Email'] = email;
+            options.headers['Authorization'] = `Bearer ${token}`;
         }
     }
-    return originalFetch(url, options);
+    return originalFetch(url, options).then((response) => {
+        const path = typeof url === 'string' ? url : (url && url.url) || '';
+        if (response.status === 401 && isApiUrl(url) && !path.includes('/api/v1/auth/')) {
+            handleSessionExpired();
+        }
+        return response;
+    });
 };
+
+const originalWindowOpen = window.open.bind(window);
+window.open = function(url, ...rest) {
+    return originalWindowOpen(withAuthToken(url), ...rest);
+};
+
+// Plain <a href="/api/v1/..."> links (e.g. download links rendered in chat answers) need the token too
+document.addEventListener('click', (e) => {
+    const link = e.target.closest && e.target.closest('a[href]');
+    if (!link) return;
+    const href = link.getAttribute('href');
+    if (href && isApiUrl(href)) link.setAttribute('href', withAuthToken(href));
+}, true);
 
 function parseUTCDate(dateStr) {
     if (!dateStr) return null;
@@ -47,10 +99,29 @@ function initAppShell() {
     const topbarCrumb = document.getElementById('app-topbar-crumb');
     const viewMeta = {
         'dashboard-view': { title: 'Dashboard', crumb: 'Overview & recent activity' },
-        'pipeline-monitor-page': { title: 'Pipeline', crumb: 'Real-Time Ingestion Data Flow' }
+        'pipeline-monitor-page': { title: 'Pipeline', crumb: 'Real-Time Ingestion Data Flow' },
+        'history-view': { title: 'History', crumb: 'Every pipeline run and its results' },
+        'reports-view': { title: 'Reports', crumb: 'Generated PDF, Word, Markdown & JSON reports' },
+        'logs-view': { title: 'Logs', crumb: 'Full process log of each run' },
+        'storage-view': { title: 'Storage', crumb: 'Raw uploads, cleaned data, reports, logs & exports' },
+        'powerbi-view': { title: 'Power BI', crumb: 'Star-schema dataset exports & DAX measures' }
+    };
+    const viewLoaders = {
+        'history-view': () => window.loadHistoryView && window.loadHistoryView(),
+        'reports-view': () => window.loadReportsView && window.loadReportsView(),
+        'logs-view': () => window.loadLogsView && window.loadLogsView(),
+        'storage-view': () => loadExplorerFiles(),
+        'powerbi-view': () => window.loadPowerBIView && window.loadPowerBIView()
     };
 
     function activateView(viewId) {
+        // The live log console belongs to the Pipeline page
+        if (viewId !== 'pipeline-monitor-page') {
+            const consoleDrawer = document.getElementById('console-drawer');
+            if (consoleDrawer) consoleDrawer.classList.remove('active');
+            const logsBtn = document.getElementById('btn-toggle-logs');
+            if (logsBtn) logsBtn.classList.remove('active');
+        }
         document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
         const target = document.getElementById(viewId);
         if (target) target.classList.add('active');
@@ -68,6 +139,7 @@ function initAppShell() {
         if (viewId === 'dashboard-view' && typeof loadDashboardStats === 'function') {
             loadDashboardStats();
         }
+        if (viewLoaders[viewId]) viewLoaders[viewId]();
         if (viewId === 'pipeline-monitor-page') {
             setTimeout(() => {
                 if (typeof updateMonitorPaths === 'function') updateMonitorPaths();
@@ -75,6 +147,7 @@ function initAppShell() {
         }
     }
 
+    window.activateView = activateView;
     document.querySelectorAll('.app-nav-item[data-view]').forEach(btn => {
         btn.addEventListener('click', () => activateView(btn.getAttribute('data-view')));
     });
@@ -97,8 +170,9 @@ function initAppShell() {
 
     const notifBtn = document.getElementById('btn-topbar-notifications');
     if (notifBtn) {
-        notifBtn.addEventListener('click', () => {
-            if (typeof showToast === 'function') showToast('info', 'No new notifications');
+        notifBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.toggleNotifications) window.toggleNotifications();
         });
     }
 }
@@ -128,35 +202,37 @@ window.switchIngestMode = function(mode) {
     state.ingestMode = mode;
     const tabBatch = document.getElementById('tab-mode-batch');
     const tabRealtime = document.getElementById('tab-mode-realtime');
+    const tabUrl = document.getElementById('tab-mode-url');
     const dropZone = document.getElementById('file-drop-zone');
+    const urlPanel = document.getElementById('url-ingest-panel');
     const streamPanel = document.getElementById('realtime-stream-panel');
-    const runBtn = document.getElementById('btn-run-pipeline');
     const realtimePill = document.getElementById('realtime-header-pill');
 
-    if (mode === 'realtime') {
-        if (tabBatch) tabBatch.classList.remove('active');
-        if (tabRealtime) tabRealtime.classList.add('active');
-        if (dropZone) dropZone.style.display = 'none';
-        if (streamPanel) streamPanel.style.display = 'flex';
-        if (realtimePill) realtimePill.style.display = 'inline-flex';
-        if (runBtn) {
-            runBtn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Stream Live Ingest';
-            runBtn.classList.add('btn-realtime-glow');
-        }
-        showToast('info', 'Switched to Real-Time Streaming Ingestion Mode');
-    } else {
-        if (tabBatch) tabBatch.classList.add('active');
-        if (tabRealtime) tabRealtime.classList.remove('active');
-        if (dropZone) dropZone.style.display = 'block';
-        if (streamPanel) streamPanel.style.display = 'none';
-        if (realtimePill) realtimePill.style.display = 'none';
-        if (runBtn) {
-            runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run Data Flow';
-            runBtn.classList.remove('btn-realtime-glow');
-        }
-        showToast('info', 'Switched to Batch File Ingestion Mode');
-    }
+    if (mode !== 'realtime' && state.isStreaming) window.stopRealtimeStreamRunner();
+    if (tabBatch) tabBatch.classList.toggle('active', mode === 'batch');
+    if (tabUrl) tabUrl.classList.toggle('active', mode === 'url');
+    if (tabRealtime) tabRealtime.classList.toggle('active', mode === 'realtime');
+    if (dropZone) dropZone.style.display = mode === 'batch' ? 'block' : 'none';
+    if (urlPanel) urlPanel.style.display = mode === 'url' ? 'flex' : 'none';
+    if (streamPanel) streamPanel.style.display = mode === 'realtime' ? 'flex' : 'none';
+    if (realtimePill) realtimePill.style.display = mode === 'realtime' ? 'inline-flex' : 'none';
+    updateRunButtonLabel();
 };
+
+function updateRunButtonLabel() {
+    const runBtn = document.getElementById('btn-run-pipeline');
+    if (!runBtn) return;
+    runBtn.classList.toggle('btn-realtime-glow', state.ingestMode === 'realtime');
+    if (state.ingestMode === 'realtime') {
+        runBtn.innerHTML = state.isStreaming
+            ? '<i class="fa-solid fa-stop"></i> Stop Streaming'
+            : '<i class="fa-solid fa-satellite-dish"></i> Start Streaming';
+    } else if (state.ingestMode === 'url') {
+        runBtn.innerHTML = '<i class="fa-solid fa-link"></i> Fetch URL & Run Data Flow';
+    } else {
+        runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run Data Flow';
+    }
+}
 
 window.setStreamBatchSize = function(size) {
     state.streamBatchSize = size;
@@ -224,7 +300,8 @@ function initAuth() {
 
     // 1. Session state checker
     const checkSession = () => {
-        const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+        // Sessions from before token auth have no token and must sign in again
+        const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true' && !!getAuthToken();
         if (isLoggedIn) {
             loginScreen.classList.add('fade-out');
             mainApp.classList.remove('app-hidden');
@@ -349,7 +426,9 @@ function initAuth() {
             })
             .then(data => {
                 localStorage.setItem('isLoggedIn', 'true');
-                
+                const rememberEl = document.getElementById('login-remember');
+                storeAuthToken(data.token, rememberEl ? rememberEl.checked : true);
+
                 let displayName = 'System Administrator';
                 let email = user;
                 
@@ -702,6 +781,7 @@ function initAuth() {
         .then(data => {
             // Save state
             localStorage.setItem('isLoggedIn', 'true');
+            storeAuthToken(data.token, true);
             localStorage.setItem('controlai_username', name);
             localStorage.setItem('controlai_email', email);
             localStorage.setItem('controlai_avatar', avatar);
@@ -743,6 +823,8 @@ function initAuth() {
         profileDropdown.classList.remove('active');
         
         localStorage.setItem('isLoggedIn', 'false');
+        localStorage.removeItem('controlai_token');
+        sessionStorage.removeItem('controlai_token');
         localStorage.removeItem('controlai_username');
         localStorage.removeItem('controlai_email');
         localStorage.removeItem('controlai_avatar');
@@ -835,69 +917,18 @@ function initDrawers() {
     };
     window.closeAllMenus = closeAllMenus;
 
-    if (btnTogglePowerBI && powerbiDrawer) {
+    // The Storage and Power BI drawers became full pages; the pipeline toolbar buttons open them
+    if (btnTogglePowerBI) {
         btnTogglePowerBI.addEventListener('click', () => {
-            const wasActive = powerbiDrawer.classList.contains('active');
             closeAllMenus();
-            if (!wasActive) {
-                powerbiDrawer.classList.add('active');
-                btnTogglePowerBI.classList.add('active');
-                fetchPowerBIStatus();
-                if (workspace) workspace.classList.add('blur-bg');
-            } else {
-                if (btnToggleGraph) btnToggleGraph.classList.add('active');
-            }
+            if (window.activateView) window.activateView('powerbi-view');
         });
     }
 
-    if (btnClosePowerBI && powerbiDrawer) {
-        btnClosePowerBI.addEventListener('click', () => {
-            closeAllMenus();
-            if (btnToggleGraph) btnToggleGraph.classList.add('active');
-        });
-    }
-
-    if (btnTriggerPbiRefresh) {
-        btnTriggerPbiRefresh.addEventListener('click', async () => {
-            btnTriggerPbiRefresh.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
-            try {
-                const res = await fetch('/api/v1/powerbi/refresh', { method: 'POST' });
-                if (res.ok) {
-                    const data = await res.json();
-                    showToast('success', 'Power BI Dataset Refreshed Successfully!');
-                    writeConsoleLog(`[Power BI Gateway] Manual dataset refresh triggered successfully. Timestamp: ${data.last_refresh}`, 'text-yellow');
-                    fetchPowerBIStatus();
-                } else {
-                    showToast('error', 'Power BI dataset refresh request failed.');
-                }
-            } catch (err) {
-                showToast('error', 'Error calling Power BI refresh API.');
-            } finally {
-                btnTriggerPbiRefresh.innerHTML = '<i class="fa-solid fa-rotate"></i> Trigger Dataset Refresh';
-            }
-        });
-    }
-
-    if (btnToggleExplorer && explorerDrawer) {
+    if (btnToggleExplorer) {
         btnToggleExplorer.addEventListener('click', () => {
-            const wasActive = explorerDrawer.classList.contains('active');
             closeAllMenus();
-            if (!wasActive) {
-                explorerDrawer.classList.add('active');
-                btnToggleExplorer.classList.add('active');
-                loadExplorerFiles();
-                loadDashboardStats();
-                if (workspace) workspace.classList.add('blur-bg');
-            } else {
-                if (btnToggleGraph) btnToggleGraph.classList.add('active');
-            }
-        });
-    }
-
-    if (btnCloseExplorer) {
-        btnCloseExplorer.addEventListener('click', () => {
-            closeAllMenus();
-            if (btnToggleGraph) btnToggleGraph.classList.add('active');
+            if (window.activateView) window.activateView('storage-view');
         });
     }
 
@@ -1240,13 +1271,32 @@ function initPipelineControls() {
     const runBtn = document.getElementById('btn-run-pipeline');
     if (!runBtn) return;
     
-    runBtn.addEventListener('click', async () => {
+    runBtn.addEventListener('click', () => {
+        if (state.ingestMode === 'realtime') {
+            if (state.isStreaming) {
+                window.stopRealtimeStreamRunner();
+            } else {
+                const intervalSel = document.getElementById('stream-interval-select');
+                window.startRealtimeStreamRunner(intervalSel ? parseInt(intervalSel.value, 10) : 30000);
+            }
+            return;
+        }
+        runIngestionCycle();
+    });
+}
+
+// One ingestion: upload (file / URL / stream cycle) then start and monitor the pipeline
+async function runIngestionCycle() {
         const manualEl = document.getElementById('manual-textarea');
         const hasVirtualInput = manualEl ? manualEl.value.trim() !== '' : false;
         const urlEl = document.getElementById('ingest-url-input');
-        const urlVal = urlEl ? urlEl.value.trim() : '';
+        const urlVal = (state.ingestMode === 'url' && urlEl) ? urlEl.value.trim() : '';
         let uploadResult = null;
-        
+        if (state.ingestMode === 'url' && !urlVal) {
+            showToast('error', 'Enter a direct link to a data file first.');
+            return;
+        }
+                
         resetFlowVisual();
         clearConsole();
         
@@ -1261,16 +1311,13 @@ function initPipelineControls() {
             try {
                 const uploadRes = await fetch('/api/v1/upload/url', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-User-Email': state.currentUserEmail || ''
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: urlVal })
                 });
                 if (!uploadRes.ok) {
                     const err = await uploadRes.json();
                     writeConsoleLog(`[System Error] URL upload failed: ${err.detail || 'Unknown error'}`, 'text-red');
-                    showToast('error', 'URL Ingestion failed.');
+                    showToast('error', err.detail || 'URL ingestion failed.');
                     return;
                 }
                 uploadResult = await uploadRes.json();
@@ -1281,10 +1328,19 @@ function initPipelineControls() {
             }
         } else if (state.ingestMode === 'realtime') {
             const streamTypeSelect = document.getElementById('stream-type-select');
-            const streamType = streamTypeSelect ? streamTypeSelect.value : 'transactions';
+            const streamType = streamTypeSelect ? streamTypeSelect.value : 'live_url';
+            const streamUrlEl = document.getElementById('stream-url-input');
+            const streamUrl = streamUrlEl ? streamUrlEl.value.trim() : '';
+            if (streamType === 'live_url' && !streamUrl) {
+                showToast('error', 'Enter the feed URL to stream from.');
+                window.stopRealtimeStreamRunner();
+                return;
+            }
             state.streamCycle = (state.streamCycle || 0) + 1;
-            
-            writeConsoleLog(`[Real-Time Stream] Generating synthetic stream batch: ${streamType} (Cycle #${state.streamCycle}, ${state.streamBatchSize || 30} rows)...`);
+
+            writeConsoleLog(streamType === 'live_url'
+                ? `[Real-Time Stream] Cycle #${state.streamCycle}: pulling live snapshot from ${streamUrl}...`
+                : `[Real-Time Stream] Cycle #${state.streamCycle}: simulator generating ${state.streamBatchSize || 30} ${streamType} records...`);
             
             const pulseDot = document.getElementById('stream-pulse-dot');
             const statusText = document.getElementById('stream-status-text');
@@ -1294,7 +1350,7 @@ function initPipelineControls() {
             if (statusText) statusText.textContent = `Streaming ${streamType}...`;
             if (cycleCounter) cycleCounter.textContent = `Cycle #${state.streamCycle}`;
             
-            uploadResult = await uploadRealtimeStream(streamType, state.streamBatchSize || 30, state.streamCycle);
+            uploadResult = await uploadRealtimeStream(streamType, state.streamBatchSize || 30, state.streamCycle, streamType === 'live_url' ? streamUrl : null);
         } else if (!hasVirtualInput) {
             if (!state.selectedFile) {
                 showToast('error', 'Select a file or enter text data to ingest.');
@@ -1307,7 +1363,7 @@ function initPipelineControls() {
             const manualFileEl = document.getElementById('manual-filename');
             const filename = (manualFileEl ? manualFileEl.value.trim() : '') || 'adhoc_sales.csv';
             
-            writeConsoleLog('[System] Generating simulated file from text editor...');
+            writeConsoleLog('[System] Creating a file from the text editor input...');
             const blob = new Blob([rawData], { type: 'text/plain' });
             const virtualFile = new File([blob], filename, { type: 'text/plain' });
             uploadResult = await uploadFile(virtualFile);
@@ -1349,16 +1405,16 @@ function initPipelineControls() {
             setStepStatus('intake', 'failed', 'Crashed');
             stopEqualizerPulsing();
         }
-    });
 }
 
-async function uploadRealtimeStream(streamType, recordCount, cycleIndex) {
+async function uploadRealtimeStream(streamType, recordCount, cycleIndex, streamUrl = null) {
     try {
         const response = await fetch('/api/v1/upload/realtime', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stream_type: streamType,
+                stream_url: streamUrl,
                 record_count: recordCount,
                 cycle_index: cycleIndex
             })
@@ -1375,28 +1431,33 @@ async function uploadRealtimeStream(streamType, recordCount, cycleIndex) {
 }
 
 // Continuous Real-Time Streaming Cycle Runner
-window.startRealtimeStreamRunner = function(intervalMs = 8000) {
+window.startRealtimeStreamRunner = function(intervalMs = 30000) {
     if (state.streamIntervalId) clearInterval(state.streamIntervalId);
     state.isStreaming = true;
-    showToast('success', `Continuous streaming runner active (interval: ${intervalMs / 1000}s)`);
-    
-    const runBtn = document.getElementById('btn-run-pipeline');
-    if (runBtn) runBtn.click();
-    
+    state.streamCycle = 0;
+    updateRunButtonLabel();
+    const pulseDot = document.getElementById('stream-pulse-dot');
+    if (pulseDot) pulseDot.classList.add('streaming');
+    showToast('success', `Streaming started: a new cycle every ${intervalMs / 1000}s`);
+
+    runIngestionCycle();
     state.streamIntervalId = setInterval(() => {
         if (!state.isStreaming) {
             clearInterval(state.streamIntervalId);
             state.streamIntervalId = null;
             return;
         }
-        if (state.ingestMode === 'realtime') {
-            const runBtn = document.getElementById('btn-run-pipeline');
-            if (runBtn) runBtn.click();
+        // Skip a tick while the previous cycle's pipeline is still running
+        if (state.pipelinePollingInterval) {
+            writeConsoleLog('[Real-Time Stream] Previous cycle still running, waiting for the next interval.', 'text-yellow');
+            return;
         }
+        runIngestionCycle();
     }, intervalMs);
 };
 
 window.stopRealtimeStreamRunner = function() {
+    const wasStreaming = state.isStreaming;
     state.isStreaming = false;
     if (state.streamIntervalId) {
         clearInterval(state.streamIntervalId);
@@ -1406,7 +1467,8 @@ window.stopRealtimeStreamRunner = function() {
     const statusText = document.getElementById('stream-status-text');
     if (pulseDot) pulseDot.classList.remove('streaming');
     if (statusText) statusText.textContent = 'Stream Ingest: Standby';
-    showToast('info', 'Continuous streaming runner stopped.');
+    updateRunButtonLabel();
+    if (wasStreaming) showToast('info', `Streaming stopped after ${state.streamCycle} cycle(s).`);
 };
 
 
@@ -1460,7 +1522,8 @@ function startPipelinePolling(pipelineId) {
             if (!response.ok) return;
             const data = await response.json();
             state.currentPipelineData = data;
-            
+            updatePipelineMonitorUI(data);
+
             updateLogsConsole(data.logs);
             if (data.stages) {
                 updateFlowVisualFromStages(data.stages);
@@ -1482,8 +1545,10 @@ function startPipelinePolling(pipelineId) {
                 setStepStatus('report', 'completed', 'Report Ready');
                 setStepStatus('pbi', 'completed', 'Refreshed');
                 
-                writeConsoleLog(`[System Success] Pipeline complete! Status: ${data.status}. Duration: ${data.execution_time.toFixed(2)}s`, 'text-green');
-                showToast('success', `Automation Complete: Batch ${state.currentBatchId}`);
+                writeConsoleLog(`[System Success] Pipeline complete! Status: ${data.status}. Duration: ${(data.execution_time || 0).toFixed(2)}s`, 'text-green');
+                showToast(data.status === 'Success' ? 'success' : 'info', `${data.filename || data.batch_id}: ${data.status}`);
+                playAlertChime(true);
+                if (window.refreshNotifications) window.refreshNotifications();
                 
                 stopEqualizerPulsing();
                 
@@ -1491,8 +1556,10 @@ function startPipelinePolling(pipelineId) {
                 loadExplorerFiles();
                 loadReportsList();
                 loadChatBatchContexts();
-                
-                fetchSelectedBatchInsights(state.currentBatchId);
+
+                if (localStorage.getItem('pref_auto_ai') !== 'false') {
+                    fetchSelectedBatchInsights(state.currentBatchId);
+                }
             } else if (data.status === 'Failed') {
                 clearInterval(state.pipelinePollingInterval);
                 state.pipelinePollingInterval = null;
@@ -1500,8 +1567,10 @@ function startPipelinePolling(pipelineId) {
                 const activeStep = getActiveStep(data.logs);
                 if (activeStep) setStepStatus(activeStep, 'failed', 'Crashed');
                 
-                writeConsoleLog('[System Failure] Pipeline execution aborted due to errors.', 'text-red');
-                showToast('error', `Execution failed.`);
+                writeConsoleLog(`[System Failure] Pipeline execution aborted: ${data.error || 'see the process log for details'}`, 'text-red');
+                showToast('error', `${data.filename || data.batch_id}: pipeline failed. ${data.error || ''}`);
+                playAlertChime(false);
+                if (window.refreshNotifications) window.refreshNotifications();
                 
                 stopEqualizerPulsing();
                 loadDashboardStats();
@@ -1510,6 +1579,27 @@ function startPipelinePolling(pipelineId) {
             loggerError('polling', e);
         }
     }, 1500);
+}
+
+// Short success / failure chime when a run finishes (Preferences > Audio Alerts)
+function playAlertChime(success) {
+    if (localStorage.getItem('pref_audio_alerts') === 'false') return;
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const notes = success ? [660, 880] : [440, 330];
+        notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.08, ctx.currentTime + i * 0.15);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.15 + 0.14);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(ctx.currentTime + i * 0.15);
+            osc.stop(ctx.currentTime + i * 0.15 + 0.15);
+        });
+    } catch (e) { /* audio is optional */ }
 }
 
 // Equalizer dynamic pulsation helper
@@ -1665,7 +1755,7 @@ function setStepStatus(step, status, text) {
         if (step === 'intake') {
             linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('intake'); event.stopPropagation();" class="node-inline-link" title="Download Profile JSON"><i class="fa-solid fa-file-code"></i> Profile</a></div>`;
         } else if (step === 'transformation') {
-            const rel_clean = `Accounts/${emailPath}/cleaned data/${filename}`;
+            const rel_clean = (data.stages && data.stages.transformation && data.stages.transformation.output && data.stages.transformation.output.clean_dataset_path) || `Accounts/${emailPath}/cleaned data/${filename}`;
             linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadNodeData('${rel_clean}'); event.stopPropagation();" class="node-inline-link" title="Download Clean CSV"><i class="fa-solid fa-file-csv"></i> Clean CSV</a></div>`;
         } else if (step === 'storage') {
             linksHtml = `<div class="step-card-links"><a href="#" onclick="downloadStageMetadata('storage'); event.stopPropagation();" class="node-inline-link" title="Download SQL DDL"><i class="fa-solid fa-database"></i> SQL DDL</a></div>`;
@@ -1698,6 +1788,8 @@ function clearConsole() {
 }
 
 function writeConsoleLog(text, colorClass = '') {
+    // Preferences > Console Log Level: WARN shows only warnings/errors
+    if (localStorage.getItem('pref_log_level') === 'WARN' && !/text-(red|yellow)/.test(colorClass)) return;
     const consoleBody = document.getElementById('console-logs');
     const p = document.createElement('p');
     if (colorClass) p.className = colorClass;
@@ -1730,10 +1822,6 @@ async function fetchSelectedBatchInsights(batchId) {
                     const report = reports[0];
                     const score = report.quality_score;
                     
-                    const statScore = document.getElementById('stat-quality-score');
-                    if (statScore) statScore.textContent = `${score}%`;
-                    const widgScore = document.getElementById('widget-quality-val');
-                    if (widgScore) widgScore.textContent = `${score}%`;
                     const monScore = document.getElementById('monitor-stat-quality');
                     if (monScore) monScore.textContent = `${score}%`;
                     
@@ -1747,9 +1835,6 @@ async function fetchSelectedBatchInsights(batchId) {
                         });
                     }
                     
-                    const missingCount = report.missing_values ? Object.values(report.missing_values).reduce((a, b) => a + b, 0) : 0;
-                    const statFail = document.getElementById('stat-failed-records');
-                    if (statFail) statFail.textContent = report.duplicate_count + missingCount;
                 }
             }
             
@@ -1853,41 +1938,11 @@ async function fetchSelectedBatchInsights(batchId) {
                         if (pipeData.stages) {
                             updateFlowVisualFromStages(pipeData.stages);
                         }
+                        updatePipelineMonitorUI(pipeData);
+                        const bBadge = document.getElementById('batch-badge-id');
+                        if (bBadge) bBadge.textContent = `Batch: ${batchId}`;
+                        updateLogsConsole(pipeData.logs || []);
                         
-                        // 1. Rows Ingested (stat-total-processed)
-                        const rowsIngested = (pipeData.stages && pipeData.stages.intake && pipeData.stages.intake.output && typeof pipeData.stages.intake.output.rows === 'number') 
-                            ? pipeData.stages.intake.output.rows 
-                            : 0;
-                        const stTot = document.getElementById('stat-total-processed');
-                        if (stTot) stTot.textContent = rowsIngested.toLocaleString();
-                        
-                        // 2. Rejections (stat-failed-records)
-                        const rejections = (pipeData.stages && pipeData.stages.storage && pipeData.stages.storage.output && typeof pipeData.stages.storage.output.rows_rejected === 'number') 
-                            ? pipeData.stages.storage.output.rows_rejected 
-                            : 0;
-                        const stFail = document.getElementById('stat-failed-records');
-                        if (stFail) stFail.textContent = rejections.toLocaleString();
-                        
-                        // 3. Pipeline Duration (stat-avg-runtime)
-                        let durationVal = 0;
-                        if (pipeData.execution_time) {
-                            durationVal = pipeData.execution_time;
-                        } else if (pipeData.start_time && pipeData.end_time) {
-                            durationVal = (parseUTCDate(pipeData.end_time) - parseUTCDate(pipeData.start_time)) / 1000;
-                        }
-                        const stAvg = document.getElementById('stat-avg-runtime');
-                        if (stAvg) stAvg.textContent = `${durationVal.toFixed(1)}s`;
-                        
-                        // 4. Success Rate (stat-success-rate)
-                        let successRate = 100;
-                        if (rowsIngested > 0) {
-                            successRate = ((rowsIngested - rejections) / rowsIngested) * 100;
-                        } else {
-                            if (pipeData.status === 'Failed') successRate = 0;
-                            else if (pipeData.status === 'Success' || pipeData.status === 'Passed with Warnings') successRate = 100;
-                        }
-                        const stSucc = document.getElementById('stat-success-rate');
-                        if (stSucc) stSucc.textContent = `${successRate.toFixed(1)}%`;
                     }
                 }
             } catch (err) {
@@ -1910,6 +1965,7 @@ async function fetchSelectedBatchInsights(batchId) {
 
 // Load Global Dashboard statistics
 async function loadDashboardStats() {
+    if (!getAuthToken()) return;
     try {
         const response = await fetch('/api/v1/dashboard/summary');
         if (!response.ok) return;
@@ -1944,11 +2000,12 @@ async function loadDashboardStats() {
                     else if (run.status === 'Passed with Warnings') badgeClass = 'warning';
                     else if (run.status === 'Running') badgeClass = 'running';
                     
-                    const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleTimeString() : 'N/A';
+                    const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleString() : 'N/A';
                     const runtimeStr = run.execution_time ? `${run.execution_time.toFixed(1)}s` : '--';
                     
+                    const runBatch = run.pipeline_id.replace('pipe_', '');
                     tr.innerHTML = `
-                        <td><strong>${run.pipeline_id}</strong></td>
+                        <td><strong>${escapeHtml(run.filename || runBatch)}</strong><div class="text-secondary" style="font-size:10px;">${runBatch}</div></td>
                         <td>${startStr}</td>
                         <td>${runtimeStr}</td>
                         <td><span class="badge ${badgeClass}">${run.status}</span></td>
