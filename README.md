@@ -11,36 +11,34 @@ A production-ready, autonomous data engineering platform that ingests raw datase
 - **HTML5**: Semantic single-page layout with interactive dashboard panels, file upload drag-and-drop zone, live timeline tracking, and data tables.
 - **Vanilla CSS3**: Custom Glassmorphism design system with dark/light themes, smooth transitions, responsive flex/grid layouts, and custom scrollbars.
 - **JavaScript (ES6+)**: SPA state management, REST API integration, asynchronous polling, drag-and-drop handlers, dynamic pagination, and toast notification system.
-- **Chart.js**: Dynamic interactive data visualization for Quality Score gauges, summary bar graphs, and error breakdown charts.
+- **Chart.js**: Execution-duration trend chart on the dashboard.
 - **Font Awesome 6.4.0**: Modern UI icon suite for action buttons, navigation tabs, status indicators, and file formats.
-- **Google Fonts (Outfit)**: Modern typography and font hierarchy.
+- **Google Fonts (Plus Jakarta Sans, JetBrains Mono)**: Typography.
 
 ### ⚙️ Backend Stack (Core Engine & APIs)
 - **Python 3.10+**: Core programming language for processing pipeline and agent graph execution.
 - **FastAPI**: Asynchronous, high-performance web framework for high-throughput REST APIs.
 - **Uvicorn**: Lightning-fast ASGI server implementation for async Python applications.
-- **Pydantic & Pydantic-Settings**: Strict runtime type validation, request/response schema serialization, and `.env` settings management.
+- **Pydantic & python-dotenv**: Request/response validation and `.env` configuration.
 - **Pandas & NumPy**: High-performance data manipulation, CSV/Excel parsing (`openpyxl`), automated cleansing, median imputation, and type inference.
 - **SQLAlchemy 2.0 & PyMySQL**: Object Relational Mapper (ORM) and MySQL driver for database schemas, transactions, and staging loads.
 - **SQLite Engine**: Embedded fallback database (`agentic_ai_etl.db`) for offline development and local simulation.
-- **Redis (`redis-py`)**: In-memory caching, job state storage, and rate-limiting key-value store.
-- **HTTPX**: Asynchronous HTTP client for background microservice communication.
+- **HTTPX**: HTTP client for URL ingestion, live feeds and the Gemini model list.
 - **ReportLab**: PDF document generation engine for executive analytical reports.
 - **python-docx**: Microsoft Word (`.docx`) document exporter for executive summaries and audit reports.
-- **Cryptography & Python-Multipart**: Secure token encryption, password hashing, and form-data file upload parsing.
+- **Python-Multipart**: File upload parsing. Passwords use salted PBKDF2 and sessions use HMAC-signed tokens (Python standard library).
 
 ### 🤖 Artificial Intelligence & Agentic Workflow
 - **LangGraph**: Framework for constructing stateful multi-agent workflows with decision nodes, fallback branches, and state persistence.
-- **LangChain & LangChain Community**: LLM orchestration, prompt engineering, tool bindings, and chain pipelines.
-- **Google Gemini API (`langchain-google-genai`)**: Primary AI LLM model (`gemini-3.6-flash`) for schema profiling, cleansing strategy generation, RCA reports, and AI chat assistant.
-- **Ollama**: Local containerized LLM runner (`http://ollama:11434`) for offline or air-gapped deployments.
-- **Programmatic Heuristic LLM Engine**: Built-in offline fallback engine providing deterministic dataset cleansing and profiling rules.
+- **Google Gemini API (`langchain-google-genai`)**: Chat assistant, profiling recommendations and report summaries. Available models are discovered from the API at startup (newest flash models first, `GEMINI_MODEL` to pin one).
+- **Ollama (optional)**: Local LLM fallback (`docker compose --profile ollama up`, then pull `llama3`).
+- **Offline fallback**: Without an LLM, profiling, cleaning, RCA and reports are still computed from the data; the chat still serves files and logs.
 
 ### 🐳 Infrastructure & Data Orchestration
-- **SnapLogic (Commercial Intelligent Integration Platform - SnapLogic IIP)**: Industrial visual dataflow orchestrator, file intake monitoring (`FileReader`), Iris AI recommendations, and REST HTTP triggers (`RESTPost`).
-- **Docker & Docker Compose**: Multi-container containerization orchestrating `etl_backend`, `etl_mysql`, `etl_redis`, `etl_snaplogic`, and `etl_ollama`.
-- **MySQL 8.0**: Production relational database (`agentic_ai_etl` & `agentic_ai_etl_staging`).
-- **Power BI / Analytics**: Real-time KPI reporting, dataset modeling specifications, and automated refresh sync.
+- **SnapLogic (optional)**: `snaplogic/snaplogic_pipeline.json` watches `data/raw` and triggers `/api/v1/pipeline/start` with `X-API-Key: $SERVICE_API_KEY`.
+- **Docker & Docker Compose**: `etl_backend` and `etl_mysql` (plus optional `etl_ollama`).
+- **MySQL 8.0**: Production database `agentic_ai_etl` (staging tables are prefixed `staging_`); SQLite fallback when MySQL is unreachable.
+- **Power BI**: Star-schema CSV exports per user (FactSales, FactOrders, DimCustomer, FactExecution, FactDataQuality, DimAgent) for Power BI Desktop.
 
 ---
 
@@ -98,26 +96,30 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 
 ```text
 ETL-A/
-├── frontend/             # Single-Page Application (HTML5, Vanilla CSS3, JS, Chart.js)
-│   ├── index.html        # Main Dashboard, Upload, Data Table, Chat & Reports UI
-│   ├── style.css         # Custom Glassmorphic design system & themes
-│   └── app.js            # Frontend state, API integration, and Chart rendering
+├── frontend/             # Single-Page Application (HTML5, CSS, vanilla JS, Chart.js)
+│   ├── index.html        # Pages: Dashboard, Pipeline, History, Reports, Logs, Storage, Power BI, Settings, Chat
+│   ├── style.css         # Design system
+│   ├── app.js            # Auth, pipeline page, dashboard, chat, settings
+│   └── views.js          # History, Reports, Logs, Storage, Power BI and notifications
 ├── backend/              # FastAPI Application & Business Logic
 │   ├── main.py           # FastAPI application entry point & router registrations
 │   ├── api/              # Domain routers (auth, upload, pipeline, reports, dashboard, chat, powerbi)
-│   ├── core/             # Configuration settings, LLM client initialization (Gemini/Ollama)
+│   ├── core/             # LLM client (Gemini/Ollama/offline) and security (hashing, tokens, path/URL guards)
 │   ├── database/         # SQLAlchemy MySQL & SQLite models, repositories, and connections
 │   ├── schemas/          # Pydantic data structures & API schemas
-│   └── utils/            # Data cleansing, file handlers, PDF/Word generation utilities
-├── agents/               # 4 Specialized AI Agents (Intake, Transformation, Validation, Intelligence)
+│   └── utils/            # File readers, report writers, data insights/RCA, flowchart, account paths
+├── agents/               # 4 agents: Intake, Transformation, Storage (validation + load), Report
 ├── agents_graph/         # LangGraph state machine, execution graph nodes, and edges
-├── snaplogic/            # SnapLogic IIP visual pipeline definitions (`snaplogic_pipeline.json`, `snaplogic_flow.json`)
-├── docker/               # Containerization (`docker-compose.yml`, `Dockerfile.backend`, `init.sql`)
-├── data/                 # Local data storage (`raw/`, `processed/`, `rejected/`, `archive/`)
-├── reports/              # Output analytical reports (`pdf/`, `docx/`, `markdown/`, `json/`)
-├── powerbi/              # Power BI data modeling specifications & layouts
+├── snaplogic/            # SnapLogic pipeline definition (`snaplogic_pipeline.json`)
+├── docker/               # `docker-compose.yml`, `Dockerfile.backend`
+├── Accounts/<user>/      # Per-user workspace: data/raw, cleaned data, reports, logs, powerbi exports (git-ignored)
+├── data/raw/             # Shared intake folder (SnapLogic / CLI runs)
+├── reports/, logs/       # Copies of reports and process logs named after each file
+├── dashboards/powerbi/   # Power BI modeling guide
+├── docs/                 # Architecture, database, agents, deployment and runbook docs
+├── tests/                # pytest suite (isolated database via conftest.py)
 ├── requirements.txt      # Python dependencies manifest
-├── generate_sample_data.py # Mock raw dataset generator script
+├── generate_sample_data.py # Creates sample dirty datasets for verify_pipeline.py
 └── verify_pipeline.py    # Offline end-to-end integration test runner
 ```
 
@@ -148,7 +150,7 @@ python verify_pipeline.py   # full upload -> pipeline -> reports -> chat run in 
 Neither command touches your real database, uploads or reports.
 
 ### 4. Launch Stack via Docker Compose
-Launch MySQL, Redis, SnapLogic IIP, Ollama, and FastAPI Backend (reads secrets from the project `.env`):
+Launch MySQL and the backend (reads secrets from the project `.env`; add `--profile ollama` for a local LLM):
 ```bash
 cd docker
 docker compose up --build
@@ -157,7 +159,6 @@ docker compose up --build
 Access Services:
 - **Web Frontend Dashboard**: `http://localhost:8000/`
 - **FastAPI OpenAPI Interactive Specs**: `http://localhost:8000/docs`
-- **SnapLogic IIP Web Console**: `http://localhost:8080/snaplogic`
 - **MySQL Database**: `localhost:3306`
 
 ---

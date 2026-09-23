@@ -36,7 +36,7 @@ OLLAMA_HOST=http://ollama:11434
 
 ## 3. Running with Docker Compose
 
-To build images and launch all containers (the SnapLogic container compiles locally using `docker/Dockerfile.snaplogic` to bypass external registry credentials):
+To build images and launch the containers:
 ```bash
 cd docker
 docker-compose up --build -d
@@ -49,8 +49,6 @@ docker ps
 Verify that all 5 services are running:
 - `etl_backend` (port 8000)
 - `etl_mysql` (port 3306)
-- `etl_redis` (port 6379)
-- `etl_snaplogic` (port 8080)
 - `etl_ollama` (port 11434)
 
 ---

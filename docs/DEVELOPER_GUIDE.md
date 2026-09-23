@@ -110,5 +110,5 @@ workflow.add_edge("custom_enrichment", "storage")
 
 ## 5. Coding Standards & Conventions
 - **Clean Architecture**: Domain logic must not depend on UI or web frameworks.
-- **Graceful Fallbacks**: Every external service call (Gemini LLM, MySQL, Redis) must have a reliable local fallback.
+- **Graceful Fallbacks**: Every external service call (Gemini LLM, MySQL) must have a reliable local fallback.
 - **Commit Messages**: Follow Conventional Commits format (`feat(...)`, `test(...)`, `docs(...)`, `fix(...)`, `refactor(...)`).

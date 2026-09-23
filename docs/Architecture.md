@@ -13,7 +13,7 @@ The application follows **Clean Architecture** principles to isolate the core do
   2. **Data Transformation Agent**: Deduplicates, normalizes casing/dates, imputes missing values, and caps statistical outliers.
   3. **Storage & Validation Agent**: Selects target format (`SQL`, `CSV`, `Word`), provisions schemas, and stages records into MySQL/SQLite.
   4. **Intelligence & Report Agent**: Generates executive RCA reports in PDF, Microsoft Word (.docx), Markdown, and JSON.
-- **Interface Adapters (`backend/api/`)**: FastAPI domain routers handling batch file ingestion, real-time synthetic stream simulation, chat with RAG, and Power BI data sync.
+- **Interface Adapters (`backend/api/`)**: FastAPI domain routers handling batch file ingestion, real-time ingestion (live URL feeds or the built-in simulator), chat with RAG, and Power BI data sync.
 - **Frameworks & Storage Drivers (`backend/database/`)**: SQLAlchemy ORM with automatic fallback to SQLite WAL mode when MySQL is disconnected.
 
 ---
@@ -70,6 +70,4 @@ Control AI ETL supports high-throughput continuous streaming generators alongsid
 | :--- | :--- | :--- |
 | **`etl_backend`** | Python 3.11 / `:8000` | FastAPI application, LangGraph state machine, REST APIs |
 | **`etl_mysql`** | MySQL 8.0 / `:3306` | Production relational database (`agentic_ai_etl`) & staging schema |
-| **`etl_redis`** | Redis 7 / `:6379` | In-memory cache, rate limiting, and distributed batch locks |
-| **`etl_snaplogic`**| SnapLogic IIP / `:8080`| Commercial integration platform visual data flow simulator |
 | **`etl_ollama`** | Ollama / `:11434` | Air-gapped offline local LLM runner |
