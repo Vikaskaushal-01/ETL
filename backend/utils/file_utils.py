@@ -48,7 +48,7 @@ def detect_file_info(file_path: str) -> dict:
 def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
     """
     Reads ANY file format into a Pandas DataFrame.
-    Supports CSV, TSV, Excel, JSON, XML, IPYNB, PDF, DOCX, DOC, HTML, SQL, MD, TXT, LOG, Parquet, Images, Zip/Archives, and binary fallbacks.
+    Supports CSV, TSV, Excel, JSON, XML, IPYNB, PDF, DOCX, DOC, HTML, SQL, MD, TXT, LOG, Parquet, Images, Zip/Archives, and binary fallbacks (never pickle).
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -300,11 +300,7 @@ def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
             return pd.read_feather(file_path)
         except Exception:
             pass
-    elif file_type == "pkl":
-        try:
-            return pd.read_pickle(file_path)
-        except Exception:
-            pass
+    # Pickle files are intentionally NOT supported: unpickling untrusted uploads executes arbitrary code.
 
     # 12. Images
     elif file_type in ["png", "jpg", "jpeg", "bmp", "webp", "tiff", "gif"]:
