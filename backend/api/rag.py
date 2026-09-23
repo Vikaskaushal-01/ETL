@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Header
 from sqlalchemy.orm import Session
 from backend.database.mysql import get_db
 from backend.database.models import RagDocument
-from backend.utils.account_utils import get_user_path
+from backend.utils.account_utils import get_user_path, is_path_accessible, resolve_project_path
+from backend.core.security import sanitize_filename, validate_public_url
 from typing import Optional
 
 router = APIRouter(prefix="/rag", tags=["RAG Knowledge Base"])
@@ -77,9 +78,8 @@ async def upload_rag_document(
     Extracts text and saves the record in db.
     """
     email = x_user_email or "admin@controlai.net"
-    sanitized = email.replace("@", "_").replace(".", "_")
-    
-    filename = file.filename
+
+    filename = sanitize_filename(file.filename)
     _, ext = os.path.splitext(filename.lower())
     file_type = ext[1:] if ext else "unknown"
     
@@ -95,23 +95,20 @@ async def upload_rag_document(
     base_name, _ = os.path.splitext(filename)
     safe_filename = f"{base_name}_{unique_id}{ext}"
     
+    # Check file size limit (10MB) before anything touches the disk
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds 10MB limit.")
+
     file_path = get_user_path(email, os.path.join("data", "rag_documents", safe_filename))
-    db_file_path = f"Accounts/{sanitized}/data/rag_documents/{safe_filename}"
-    
+    db_file_path = os.path.relpath(file_path, PROJECT_ROOT).replace("\\", "/")
+
     try:
         with open(file_path, "wb") as buffer:
-            content = await file.read()
             buffer.write(content)
     except Exception as e:
         logger.error(f"Failed to save RAG file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save file on disk: {str(e)}")
-    
-    # Check file size limit (10MB)
-    file_size = os.path.getsize(file_path)
-    if file_size > 10 * 1024 * 1024:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        raise HTTPException(status_code=400, detail="File size exceeds 10MB limit.")
     
     # Extract content
     extracted_content = ""
@@ -188,8 +185,8 @@ def delete_rag_document(doc_id: int, db: Session = Depends(get_db), x_user_email
             raise HTTPException(status_code=404, detail="Document not found")
         
         # Delete file from disk
-        full_path = os.path.join(PROJECT_ROOT, doc.file_path)
-        if os.path.exists(full_path):
+        full_path = resolve_project_path(doc.file_path) if doc.file_type != "url" else ""
+        if full_path and os.path.isfile(full_path) and is_path_accessible(full_path, email):
             try:
                 os.remove(full_path)
                 logger.info(f"Deleted physical file from disk: {full_path}")
@@ -221,8 +218,11 @@ async def upload_rag_url(
     Fetch content from a URL and store it as text in the RAG database.
     """
     email = x_user_email or "admin@controlai.net"
-    sanitized = email.replace("@", "_").replace(".", "_")
-    url = str(req.url)
+    url = str(req.url).strip()
+    try:
+        validate_public_url(url)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     
     import httpx
     try:
@@ -236,11 +236,11 @@ async def upload_rag_url(
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, follow_redirects=True, timeout=15.0)
-            if response.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Failed to fetch RAG URL. Status code: {response.status_code}")
-            html_content = response.text
     except Exception as e:
-         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+    if response.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch RAG URL. Status code: {response.status_code}")
+    html_content = response.text
          
     # Parse text from HTML
     try:
@@ -293,7 +293,7 @@ async def upload_rag_url(
             filename = f"link_{uuid.uuid4().hex[:8]}.txt"
             
         db_doc = RagDocument(
-            filename=f"URL: {url[:60]}...",
+            filename=f"URL: {url[:60]}{'...' if len(url) > 60 else ''}",
             file_type="url",
             file_path=url,
             content=text_content,
