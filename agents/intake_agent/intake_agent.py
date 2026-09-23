@@ -27,19 +27,26 @@ class IntakeAgent:
             df = read_dataset(file_path)
         
         row_count, col_count = df.shape
+        if row_count == 0 or col_count == 0:
+            raise ValueError(f"Dataset '{os.path.basename(file_path)}' contains no data rows. Upload a file with a header and at least one record.")
         column_names = [str(col).strip() for col in list(df.columns) if str(col).strip()]
         if not column_names:
             column_names = [f"col_{i+1}" for i in range(col_count)]
-        
+
         # Calculate missing values
         missing_values = df.isnull().sum().to_dict()
-        missing_values = {k: int(v) for k, v in missing_values.items()}
-        
+        missing_values = {str(k): int(v) for k, v in missing_values.items()}
+
         # Calculate duplicates
         duplicate_count = int(df.duplicated().sum())
-        
+
         # Datatypes summary
-        col_types = {col: str(dtype) for col, dtype in df.dtypes.items()}
+        col_types = {str(col): str(dtype) for col, dtype in df.dtypes.items()}
+
+        # Quality is measured, not guessed: share of non-null cells, penalized by duplicate rows
+        total_elements = row_count * col_count
+        total_nulls = sum(missing_values.values())
+        quality_score = round(max(0.0, (total_elements - total_nulls - duplicate_count) / total_elements * 100), 2)
         
         # Take a small preview (first 5 rows)
         preview_data = df.head(5).to_dict(orient='records')
@@ -79,6 +86,11 @@ class IntakeAgent:
         
         system_instruction = "You are the Data Intake Agent. Analyze dataset parameters and return structured JSON metadata. Never edit the raw file."
         
+        recommended_transformations = [
+            "Trim spaces in column headers",
+            "Handle missing values in incomplete fields",
+            "Deduplicate records"
+        ]
         try:
             llm_response = query_llm(prompt, system_instruction, json_mode=True)
             # Clean response text from markdown block quotes if present
@@ -86,33 +98,26 @@ class IntakeAgent:
                 llm_response = llm_response.split("```json")[1].split("```")[0].strip()
             elif "```" in llm_response:
                 llm_response = llm_response.split("```")[1].split("```")[0].strip()
-            
-            analysis = json.loads(llm_response.strip())
+
+            llm_analysis = json.loads(llm_response.strip())
+            llm_recs = llm_analysis.get("recommended_transformations") if isinstance(llm_analysis, dict) else None
+            if isinstance(llm_recs, list) and llm_recs:
+                recommended_transformations = [str(r) for r in llm_recs]
         except Exception as e:
             logger.error(f"Error parsing LLM response in IntakeAgent: {e}")
-            # Fallback local calculation
-            total_elements = row_count * col_count
-            total_nulls = sum(missing_values.values())
-            quality_score = 100.0
-            if total_elements > 0:
-                quality_score = round(((total_elements - total_nulls - duplicate_count) / total_elements) * 100, 2)
-                quality_score = max(0.0, quality_score)
-                
-            analysis = {
-                "dataset_name": os.path.basename(file_path),
-                "rows": row_count,
-                "columns": col_count,
-                "column_names": column_names,
-                "column_types": col_types,
-                "missing_values": missing_values,
-                "duplicate_rows": duplicate_count,
-                "estimated_quality": quality_score,
-                "recommended_transformations": [
-                    "Trim spaces in column headers",
-                    "Handle missing values in incomplete fields",
-                    "Deduplicate records"
-                ]
-            }
+
+        # Measured profile values always come from the data itself; the LLM only contributes recommendations
+        analysis = {
+            "dataset_name": os.path.basename(file_path),
+            "rows": row_count,
+            "columns": col_count,
+            "column_names": column_names,
+            "column_types": col_types,
+            "missing_values": missing_values,
+            "duplicate_rows": duplicate_count,
+            "estimated_quality": quality_score,
+            "recommended_transformations": recommended_transformations
+        }
 
         execution_time = time.time() - start_time
         analysis["execution_time"] = execution_time
