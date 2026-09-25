@@ -1710,6 +1710,65 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
 /* ==========================================================================
    v2.4 — Visual polish (same tokens, same theme) + multitasking UI
    ========================================================================== */
+
+/* ---- Pipeline page: task strip ---- */
+.job-strip {
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0;
+    padding: 6px 8px 6px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-xs);
+    min-height: 48px;
+}
+.job-strip-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.job-strip-tabs { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding: 2px 0; }
+.job-strip-hint { font-size: 11.5px; color: var(--text-muted); align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-strip-add {
+    width: 30px; height: 30px; flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--border-strong);
+    background: var(--surface-2); color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+.job-strip-add:hover { border-color: var(--color-blue); color: var(--color-blue); background: var(--color-blue-soft); }
+
+.job-tab {
+    position: relative;
+    display: flex; align-items: center; gap: 7px;
+    max-width: 230px; flex-shrink: 0;
+    padding: 7px 10px 9px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-family: var(--font-main); font-size: 11.5px; color: var(--text-secondary);
+    cursor: pointer; overflow: hidden;
+    transition: var(--transition-smooth);
+}
+.job-tab:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--surface); }
+.job-tab.focused { background: var(--color-blue-soft); border-color: var(--color-blue); color: var(--color-blue-strong); }
+.job-tab-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.job-tab-meta { font-size: 10px; font-weight: 700; font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.job-tab-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: transparent; }
+.job-tab-bar > span { display: block; height: 100%; background: var(--color-blue); transition: width 0.5s ease; }
+.job-tab.is-success .job-tab-bar > span { background: var(--color-green); }
+.job-tab.is-warning .job-tab-bar > span { background: var(--color-orange); }
+.job-tab.is-failed .job-tab-bar > span { background: var(--color-red); width: 100% !important; }
+
+.job-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.job-tab.is-uploading .job-dot,
+.job-tab.is-starting .job-dot,
+.job-tab.is-running .job-dot { background: var(--color-blue); animation: jobDotPulse 1.4s infinite; }
+.job-tab.is-success .job-dot { background: var(--color-green); }
+.job-tab.is-warning .job-dot { background: var(--color-orange); }
+.job-tab.is-failed .job-dot { background: var(--color-red); }
+@keyframes jobDotPulse {
+    0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.5); }
+    70% { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+}
 .url-textarea { resize: vertical; min-height: 64px; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; outline: none; }
 .url-textarea:focus,
 .page-input:focus { border-color: var(--color-blue); box-shadow: 0 0 0 3px var(--color-blue-soft); outline: none; }
