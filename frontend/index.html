@@ -1076,6 +1076,16 @@
                                     <option value="WARN">WARN & ERROR Only</option>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="pref-max-parallel"><i class="fa-solid fa-layer-group"></i> Parallel Pipeline Runs</label>
+                                <select id="pref-max-parallel" class="settings-select">
+                                    <option value="1">1 at a time (sequential)</option>
+                                    <option value="2">2 in parallel</option>
+                                    <option value="3">3 in parallel (Default)</option>
+                                    <option value="5">5 in parallel</option>
+                                    <option value="8">8 in parallel</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="toggle-switch-group">
@@ -1096,6 +1106,17 @@
                             </div>
                             <label class="switch">
                                 <input type="checkbox" id="pref-audio-alerts" checked>
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+
+                        <div class="toggle-switch-group">
+                            <div class="toggle-info">
+                                <strong>Desktop Notifications</strong>
+                                <span>Get a system notification when a background task finishes while this tab is hidden</span>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="pref-desktop-notify">
                                 <span class="slider round"></span>
                             </label>
                         </div>

@@ -1834,7 +1834,26 @@ function initSettingsPage() {
     const selectLogLevel = document.getElementById('pref-log-level');
     const checkAutoAi = document.getElementById('pref-auto-ai');
     const checkAudioAlerts = document.getElementById('pref-audio-alerts');
+    const selectMaxParallel = document.getElementById('pref-max-parallel');
+    const checkDesktopNotify = document.getElementById('pref-desktop-notify');
     const btnSavePreferences = document.getElementById('btn-save-preferences');
+
+    // Desktop notifications need the browser's permission, asked for when the switch is turned on
+    if (checkDesktopNotify) {
+        checkDesktopNotify.addEventListener('change', async () => {
+            if (!checkDesktopNotify.checked) return;
+            if (!('Notification' in window)) {
+                checkDesktopNotify.checked = false;
+                showToast('error', 'This browser does not support desktop notifications.');
+                return;
+            }
+            const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+            if (permission !== 'granted') {
+                checkDesktopNotify.checked = false;
+                showToast('error', 'Notifications are blocked for this site in your browser settings.');
+            }
+        });
+    }
 
     // Open Settings View at target tab
     window.openSettingsPage = function(targetTabId = 'tab-profile-settings') {
@@ -2097,6 +2116,8 @@ function initSettingsPage() {
         if (selectLogLevel) selectLogLevel.value = localStorage.getItem('pref_log_level') || 'INFO';
         if (checkAutoAi) checkAutoAi.checked = localStorage.getItem('pref_auto_ai') !== 'false';
         if (checkAudioAlerts) checkAudioAlerts.checked = localStorage.getItem('pref_audio_alerts') !== 'false';
+        if (selectMaxParallel) selectMaxParallel.value = String(maxParallelJobs());
+        if (checkDesktopNotify) checkDesktopNotify.checked = localStorage.getItem('pref_desktop_notify') === 'true';
         if (selectDbEngine) {
             fetch('/api/v1/powerbi/status').then(r => r.ok ? r.json() : null).then(d => {
                 if (d && d.connector) selectDbEngine.value = `${d.connector.driver} - ${d.connector.database} (${d.connector.status})`;
@@ -2116,6 +2137,10 @@ function initSettingsPage() {
             if (selectLogLevel) localStorage.setItem('pref_log_level', selectLogLevel.value);
             if (checkAutoAi) localStorage.setItem('pref_auto_ai', checkAutoAi.checked ? 'true' : 'false');
             if (checkAudioAlerts) localStorage.setItem('pref_audio_alerts', checkAudioAlerts.checked ? 'true' : 'false');
+            if (selectMaxParallel) localStorage.setItem('pref_max_parallel', selectMaxParallel.value);
+            if (checkDesktopNotify) localStorage.setItem('pref_desktop_notify', checkDesktopNotify.checked ? 'true' : 'false');
+            // A higher limit can start queued tasks right away
+            if (typeof pumpJobQueue === 'function') { pumpJobQueue(); renderJobs(); }
 
             applyAccentTheme(themeVal);
             applyGlassIntensity(selectGlass ? selectGlass.value : 'high');
