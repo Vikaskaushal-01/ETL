@@ -541,16 +541,15 @@
                                 <div class="upload-drop-content">
                                     <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
                                     <p class="upload-title">Drop CSV / JSON / XML / Excel</p>
-                                    <span class="upload-sub">or click to browse local files</span>
+                                    <span class="upload-sub">One or many files, each runs as its own task</span>
                                 </div>
-                                <input type="file" id="file-input" style="display:none;" accept=".csv,.tsv,.txt,.json,.jsonl,.xml,.xlsx,.xls,.parquet">
-                                <div class="selected-file-banner" id="file-banner" style="display:none;">
-                                    <i class="fa-solid fa-file-code file-icon"></i>
-                                    <div class="file-details">
-                                        <span class="file-name" id="selected-file-name">-</span>
-                                        <span class="file-size" id="selected-file-size">-</span>
+                                <input type="file" id="file-input" style="display:none;" multiple accept=".csv,.tsv,.txt,.json,.jsonl,.xml,.xlsx,.xls,.parquet">
+                                <div class="file-queue" id="file-queue" style="display:none;">
+                                    <div class="file-queue-head">
+                                        <span id="file-queue-summary">0 files</span>
+                                        <button class="file-queue-clear" id="btn-clear-file" type="button">Clear all</button>
                                     </div>
-                                    <button class="btn-remove-file" id="btn-clear-file" type="button"><i class="fa-solid fa-times"></i></button>
+                                    <ul class="file-queue-list" id="file-queue-list"></ul>
                                 </div>
                             </div>
 

@@ -992,19 +992,25 @@ table tr:hover td { background: var(--surface-2); }
 .sidebar-upload-card .upload-title { font-size: 12px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .sidebar-upload-card .upload-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; display: block; }
 
-.selected-file-banner {
-    display: flex; align-items: center; gap: 12px; padding: 10px;
-    background: var(--color-blue-soft);
-    border: 1px solid #c7d2fe;
-    border-radius: var(--radius-sm);
-    margin-top: 10px; width: 100%;
+/* Selected files waiting to be queued (one task each) */
+.sidebar-upload-card.has-files { padding: 12px; }
+.sidebar-upload-card.has-files .upload-icon { font-size: 16px; margin-bottom: 2px; }
+.sidebar-upload-card.has-files .upload-sub { display: none; }
+.file-queue { flex-direction: column; gap: 6px; width: 100%; margin-top: 10px; cursor: default; }
+.file-queue-head { display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.file-queue-clear { background: none; border: none; color: var(--color-blue); font-size: 10.5px; font-weight: 700; cursor: pointer; font-family: var(--font-main); }
+.file-queue-clear:hover { color: var(--color-red); }
+.file-queue-list { list-style: none; display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
+.file-queue-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    background: var(--surface); border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+    font-size: 11.5px; text-align: left; animation: fadeInTab 0.18s ease;
 }
-.selected-file-banner .file-icon { font-size: 18px; color: var(--color-blue); }
-.selected-file-banner .file-details { flex: 1; text-align: left; display: flex; flex-direction: column; }
-.selected-file-banner .file-name { font-size: 12px; font-weight: 600; word-break: break-all; color: var(--text-primary); }
-.selected-file-banner .file-size { font-size: 10px; color: var(--text-secondary); }
-.selected-file-banner .btn-remove-file { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; }
-.selected-file-banner .btn-remove-file:hover { color: var(--color-red); }
+.file-queue-item > i { color: var(--color-blue); font-size: 13px; flex-shrink: 0; }
+.file-queue-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text-primary); }
+.file-queue-size { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); flex-shrink: 0; }
+.btn-remove-file { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
+.btn-remove-file:hover { color: var(--color-red); background: var(--color-red-soft); }
 
 .btn-run-pipeline {
     width: 100%; padding: 11px 16px;
