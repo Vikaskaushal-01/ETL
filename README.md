@@ -100,7 +100,9 @@ ETL-A/
 │   ├── index.html        # Pages: Dashboard, Pipeline, History, Reports, Logs, Storage, Power BI, Settings, Chat
 │   ├── style.css         # Design system
 │   ├── app.js            # Auth, pipeline page, dashboard, chat, settings
-│   └── views.js          # History, Reports, Logs, Storage, Power BI and notifications
+│   ├── views.js          # History, Reports, Logs, Storage, Power BI and notifications
+│   ├── jobs.js           # Task Center: parallel pipeline runs, queue, focus switching
+│   └── ui.js             # Command palette (Ctrl+K), dashboard greeting, shortcuts
 ├── backend/              # FastAPI Application & Business Logic
 │   ├── main.py           # FastAPI application entry point & router registrations
 │   ├── api/              # Domain routers (auth, upload, pipeline, reports, dashboard, chat, powerbi)
