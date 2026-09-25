@@ -1119,19 +1119,19 @@ window.startRealtimeStreamRunner = function(intervalMs = 30000) {
     if (pulseDot) pulseDot.classList.add('streaming');
     showToast('success', `Streaming started: a new cycle every ${intervalMs / 1000}s`);
 
-    runIngestionCycle();
+    runStreamCycle();
     state.streamIntervalId = setInterval(() => {
         if (!state.isStreaming) {
             clearInterval(state.streamIntervalId);
             state.streamIntervalId = null;
             return;
         }
-        // Skip a tick while the previous cycle's pipeline is still running
-        if (state.pipelinePollingInterval) {
+        // Skip a tick while the previous cycle is still queued or running (other tasks may run freely)
+        if (window.hasPendingStreamJob()) {
             writeConsoleLog('[Real-Time Stream] Previous cycle still running, waiting for the next interval.', 'text-yellow');
             return;
         }
-        runIngestionCycle();
+        runStreamCycle();
     }, intervalMs);
 };
 
