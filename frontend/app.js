@@ -2927,11 +2927,11 @@ function renderInspectorGrid(records) {
     if (!records || records.length === 0) return '';
     const headers = Object.keys(records[0]);
     
-    const headerHtml = headers.map(h => `<th>${h}</th>`).join('');
+    const headerHtml = headers.map(h => `<th>${escapeHtml(h)}</th>`).join('');
     const rowsHtml = records.slice(0, 4).map(row => {
         const cells = headers.map(h => {
             const val = row[h];
-            return `<td>${val === null || val === undefined ? '<span class="text-secondary">null</span>' : String(val)}</td>`;
+            return `<td>${val === null || val === undefined ? '<span class="text-secondary">null</span>' : escapeHtml(String(val))}</td>`;
         }).join('');
         return `<tr>${cells}</tr>`;
     }).join('');
