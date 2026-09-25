@@ -1,4 +1,5 @@
-// Workspace conveniences: the Ctrl+K command palette and global keyboard shortcuts.
+// Workspace conveniences: the Ctrl+K command palette, dashboard greeting and quick actions,
+// and global keyboard shortcuts.
 
 // ---------- Command palette ----------
 
@@ -125,6 +126,20 @@ function openAssistant() {
     setTimeout(() => document.getElementById('chat-input')?.focus(), 250);
 }
 
+// ---------- Dashboard greeting ----------
+
+function renderDashboardHero() {
+    const greeting = document.getElementById('dash-hero-greeting');
+    const dateEl = document.getElementById('dash-hero-date');
+    if (!greeting) return;
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const name = (localStorage.getItem('controlai_username') || '').trim()
+        || (localStorage.getItem('controlai_email') || '').split('@')[0];
+    greeting.textContent = name ? `${part}, ${name}` : part;
+    if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
 // ---------- wiring ----------
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -179,4 +194,27 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('notifications-panel')?.remove();
         }
     });
+
+    // Dashboard quick actions
+    document.querySelectorAll('[data-quick]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const action = btn.getAttribute('data-quick');
+            if (action === 'new-run') {
+                window.activateView('pipeline-monitor-page');
+                window.switchIngestMode('batch');
+                document.getElementById('file-input')?.click();
+            } else if (action === 'tasks') {
+                e.stopPropagation();
+                window.toggleTasksPanel();
+            } else if (action === 'assistant') {
+                openAssistant();
+            } else if (action === 'history') {
+                window.activateView('history-view');
+            }
+        });
+    });
+
+    renderDashboardHero();
+    window.addEventListener('controlai_login_success', renderDashboardHero);
+    setInterval(renderDashboardHero, 5 * 60 * 1000);
 });
