@@ -40,3 +40,38 @@ jobs:
         DATABASE_URL: sqlite:///./ci_verify.db
       run: |
         python verify_pipeline.py
+
+  docker:
+    name: Build & Smoke-Test Docker Image
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Build Image
+      run: docker build -f docker/Dockerfile.backend -t etl-backend .
+
+    - name: Run Like Render (custom $PORT, persistent volume, production)
+      run: |
+        mkdir -p "$RUNNER_TEMP/volume"
+        docker run -d --name etl -p 10000:10000 \
+          -e PORT=10000 -e ENV=production -e LLM_PROVIDER=mock \
+          -e STORAGE_DIR=/var/data -e SECRET_KEY=ci-secret \
+          -e DEFAULT_ADMIN_PASSWORD=ci-strong-password-123 \
+          -v "$RUNNER_TEMP/volume:/var/data" etl-backend
+        for i in $(seq 1 30); do
+          curl -fsS http://localhost:10000/api/v1/health && break
+          sleep 2
+        done
+        curl -fsS http://localhost:10000/api/v1/health
+        curl -fsS http://localhost:10000/ | grep -q "Control AI"
+        curl -fsS -X POST http://localhost:10000/api/v1/auth/login \
+          -H 'Content-Type: application/json' \
+          -d '{"username":"admin@controlai.net","password":"ci-strong-password-123"}' | grep -q token
+        # Runtime data must land on the volume
+        test -f "$RUNNER_TEMP/volume/agentic_ai_etl.db"
+        test -d "$RUNNER_TEMP/volume/Accounts"
+
+    - name: Container Logs
+      if: always()
+      run: docker logs etl || true
