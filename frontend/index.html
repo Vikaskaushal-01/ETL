@@ -236,6 +236,11 @@
                         <span class="app-topbar-crumb" id="app-topbar-crumb">Real-Time Ingestion Data Flow</span>
                     </div>
                     <div class="app-topbar-right">
+                        <button class="app-topbar-search" id="btn-open-palette" title="Search pages, actions and runs (Ctrl+K)">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <span>Search or jump to...</span>
+                            <kbd>Ctrl K</kbd>
+                        </button>
                         <button class="app-topbar-icon-btn" id="btn-topbar-tasks" title="Task Center"><i class="fa-solid fa-layer-group"></i></button>
                         <button class="app-topbar-icon-btn" id="btn-topbar-notifications" title="Notifications"><i class="fa-regular fa-bell"></i></button>
 
@@ -1168,11 +1173,29 @@
     </div>
 
 
+    <!-- Command Palette (Ctrl+K) -->
+    <div class="palette-overlay" id="palette-overlay" hidden>
+        <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
+            <div class="palette-input-row">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="palette-input" type="text" placeholder="Type a page, action, task or file name..." autocomplete="off" spellcheck="false" aria-controls="palette-list">
+                <kbd>Esc</kbd>
+            </div>
+            <div class="palette-list" id="palette-list" role="listbox"></div>
+            <div class="palette-footer">
+                <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> navigate</span>
+                <span><kbd>Enter</kbd> open</span>
+                <span><kbd>Ctrl K</kbd> toggle</span>
+            </div>
+        </div>
+    </div>
+
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
     <script src="app.js?v=2.3"></script>
     <script src="views.js?v=2.3"></script>
     <script src="jobs.js?v=2.3"></script>
+    <script src="ui.js?v=2.3"></script>
 </body>
 </html>
