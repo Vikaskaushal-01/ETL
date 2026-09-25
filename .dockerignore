@@ -19,3 +19,13 @@ cleaned data
 reports
 logs
 .last_cleaned_backup.json
+
+# Not needed at runtime (cleanup_all.py stays: the chat API imports it)
+.claude
+.gitattributes
+tests
+conftest.py
+verify_pipeline.py
+docs
+*.md
+render.yaml
