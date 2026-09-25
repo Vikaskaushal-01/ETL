@@ -1992,6 +1992,27 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .url-textarea:focus,
 .page-input:focus { border-color: var(--color-blue); box-shadow: 0 0 0 3px var(--color-blue-soft); outline: none; }
 
+/* ---- Toasts ---- */
+.toast { position: relative; overflow: hidden; padding-right: 36px; transition: opacity 0.3s ease, transform 0.3s ease; }
+.toast-icon { flex-shrink: 0; }
+.toast.success .toast-icon { color: var(--color-green); }
+.toast.error .toast-icon { color: var(--color-red); }
+.toast.info .toast-icon { color: var(--color-blue); }
+.toast-text { line-height: 1.45; word-break: break-word; }
+.toast-close {
+    position: absolute; top: 8px; right: 8px;
+    width: 22px; height: 22px;
+    background: none; border: none; border-radius: 4px;
+    color: var(--text-muted); cursor: pointer; font-size: 11px;
+}
+.toast-close:hover { background: var(--surface-2); color: var(--text-primary); }
+.toast-timer { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--border-color); transform-origin: left; animation: toastTimer 4.5s linear forwards; }
+.toast.success .toast-timer { background: var(--color-green); opacity: 0.4; }
+.toast.error .toast-timer { background: var(--color-red); opacity: 0.4; }
+.toast.info .toast-timer { background: var(--color-blue); opacity: 0.4; }
+.toast:hover .toast-timer { animation-play-state: paused; }
+@keyframes toastTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
 /* ---- Command palette ---- */
 .palette-overlay {
     position: fixed; inset: 0;

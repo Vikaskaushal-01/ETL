@@ -1754,14 +1754,23 @@ function showToast(type, text) {
     if (type === 'success') icon = 'fa-check-circle';
     else if (type === 'error') icon = 'fa-exclamation-triangle';
     
-    toast.innerHTML = `<i class="fa-solid ${icon}"></i> <span>${text}</span>`;
+    toast.innerHTML = `<i class="fa-solid ${icon} toast-icon"></i><span class="toast-text"></span><button class="toast-close" aria-label="Dismiss"><i class="fa-solid fa-xmark"></i></button><span class="toast-timer"></span>`;
+    // Plain text: messages include file names, which must never be parsed as markup
+    toast.querySelector('.toast-text').textContent = text;
     container.appendChild(toast);
-    
-    setTimeout(() => {
+
+    const dismiss = () => {
+        if (toast._gone) return;
+        toast._gone = true;
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(10px)';
         setTimeout(() => toast.remove(), 300);
-    }, 4000);
+    };
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+    // Keep only the latest few when many tasks finish together
+    const all = container.querySelectorAll('.toast');
+    if (all.length > 4) all[0].remove();
+    setTimeout(dismiss, 4500);
 }
 
 function loggerError(context, err) {
