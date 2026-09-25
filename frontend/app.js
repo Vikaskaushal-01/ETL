@@ -1517,12 +1517,11 @@ function renderChatSuggestions() {
     
     const suggestionsDiv = document.createElement('div');
     suggestionsDiv.className = 'chat-suggestions-wrapper';
-    suggestionsDiv.style = 'padding: 12px; margin: 10px 0; background: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px dashed rgba(59, 130, 246, 0.3);';
     suggestionsDiv.innerHTML = `
-        <p style="font-size: 11px; color: #94a3b8; margin: 0 0 8px 0; font-weight: 600;">
-            <i class="fa-solid fa-wand-magic-sparkles text-blue"></i> Quick Questions:
+        <p class="chat-suggestions-title">
+            <i class="fa-solid fa-wand-magic-sparkles text-blue"></i> Quick questions
         </p>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        <div class="chat-suggestions-chips">
             <button class="chat-chip" onclick="quickAskChat('Why were records rejected during validation?')">🔍 Root Causes & Rejections</button>
             <button class="chat-chip" onclick="quickAskChat('What transformations were applied to this dataset?')">🧹 Transformations Applied</button>
             <button class="chat-chip" onclick="quickAskChat('Explain the columns and schema data types')">📊 Schema & Data Types</button>

@@ -2013,6 +2013,11 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .toast:hover .toast-timer { animation-play-state: paused; }
 @keyframes toastTimer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
+/* ---- Chat ---- */
+.chat-suggestions-wrapper { padding: 12px; margin: 4px 0; background: var(--surface-2); border: 1px dashed #c7d2fe; border-radius: var(--radius-md); }
+.chat-suggestions-title { font-size: 11px; color: var(--text-secondary); margin: 0 0 8px 0; font-weight: 700; }
+.chat-suggestions-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* ---- Command palette ---- */
 .palette-overlay {
     position: fixed; inset: 0;
