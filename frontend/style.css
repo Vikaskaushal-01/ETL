@@ -1737,6 +1737,21 @@ kbd {
     line-height: 1.4;
     white-space: nowrap;
 }
+
+/* ---- Sidebar ---- */
+.app-sidebar-brand .brand-mark {
+    background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-blue-strong) 100%);
+    box-shadow: 0 4px 10px -3px var(--color-blue);
+}
+.app-nav-item { position: relative; }
+.app-nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -12px; top: 7px; bottom: 7px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--color-blue);
+}
 .app-nav-item .task-dot { position: static; margin-left: auto; }
 .app-sidebar.collapsed .app-nav-item .task-dot { position: absolute; top: 2px; right: 4px; margin: 0; }
 
