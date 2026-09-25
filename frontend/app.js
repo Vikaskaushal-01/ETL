@@ -2866,7 +2866,7 @@ function inspectPipelineMonitorNode(nodeId) {
                 if (stage.output.sql_preview) {
                     sqlCodeSection = `
                         <h5 style="font-size:9px; text-transform:uppercase; color:var(--color-blue); margin:8px 0 4px 0;">Generated DDL Schema & Insert Preview</h5>
-                        <pre style="background:rgba(0,0,0,0.5); font-size:9px; padding:6px; border-radius:4px; overflow-x:auto; border:1px solid rgba(255,255,255,0.06); max-height:80px; color:#aaa; font-family:monospace; margin:0;">${stage.output.sql_preview}</pre>
+                        <pre class="inspector-code">${escapeHtml(stage.output.sql_preview)}</pre>
                     `;
                 }
                 dataHtml = `
@@ -2903,9 +2903,9 @@ function inspectPipelineMonitorNode(nodeId) {
             
             if (stage.status === 'completed') {
                 dataHtml = `
-                    <div style="text-align:center; padding:12px; background:rgba(20, 184, 166, 0.05); border-radius:6px; border:1px dashed var(--color-teal);">
-                        <i class="fa-solid fa-cloud-arrow-up" style="font-size:24px; color:var(--color-teal); margin-bottom:8px;"></i>
-                        <h4 style="font-size:11px; margin:0; color:#fff;">Fact Tables Synchronized</h4>
+                    <div class="inspector-sync-card">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <h4>Fact Tables Synchronized</h4>
                         <p style="font-size:9px; color:var(--text-secondary); margin:4px 0 0 0;">Power BI embedded model refreshed successfully.</p>
                     </div>
                 `;
@@ -2937,7 +2937,7 @@ function renderInspectorGrid(records) {
     }).join('');
     
     return `
-        <div style="overflow-x:auto; background:rgba(0,0,0,0.2); border-radius:4px; max-height:120px;">
+        <div class="inspector-grid-wrap">
             <table class="inspector-table" style="font-size:9px;">
                 <thead><tr>${headerHtml}</tr></thead>
                 <tbody>${rowsHtml}</tbody>

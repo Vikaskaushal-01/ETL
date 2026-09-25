@@ -1992,6 +1992,18 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .url-textarea:focus,
 .page-input:focus { border-color: var(--color-blue); box-shadow: 0 0 0 3px var(--color-blue-soft); outline: none; }
 
+/* Inspector (light-theme friendly replacements for former inline styles) */
+.inspector-code {
+    margin: 0; padding: 8px; max-height: 110px; overflow: auto;
+    background: #0f172a; color: #e2e8f0;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono); font-size: 9.5px; line-height: 1.5;
+}
+.inspector-grid-wrap { overflow-x: auto; max-height: 140px; background: var(--surface); border: 1px solid var(--border-color); border-radius: var(--radius-sm); }
+.inspector-sync-card { text-align: center; padding: 14px; background: var(--color-green-soft); border: 1px dashed #86efac; border-radius: var(--radius-sm); }
+.inspector-sync-card i { font-size: 22px; color: var(--color-green); margin-bottom: 8px; }
+.inspector-sync-card h4 { font-size: 11.5px; margin: 0; color: var(--text-primary); }
+
 /* ---- Toasts ---- */
 .toast { position: relative; overflow: hidden; padding-right: 36px; transition: opacity 0.3s ease, transform 0.3s ease; }
 .toast-icon { flex-shrink: 0; }
