@@ -87,3 +87,22 @@ def test_development_keeps_the_admin_default(empty_db, monkeypatch):
     seed_default_admin(empty_db)
 
     assert _seeded_admin(empty_db) is not None
+
+
+def test_health_reports_503_when_the_database_is_down():
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.database.mysql import get_db
+
+    class BrokenSession:
+        def execute(self, *args, **kwargs):
+            raise RuntimeError("database unreachable")
+
+    app.dependency_overrides[get_db] = lambda: BrokenSession()
+    try:
+        response = TestClient(app).get("/api/v1/health")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "Unhealthy"
