@@ -1710,6 +1710,21 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
 /* ==========================================================================
    v2.4 — Visual polish (same tokens, same theme) + multitasking UI
    ========================================================================== */
+.app-nav-item .task-dot { position: static; margin-left: auto; }
+.app-sidebar.collapsed .app-nav-item .task-dot { position: absolute; top: 2px; right: 4px; margin: 0; }
+#btn-topbar-tasks { position: relative; }
+#btn-topbar-tasks.is-busy i { color: var(--color-blue); animation: tasksBusy 1.6s ease-in-out infinite; }
+@keyframes tasksBusy { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+.task-dot {
+    position: absolute; top: -4px; right: -4px;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 999px;
+    background: var(--color-blue); color: #fff;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 0 2px var(--surface);
+}
 
 /* ---- Pipeline page: task strip ---- */
 .job-strip {
