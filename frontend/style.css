@@ -2081,6 +2081,7 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 }
 .btn-url-ingest:hover { background: var(--color-blue-strong); }
 .btn-url-ingest[disabled] { opacity: 0.6; cursor: progress; }
+.chatbot-floating-trigger { box-shadow: 0 10px 24px -6px var(--color-blue); }
 
 /* ---- Command palette ---- */
 .palette-overlay {
@@ -2127,3 +2128,11 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .palette-empty { padding: 28px 16px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
 .palette-footer { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border-color); background: var(--surface-2); font-size: 11px; color: var(--text-muted); }
 .palette-footer kbd { margin-right: 3px; }
+
+@media (max-width: 640px) {
+    .dash-hero { padding: 18px; }
+    .dash-hero-actions { width: 100%; }
+    .dash-hero-actions > * { flex: 1; justify-content: center; }
+    .tasks-panel { right: -40px; }
+    .palette-item-hint { display: none; }
+}
