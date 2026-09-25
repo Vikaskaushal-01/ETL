@@ -179,8 +179,7 @@ function initAppShell() {
 
 // Global Application State
 const state = {
-    selectedFile: null,
-    pipelinePollingInterval: null,
+    selectedFiles: [], // files waiting to be queued as parallel tasks
     currentBatchId: null,
     explorerFolderFilter: 'all',
     explorerSearchQuery: '',
@@ -227,9 +226,12 @@ function updateRunButtonLabel() {
             ? '<i class="fa-solid fa-stop"></i> Stop Streaming'
             : '<i class="fa-solid fa-satellite-dish"></i> Start Streaming';
     } else if (state.ingestMode === 'url') {
-        runBtn.innerHTML = '<i class="fa-solid fa-link"></i> Fetch URL & Run Data Flow';
+        runBtn.innerHTML = '<i class="fa-solid fa-link"></i> Fetch URLs & Run Data Flow';
     } else {
-        runBtn.innerHTML = '<i class="fa-solid fa-play"></i> Run Data Flow';
+        const n = (state.selectedFiles || []).length;
+        runBtn.innerHTML = n > 1
+            ? `<i class="fa-solid fa-layer-group"></i> Run ${n} Files in Parallel`
+            : '<i class="fa-solid fa-play"></i> Run Data Flow';
     }
 }
 
@@ -874,56 +876,65 @@ function initDrawers() {
 
 
 
-// // Drag & Drop Ingestion
+// Drag & Drop Ingestion: any number of files can be picked; each one becomes its own parallel task
 function initDragAndDrop() {
     const dropZone = document.getElementById('file-drop-zone');
     const fileInput = document.getElementById('file-input');
-    const fileBanner = document.getElementById('file-banner');
-    const fileNameEl = document.getElementById('selected-file-name');
-    const fileSizeEl = document.getElementById('selected-file-size');
+    const queueEl = document.getElementById('file-queue');
+    const queueList = document.getElementById('file-queue-list');
+    const queueSummary = document.getElementById('file-queue-summary');
     const clearFileBtn = document.getElementById('btn-clear-file');
-    
+
+    const addFiles = (fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        const key = f => `${f.name}|${f.size}|${f.lastModified}`;
+        const known = new Set(state.selectedFiles.map(key));
+        const added = files.filter(f => !known.has(key(f)));
+        state.selectedFiles.push(...added);
+        renderSelectedFiles();
+        if (added.length) showToast('info', added.length === 1 ? `Loaded dataset: ${added[0].name}` : `${added.length} datasets added to the batch.`);
+    };
+    window.addIngestFiles = addFiles;
+    window.renderSelectedFiles = () => renderSelectedFiles();
+
     if (dropZone && fileInput) {
         dropZone.addEventListener('click', (e) => {
-            if (e.target.closest('#btn-clear-file')) return;
+            if (e.target.closest('#file-queue')) return;
             fileInput.click();
         });
-        
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.classList.add('dragover');
         });
-        
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragover');
-        });
-        
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                handleFileSelection(e.dataTransfer.files[0]);
-            }
+            addFiles(e.dataTransfer.files);
         });
-        
         fileInput.addEventListener('change', () => {
-            if (fileInput.files.length > 0) {
-                handleFileSelection(fileInput.files[0]);
-            }
+            addFiles(fileInput.files);
+            fileInput.value = '';
         });
     }
-    
+
     if (clearFileBtn) {
         clearFileBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            state.selectedFile = null;
-            if (fileInput) fileInput.value = '';
-            if (fileBanner) fileBanner.style.display = 'none';
-            if (dropZone) {
-                const dropContent = dropZone.querySelector('.upload-drop-content') || dropZone.querySelector('.node-card-header');
-                if (dropContent) dropContent.style.display = 'block';
-            }
-            showToast('info', 'File cleared.');
+            state.selectedFiles = [];
+            renderSelectedFiles();
+            showToast('info', 'Selection cleared.');
+        });
+    }
+
+    if (queueList) {
+        queueList.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-remove-file]');
+            if (!btn) return;
+            e.stopPropagation();
+            state.selectedFiles.splice(parseInt(btn.getAttribute('data-remove-file'), 10), 1);
+            renderSelectedFiles();
         });
     }
 
@@ -932,45 +943,56 @@ function initDragAndDrop() {
     if (mnodeRaw && fileInput) {
         mnodeRaw.addEventListener('click', (e) => {
             if (e.target.closest('a')) return;
+            if (state.ingestMode !== 'batch') window.switchIngestMode('batch');
             fileInput.click();
         });
         mnodeRaw.addEventListener('dragover', (e) => {
             e.preventDefault();
             mnodeRaw.classList.add('dragover');
         });
-        mnodeRaw.addEventListener('dragleave', () => {
-            mnodeRaw.classList.remove('dragover');
-        });
+        mnodeRaw.addEventListener('dragleave', () => mnodeRaw.classList.remove('dragover'));
         mnodeRaw.addEventListener('drop', (e) => {
             e.preventDefault();
             mnodeRaw.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) {
-                handleFileSelection(e.dataTransfer.files[0]);
-            }
+            if (state.ingestMode !== 'batch') window.switchIngestMode('batch');
+            addFiles(e.dataTransfer.files);
         });
     }
-    
-    function handleFileSelection(file) {
-        state.selectedFile = file;
-        if (fileNameEl) fileNameEl.textContent = file.name;
-        
-        let sizeStr = `${(file.size / 1024).toFixed(1)} KB`;
-        if (file.size > 1024 * 1024) {
-            sizeStr = `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+
+    function renderSelectedFiles() {
+        const files = state.selectedFiles;
+        if (dropZone) dropZone.classList.toggle('has-files', files.length > 0);
+        if (queueEl) queueEl.style.display = files.length ? 'flex' : 'none';
+        if (queueSummary) {
+            const total = files.reduce((sum, f) => sum + f.size, 0);
+            queueSummary.textContent = `${files.length} file${files.length === 1 ? '' : 's'} · ${fmtFileSize(total)}`;
         }
-        if (fileSizeEl) fileSizeEl.textContent = sizeStr;
-        
-        if (dropZone) {
-            const dropContent = dropZone.querySelector('.upload-drop-content') || dropZone.querySelector('.node-card-header');
-            if (dropContent) dropContent.style.display = 'none';
+        if (queueList) {
+            queueList.innerHTML = files.map((f, i) => `
+                <li class="file-queue-item">
+                    <i class="fa-solid ${fileIconFor(f.name)}"></i>
+                    <span class="file-queue-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                    <span class="file-queue-size">${fmtFileSize(f.size)}</span>
+                    <button type="button" class="btn-remove-file" data-remove-file="${i}" title="Remove" aria-label="Remove ${escapeHtml(f.name)}"><i class="fa-solid fa-xmark"></i></button>
+                </li>`).join('');
         }
-        if (fileBanner) fileBanner.style.display = 'flex';
-        
         const rawFileEl = document.getElementById('mnode-raw-file');
-        if (rawFileEl) rawFileEl.textContent = file.name;
-        
-        showToast('info', `Loaded dataset: ${file.name}`);
+        if (rawFileEl && files.length) rawFileEl.textContent = files.length === 1 ? files[0].name : `${files.length} files selected`;
+        updateRunButtonLabel();
     }
+}
+
+function fmtFileSize(bytes) {
+    if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function fileIconFor(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    if (['csv', 'tsv', 'txt'].includes(ext)) return 'fa-file-csv';
+    if (['xlsx', 'xls'].includes(ext)) return 'fa-file-excel';
+    if (['json', 'jsonl', 'xml'].includes(ext)) return 'fa-file-code';
+    return 'fa-file';
 }
 
 function osBasename(path) {
