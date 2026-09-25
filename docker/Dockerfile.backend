@@ -1,5 +1,10 @@
 FROM python:3.11-slim
 
+# Logs reach the host immediately; no .pyc files in the image
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000
+
 WORKDIR /app
 
 # All dependencies ship as wheels, so no system build tools are needed
@@ -10,4 +15,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts such as Render pass the port in $PORT. Proxy headers keep generated links on https
+# when the app runs behind the platform's load balancer.
+CMD ["sh", "-c", "exec uvicorn backend.main:app --host 0.0.0.0 --port ${PORT} --proxy-headers --forwarded-allow-ips='*'"]
