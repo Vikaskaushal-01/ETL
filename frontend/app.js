@@ -1315,6 +1315,8 @@ function writeConsoleLog(text, colorClass = '') {
 async function fetchSelectedBatchInsights(batchId) {
     if (!batchId) return;
     state.currentBatchId = batchId;
+    // Background tasks keep running; the monitor now follows this batch only
+    if (window.markFocusedBatch) window.markFocusedBatch(batchId);
     try {
         const res = await fetch(`/api/v1/pipeline/status?pipeline_id=pipe_${batchId}`);
         if (!res.ok) return;
@@ -1326,7 +1328,7 @@ async function fetchSelectedBatchInsights(batchId) {
         if (bBadge) bBadge.textContent = `Batch: ${batchId}`;
         const rawFile = document.getElementById('mnode-raw-file');
         if (rawFile && data.filename && !rawFile.querySelector('.node-card-links')) rawFile.textContent = data.filename;
-        if (data.status === 'Running' && !state.pipelinePollingInterval) startPipelinePolling(`pipe_${batchId}`);
+        if (data.status === 'Running') window.trackPipelineRun(batchId, data.filename, { focus: true, startTime: data.start_time, data });
     } catch (e) {
         loggerError('fetchSelectedBatchInsights', e);
     }
@@ -1399,10 +1401,34 @@ async function loadDashboardStats() {
     }
 }
 
+// Counts a KPI value up from its previous value (instant when reduced motion is requested)
+function animateKpi(id, target, format) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const from = typeof el._kpiValue === 'number' ? el._kpiValue : 0;
+    el._kpiValue = target;
+    if (from === target || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        el.textContent = format(target);
+        return;
+    }
+    const started = performance.now();
+    const duration = 700;
+    const step = (now) => {
+        const t = Math.min(1, (now - started) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = format(from + (target - from) * eased);
+        if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+}
+
 window.selectBatchDetail = function(batchId) {
     if (window.closeAllMenus) window.closeAllMenus();
     if (window.activateView) window.activateView('pipeline-monitor-page');
-    fetchSelectedBatchInsights(batchId);
+    // A batch that is a live task is shown straight from the Task Center
+    const live = jobManager.jobs.find(j => j.batchId === batchId && isJobActive(j));
+    if (live) window.focusJob(live.id);
+    else fetchSelectedBatchInsights(batchId);
 };
 
 function renderCharts(recentRuns) {
@@ -2407,7 +2433,8 @@ async function uploadRagFile(file) {
 }
 
 // 3. Pipeline monitor page initialization
-window.openPipelineMonitorOverlay = function(batchId, filename) {
+// startTime: epoch ms the run started (live duration clock), or null for a finished run
+window.openPipelineMonitorOverlay = function(batchId, filename, startTime = Date.now()) {
     const monPage = document.getElementById('pipeline-monitor-page');
     if (monPage) monPage.style.display = 'flex';
     
@@ -2458,13 +2485,17 @@ window.openPipelineMonitorOverlay = function(batchId, filename) {
     if (inspContent) inspContent.style.display = 'none';
 
     // Start timer clock
-    state.monitorStartTime = Date.now();
     if (state.monitorTimerInterval) clearInterval(state.monitorTimerInterval);
-    state.monitorTimerInterval = setInterval(() => {
-        const elapsed = ((Date.now() - state.monitorStartTime) / 1000).toFixed(1);
-        const mDur = document.getElementById('monitor-duration');
-        if (mDur) mDur.textContent = `${elapsed}s`;
-    }, 100);
+    state.monitorTimerInterval = null;
+    const mDur = document.getElementById('monitor-duration');
+    if (mDur) mDur.textContent = '0.0s';
+    if (startTime) {
+        state.monitorStartTime = startTime;
+        state.monitorTimerInterval = setInterval(() => {
+            const elapsed = ((Date.now() - state.monitorStartTime) / 1000).toFixed(1);
+            if (mDur) mDur.textContent = `${elapsed}s`;
+        }, 100);
+    }
 
     // Render connecting lines
     setupMonitorSvg();
