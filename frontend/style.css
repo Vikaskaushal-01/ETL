@@ -1725,6 +1725,13 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 0 2px var(--surface);
 }
+.kpi-card-live { background: linear-gradient(180deg, var(--color-blue-soft) 0%, var(--surface) 70%); border-color: #c7d2fe; }
+.kpi-card-live .kpi-card-value { color: var(--color-blue-strong); }
+.dash-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.dash-panel-head h3 { margin-bottom: 0; }
+.dash-tasks-panel { margin-top: 18px; }
+.dash-tasks-panel .job-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
+.dash-tasks-panel .job-empty { grid-column: 1 / -1; }
 
 /* ---- Task list (Task Center, dashboard) ---- */
 .job-item {

@@ -286,6 +286,11 @@
                                 <div class="kpi-card-value" id="stat-failed-records">0</div>
                                 <div class="kpi-card-sub">Rejected across all runs</div>
                             </div>
+                            <div class="kpi-card kpi-card-live">
+                                <div class="kpi-card-head"><span>Running Now</span><div class="kpi-card-icon"><i class="fa-solid fa-layer-group"></i></div></div>
+                                <div class="kpi-card-value" id="stat-running-now">0</div>
+                                <div class="kpi-card-sub" id="stat-running-sub">Up to 3 run in parallel</div>
+                            </div>
                         </div>
 
                         <div class="dash-grid-2">
@@ -302,6 +307,14 @@
                                     </table>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="dash-panel dash-tasks-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-layer-group"></i> Task Queue</h3>
+                                <button class="btn-refresh-table" data-tasks-clear><i class="fa-solid fa-broom"></i> Clear finished</button>
+                            </div>
+                            <div class="job-list" id="dash-jobs-list"></div>
                         </div>
                     </div>
 
