@@ -2017,6 +2017,15 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .chat-suggestions-wrapper { padding: 12px; margin: 4px 0; background: var(--surface-2); border: 1px dashed #c7d2fe; border-radius: var(--radius-md); }
 .chat-suggestions-title { font-size: 11px; color: var(--text-secondary); margin: 0 0 8px 0; font-weight: 700; }
 .chat-suggestions-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-url-ingest {
+    padding: 8px 12px; border: none; border-radius: var(--radius-sm);
+    background: var(--color-blue); color: #fff;
+    font-family: var(--font-main); font-size: 11px; font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+    transition: var(--transition-smooth);
+}
+.btn-url-ingest:hover { background: var(--color-blue-strong); }
+.btn-url-ingest[disabled] { opacity: 0.6; cursor: progress; }
 
 /* ---- Command palette ---- */
 .palette-overlay {

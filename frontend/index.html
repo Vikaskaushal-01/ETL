@@ -866,13 +866,13 @@
                     <div class="attach-form-group">
                         <label for="rag-url-input"><strong>Index Web Link / URL</strong></label>
                         <div class="url-input-row" style="display:flex; gap:6px;">
-                            <input type="url" id="rag-url-input" placeholder="https://example.com/documentation.html" style="flex:1; padding:8px; border-radius:4px; border:1px solid rgba(255,255,255,0.15); background:rgba(0,0,0,0.3); color:#fff; font-size:11px; outline:none; box-sizing:border-box;">
-                            <button class="btn-url-ingest" id="btn-rag-url-ingest" style="padding:8px 12px; border-radius:4px; border:none; background:var(--color-blue); color:#fff; font-size:11px; font-weight:600; cursor:pointer;">Index Link</button>
+                            <input type="url" id="rag-url-input" class="page-input" placeholder="https://example.com/documentation.html" style="flex:1;">
+                            <button class="btn-url-ingest" id="btn-rag-url-ingest">Index Link</button>
                         </div>
                     </div>
                     
                     <!-- Indexed documents list -->
-                    <div class="indexed-docs-list-section" style="margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+                    <div class="indexed-docs-list-section" style="margin-top:14px; border-top:1px solid var(--border-color); padding-top:10px;">
                         <h4>Active Knowledge Base Documents</h4>
                         <div class="indexed-docs-list" id="indexed-docs-container" style="max-height:150px; overflow-y:auto; margin-top:6px;">
                             <p class="text-secondary" style="font-size:11px; text-align:center; padding:10px;">Loading indexed documents...</p>

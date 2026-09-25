@@ -2284,11 +2284,11 @@ document.addEventListener('DOMContentLoaded', () => {
             ragDropZone.style.borderColor = 'var(--color-blue)';
         });
         ragDropZone.addEventListener('dragleave', () => {
-            ragDropZone.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+            ragDropZone.style.borderColor = '';
         });
         ragDropZone.addEventListener('drop', async (e) => {
             e.preventDefault();
-            ragDropZone.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+            ragDropZone.style.borderColor = '';
             if (e.dataTransfer.files.length > 0) {
                 const file = e.dataTransfer.files[0];
                 await uploadRagFile(file);
