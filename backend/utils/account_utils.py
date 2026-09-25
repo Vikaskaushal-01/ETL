@@ -5,6 +5,13 @@ from typing import Optional
 from backend.core.security import DEFAULT_ADMIN_EMAIL, PROJECT_ROOT, is_within
 
 ACCOUNTS_ROOT = os.path.join(PROJECT_ROOT, "Accounts")
+# Shared workspace folders at the project root (used by CLI / SnapLogic runs without an account)
+ROOT_DATA_FOLDERS = ("data", "cleaned data", "reports", "logs")
+
+
+def _in_root_data_folder(path: str) -> bool:
+    # Compared folder by folder: a folder may be a link to a mounted volume (see docker/entrypoint.sh)
+    return any(is_within(path, os.path.join(PROJECT_ROOT, folder)) for folder in ROOT_DATA_FOLDERS)
 
 
 def sanitize_email(email: str) -> str:
@@ -32,7 +39,7 @@ def get_user_path(email: str, relative_path: str) -> str:
     """
     base_dir = get_user_dir(email) or PROJECT_ROOT
     full_path = os.path.abspath(os.path.join(base_dir, relative_path))
-    if not is_within(full_path, base_dir):
+    if not is_within(full_path, base_dir) and not (base_dir == PROJECT_ROOT and _in_root_data_folder(full_path)):
         raise ValueError(f"Path '{relative_path}' escapes the workspace directory.")
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     return full_path.replace("\\", "/")
@@ -51,9 +58,7 @@ def is_path_accessible(path: str, email: Optional[str]) -> bool:
     if user_dir and is_within(path, user_dir):
         return True
     if is_admin(email) or not email:
-        for folder in ["data", "cleaned data", "reports", "logs"]:
-            if is_within(path, os.path.join(PROJECT_ROOT, folder)):
-                return True
+        return _in_root_data_folder(path)
     return False
 
 
