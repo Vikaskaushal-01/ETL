@@ -1,0 +1,38 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# New > Blueprint in the Render dashboard, pick this repository, then fill in the
+# values marked `sync: false` when prompted. See docs/Deployment.md.
+services:
+  - type: web
+    name: control-ai-etl
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile.backend
+    dockerContext: .
+    # A persistent disk needs a paid instance. For a throwaway demo on the free plan,
+    # set plan: free and delete the disk block (all data is lost on every restart).
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    # SQLite and uploaded files live on the disk, so run exactly one instance
+    numInstances: 1
+    envVars:
+      - key: ENV
+        value: production
+      - key: STORAGE_DIR
+        value: /var/data
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SERVICE_API_KEY
+        generateValue: true
+      # Password for admin@controlai.net; 12+ characters, required in production
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      # Optional: without it the platform uses its offline reasoning engine
+      - key: GEMINI_API_KEY
+        sync: false
+    disk:
+      name: etl-data
+      mountPath: /var/data
+      sizeGB: 1
