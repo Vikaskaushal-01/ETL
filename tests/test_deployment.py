@@ -31,3 +31,59 @@ def test_root_workspace_paths_cannot_escape(tmp_path, monkeypatch):
     monkeypatch.setattr(account_utils, "PROJECT_ROOT", str(tmp_path))
     with pytest.raises(ValueError):
         account_utils.get_user_path(None, "../outside.txt")
+
+
+@pytest.fixture
+def empty_db():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from backend.database.mysql import Base
+    import backend.database.models  # noqa: F401  registers the tables
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+
+
+def _seeded_admin(db):
+    from backend.database.models import User
+    from backend.core.security import DEFAULT_ADMIN_EMAIL
+    return db.query(User).filter(User.email == DEFAULT_ADMIN_EMAIL).first()
+
+
+@pytest.mark.parametrize("password", [None, "admin", "short-pass"])
+def test_production_never_seeds_a_weak_admin_password(empty_db, monkeypatch, password):
+    from backend.api.auth import seed_default_admin
+    monkeypatch.setenv("ENV", "production")
+    if password is None:
+        monkeypatch.delenv("DEFAULT_ADMIN_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", password)
+
+    seed_default_admin(empty_db)
+
+    assert _seeded_admin(empty_db) is None
+
+
+def test_production_seeds_admin_with_a_strong_password(empty_db, monkeypatch):
+    from backend.api.auth import seed_default_admin
+    from backend.core.security import verify_password
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("DEFAULT_ADMIN_PASSWORD", "a-long-unique-passphrase")
+
+    seed_default_admin(empty_db)
+
+    admin = _seeded_admin(empty_db)
+    assert admin is not None and verify_password("a-long-unique-passphrase", admin.password)
+
+
+def test_development_keeps_the_admin_default(empty_db, monkeypatch):
+    from backend.api.auth import seed_default_admin
+    monkeypatch.setenv("ENV", "development")
+    monkeypatch.delenv("DEFAULT_ADMIN_PASSWORD", raising=False)
+
+    seed_default_admin(empty_db)
+
+    assert _seeded_admin(empty_db) is not None

@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import secrets
@@ -14,6 +15,7 @@ from backend.core.security import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = logging.getLogger("etl_auth")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 4
@@ -22,6 +24,8 @@ MAX_RESET_ATTEMPTS = 5
 # Social accounts are created with this marker instead of a password hash, so they can never
 # be signed into with a password and a social login can never take over a password account.
 SOCIAL_PASSWORD_MARKER = "!social:"
+# Never used for the seeded administrator on a production (publicly reachable) server
+WEAK_ADMIN_PASSWORDS = {"admin", "password", "changeme", "123456"}
 
 
 class LoginRequest(BaseModel):
@@ -54,6 +58,10 @@ def seed_default_admin(db: Session):
     """Creates the default administrator account when the users table is empty."""
     if db.query(User).count() == 0:
         admin_password = os.getenv("DEFAULT_ADMIN_PASSWORD") or "admin"
+        if is_production() and (admin_password.lower() in WEAK_ADMIN_PASSWORDS or len(admin_password) < 12):
+            logger.error("Administrator not created: set DEFAULT_ADMIN_PASSWORD to a strong password "
+                         "(12+ characters) to seed %s on this production server.", DEFAULT_ADMIN_EMAIL)
+            return
         db.add(User(email=DEFAULT_ADMIN_EMAIL, password=hash_password(admin_password)))
         db.commit()
 
