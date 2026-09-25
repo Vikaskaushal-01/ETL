@@ -1018,115 +1018,72 @@ function initPipelineControls() {
     });
 }
 
-// One ingestion: upload (file / URL / stream cycle) then start and monitor the pipeline
-async function runIngestionCycle() {
+// Queues the current input as tasks: one per selected file, one per URL line, or one stream cycle.
+// The Task Center runs them in parallel (see jobs.js).
+function runIngestionCycle() {
+    if (state.ingestMode === 'realtime') {
+        runStreamCycle();
+        return;
+    }
+
+    let queued = 0;
+    if (state.ingestMode === 'url') {
         const urlEl = document.getElementById('ingest-url-input');
-        const urlVal = (state.ingestMode === 'url' && urlEl) ? urlEl.value.trim() : '';
-        let uploadResult = null;
-        if (state.ingestMode === 'url' && !urlVal) {
-            showToast('error', 'Enter a direct link to a data file first.');
+        const urls = (urlEl ? urlEl.value : '').split(/\s+/).map(u => u.trim()).filter(Boolean);
+        if (!urls.length) {
+            showToast('error', 'Enter at least one direct link to a data file.');
             return;
         }
-        if (state.ingestMode === 'batch' && !state.selectedFile) {
-            showToast('error', 'Choose a file to ingest first.');
+        urls.forEach(url => enqueueJob({ kind: 'url', url, label: osBasename(url.split('?')[0]) || url }));
+        queued = urls.length;
+        if (urlEl) urlEl.value = '';
+    } else {
+        if (!state.selectedFiles.length) {
+            showToast('error', 'Choose at least one file to ingest.');
             return;
         }
-        // Clear the previous run's result while the new file uploads
-        const statusEl = document.getElementById('monitor-overall-status');
-        if (statusEl) statusEl.textContent = 'Uploading...';
-        const statusPill = document.getElementById('monitor-overall-status-pill');
-        if (statusPill) statusPill.className = 'monitor-stat-pill processing';
-                
-        clearConsole();
-        
-        if (window.closeAllMenus) window.closeAllMenus();
-        const conDrawer = document.getElementById('console-drawer');
-        if (conDrawer) conDrawer.classList.add('active');
-        const togLogs = document.getElementById('btn-toggle-logs');
-        if (togLogs) togLogs.classList.add('active');
+        state.selectedFiles.forEach(file => enqueueJob({ kind: 'file', file, label: file.name, size: file.size }));
+        queued = state.selectedFiles.length;
+        state.selectedFiles = [];
+        if (window.renderSelectedFiles) window.renderSelectedFiles();
+    }
 
-        if (urlVal) {
-            writeConsoleLog('[System] Fetching file from remote URL...');
-            try {
-                const uploadRes = await fetch('/api/v1/upload/url', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: urlVal })
-                });
-                if (!uploadRes.ok) {
-                    const err = await uploadRes.json();
-                    writeConsoleLog(`[System Error] URL upload failed: ${err.detail || 'Unknown error'}`, 'text-red');
-                    showToast('error', err.detail || 'URL ingestion failed.');
-                    return;
-                }
-                uploadResult = await uploadRes.json();
-            } catch (err) {
-                writeConsoleLog(`[System Error] URL upload connection failed: ${err}`, 'text-red');
-                showToast('error', 'Connection to URL upload failed.');
-                return;
-            }
-        } else if (state.ingestMode === 'realtime') {
-            const streamTypeSelect = document.getElementById('stream-type-select');
-            const streamType = streamTypeSelect ? streamTypeSelect.value : 'live_url';
-            const streamUrlEl = document.getElementById('stream-url-input');
-            const streamUrl = streamUrlEl ? streamUrlEl.value.trim() : '';
-            if (streamType === 'live_url' && !streamUrl) {
-                showToast('error', 'Enter the feed URL to stream from.');
-                window.stopRealtimeStreamRunner();
-                return;
-            }
-            state.streamCycle = (state.streamCycle || 0) + 1;
+    if (window.closeAllMenus) window.closeAllMenus();
+    document.getElementById('console-drawer')?.classList.add('active');
+    document.getElementById('btn-toggle-logs')?.classList.add('active');
+    writeConsoleLog(`[System] ${queued} task(s) queued. Up to ${maxParallelJobs()} pipelines run in parallel.`);
+    if (queued > 1) showToast('info', `${queued} tasks queued. Up to ${maxParallelJobs()} run at the same time.`);
+}
 
-            writeConsoleLog(streamType === 'live_url'
-                ? `[Real-Time Stream] Cycle #${state.streamCycle}: pulling live snapshot from ${streamUrl}...`
-                : `[Real-Time Stream] Cycle #${state.streamCycle}: simulator generating ${state.streamBatchSize || 30} ${streamType} records...`);
-            
-            const pulseDot = document.getElementById('stream-pulse-dot');
-            const statusText = document.getElementById('stream-status-text');
-            const cycleCounter = document.getElementById('stream-cycle-counter');
-            
-            if (pulseDot) pulseDot.classList.add('streaming');
-            if (statusText) statusText.textContent = `Streaming ${streamType}...`;
-            if (cycleCounter) cycleCounter.textContent = `Cycle #${state.streamCycle}`;
-            
-            uploadResult = await uploadRealtimeStream(streamType, state.streamBatchSize || 30, state.streamCycle, streamType === 'live_url' ? streamUrl : null);
-        } else {
-            if (!state.selectedFile) {
-                showToast('error', 'Choose a file to ingest first.');
-                return;
-            }
-            writeConsoleLog('[System] Ingesting local file upload...');
-            uploadResult = await uploadFile(state.selectedFile);
-        }
-        
-        if (!uploadResult) {
-            writeConsoleLog('[System Error] Upload registration failed. Aborting pipeline.', 'text-red');
-            showToast('error', 'Ingestion upload failed.');
-            return;
-        }
-        
-        const { file_path, batch_id } = uploadResult;
-        state.currentBatchId = batch_id;
-        const bBadge = document.getElementById('batch-badge-id');
-        if (bBadge) bBadge.textContent = `Batch: ${batch_id}`;
-        
+// One real-time cycle: pull a snapshot (live feed or simulator) and run it as a task
+function runStreamCycle() {
+    const streamType = document.getElementById('stream-type-select')?.value || 'live_url';
+    const streamUrl = (document.getElementById('stream-url-input')?.value || '').trim();
+    if (streamType === 'live_url' && !streamUrl) {
+        showToast('error', 'Enter the feed URL to stream from.');
+        window.stopRealtimeStreamRunner();
+        return;
+    }
+    state.streamCycle = (state.streamCycle || 0) + 1;
+    const recordCount = state.streamBatchSize || 30;
+    writeConsoleLog(streamType === 'live_url'
+        ? `[Real-Time Stream] Cycle #${state.streamCycle}: pulling live snapshot from ${streamUrl}...`
+        : `[Real-Time Stream] Cycle #${state.streamCycle}: simulator generating ${recordCount} ${streamType} records...`);
 
-        writeConsoleLog(`[Intake] Preserved original raw file at: ${file_path}`);
-        writeConsoleLog(`[System] Initializing autonomous agents graph for pipeline: pipe_${batch_id}`);
-        
+    document.getElementById('stream-pulse-dot')?.classList.add('streaming');
+    const statusText = document.getElementById('stream-status-text');
+    if (statusText) statusText.textContent = `Streaming ${streamType}...`;
+    const cycleCounter = document.getElementById('stream-cycle-counter');
+    if (cycleCounter) cycleCounter.textContent = `Cycle #${state.streamCycle}`;
 
-        const startSuccess = await startPipeline(file_path, batch_id);
-        if (startSuccess) {
-            
-            // Open full-screen pipeline monitor
-            if (window.openPipelineMonitorOverlay) {
-                window.openPipelineMonitorOverlay(batch_id, osBasename(file_path));
-            }
-            
-            startPipelinePolling(`pipe_${batch_id}`);
-        } else {
-            showToast('error', 'Failed to start pipeline.');
-        }
+    enqueueJob({
+        kind: 'stream',
+        label: `Stream cycle #${state.streamCycle}`,
+        streamType,
+        streamUrl: streamType === 'live_url' ? streamUrl : null,
+        recordCount,
+        cycle: state.streamCycle
+    });
 }
 
 async function uploadRealtimeStream(streamType, recordCount, cycleIndex, streamUrl = null) {
