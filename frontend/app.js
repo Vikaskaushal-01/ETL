@@ -1387,7 +1387,17 @@ function renderCharts(recentRuns) {
     
     const labels = recentRuns.map(r => r.filename || r.pipeline_id.replace('pipe_', '')).reverse();
     const runtimes = recentRuns.map(r => r.execution_time || 0.0).reverse();
-    
+    const statuses = recentRuns.map(r => r.status).reverse();
+
+    // Follow the selected accent (Preferences > System Accent Glow)
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--color-blue').trim() || '#4f46e5';
+    const red = css.getPropertyValue('--color-red').trim() || '#dc2626';
+    const fill = ctxHistory.createLinearGradient(0, 0, 0, canvas.clientHeight || 220);
+    fill.addColorStop(0, `${accent}33`);
+    fill.addColorStop(1, `${accent}00`);
+    const tickFont = { family: 'Plus Jakarta Sans', size: 10 };
+
     state.historyChart = new Chart(ctxHistory, {
         type: 'line',
         data: {
@@ -1395,25 +1405,46 @@ function renderCharts(recentRuns) {
             datasets: [{
                 label: 'Duration (s)',
                 data: runtimes,
-                borderColor: '#4f46e5',
-                backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                borderColor: accent,
+                backgroundColor: fill,
                 fill: true,
-                tension: 0.3,
-                borderWidth: 2
+                tension: 0.35,
+                borderWidth: 2,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                pointBackgroundColor: statuses.map(s => s === 'Failed' ? red : '#ffffff'),
+                pointBorderColor: statuses.map(s => s === 'Failed' ? red : accent),
+                pointBorderWidth: 2
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#12141a',
+                    padding: 10,
+                    cornerRadius: 8,
+                    titleFont: { family: 'Plus Jakarta Sans', size: 11, weight: '700' },
+                    bodyFont: { family: 'Plus Jakarta Sans', size: 11 },
+                    displayColors: false,
+                    callbacks: {
+                        label: (item) => `${item.parsed.y.toFixed(2)}s · ${statuses[item.dataIndex] || ''}`
+                    }
+                }
+            },
             scales: {
                 x: {
-                    grid: { color: 'rgba(15, 23, 42, 0.06)' },
-                    ticks: { color: '#8a8f9a', font: { family: 'Plus Jakarta Sans', size: 10 } }
+                    grid: { display: false },
+                    ticks: { color: '#8a8f9a', font: tickFont, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }
                 },
                 y: {
+                    beginAtZero: true,
+                    border: { display: false },
                     grid: { color: 'rgba(15, 23, 42, 0.06)' },
-                    ticks: { color: '#8a8f9a', font: { family: 'Plus Jakarta Sans', size: 10 } }
+                    ticks: { color: '#8a8f9a', font: tickFont, callback: (v) => `${v}s` }
                 }
             }
         }
