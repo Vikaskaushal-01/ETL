@@ -1809,6 +1809,18 @@ kbd {
 }
 .btn-hero-ghost:hover { border-color: var(--border-strong); color: var(--text-primary); box-shadow: var(--shadow-sm); }
 .btn-hero-ghost i { color: var(--color-blue); }
+
+.kpi-card { position: relative; overflow: hidden; transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
+.kpi-card::after {
+    content: '';
+    position: absolute; left: 0; right: 0; top: 0; height: 3px;
+    background: linear-gradient(90deg, var(--color-blue), transparent);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+.kpi-card:hover::after { opacity: 1; }
+.kpi-card-value { font-variant-numeric: tabular-nums; }
 .kpi-card-live { background: linear-gradient(180deg, var(--color-blue-soft) 0%, var(--surface) 70%); border-color: #c7d2fe; }
 .kpi-card-live .kpi-card-value { color: var(--color-blue-strong); }
 .dash-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }

@@ -1297,14 +1297,10 @@ async function loadDashboardStats() {
         if (!response.ok) return;
         const stats = await response.json();
         
-        const elTotal = document.getElementById('stat-total-processed');
-        if (elTotal) elTotal.textContent = (stats.total_rows_processed || 0).toLocaleString();
-        const elSuccess = document.getElementById('stat-success-rate');
-        if (elSuccess) elSuccess.textContent = `${stats.success_rate || 100}%`;
-        const elRuntime = document.getElementById('stat-avg-runtime');
-        if (elRuntime) elRuntime.textContent = `${(stats.processing_time_avg || 0).toFixed(1)}s`;
-        const elFailed = document.getElementById('stat-failed-records');
-        if (elFailed) elFailed.textContent = (stats.failed_records || 0).toLocaleString();
+        animateKpi('stat-total-processed', stats.total_rows_processed || 0, v => Math.round(v).toLocaleString());
+        animateKpi('stat-success-rate', stats.success_rate ?? 100, v => `${Math.round(v * 10) / 10}%`);
+        animateKpi('stat-avg-runtime', stats.processing_time_avg || 0, v => `${v.toFixed(1)}s`);
+        animateKpi('stat-failed-records', stats.failed_records || 0, v => Math.round(v).toLocaleString());
         
         // Also update monitor sidebar performance stats if present
         const monRows = document.getElementById('monitor-stat-rows');
