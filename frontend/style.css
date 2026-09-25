@@ -1726,6 +1726,103 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
     box-shadow: 0 0 0 2px var(--surface);
 }
 
+/* ---- Task list (Task Center, dashboard) ---- */
+.job-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.job-item + .job-item { margin-top: 0; }
+.job-item.focused { border-color: #c7d2fe; background: var(--color-blue-soft); }
+.job-icon {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2); color: var(--text-secondary);
+    font-size: 13px;
+}
+.job-item.is-uploading .job-icon,
+.job-item.is-starting .job-icon,
+.job-item.is-running .job-icon { background: var(--color-blue-soft); color: var(--color-blue); }
+.job-item.is-success .job-icon { background: var(--color-green-soft); color: var(--color-green); }
+.job-item.is-warning .job-icon { background: var(--color-orange-soft); color: var(--color-orange); }
+.job-item.is-failed .job-icon { background: var(--color-red-soft); color: var(--color-red); }
+.job-item.is-cancelled { opacity: 0.6; }
+
+.job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.job-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.job-top strong { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.job-status { font-size: 10.5px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; }
+.job-item.is-running .job-status, .job-item.is-uploading .job-status, .job-item.is-starting .job-status { color: var(--color-blue); }
+.job-item.is-success .job-status { color: var(--color-green); }
+.job-item.is-warning .job-status { color: var(--color-orange); }
+.job-item.is-failed .job-status { color: var(--color-red); }
+.job-meta { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-meta code { font-family: var(--font-mono); font-size: 10px; }
+
+.job-progress { height: 5px; border-radius: 999px; background: var(--surface-sunken); overflow: hidden; }
+.job-progress > span {
+    display: block; height: 100%;
+    border-radius: inherit;
+    background: var(--color-blue);
+    transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.job-item.is-success .job-progress > span { background: var(--color-green); }
+.job-item.is-warning .job-progress > span { background: var(--color-orange); }
+.job-item.is-failed .job-progress > span { background: var(--color-red); }
+.job-item.is-uploading .job-progress > span,
+.job-item.is-starting .job-progress > span,
+.job-item.is-running .job-progress > span {
+    background-image: linear-gradient(90deg, var(--color-blue) 0%, var(--color-blue-strong) 50%, var(--color-blue) 100%);
+    background-size: 200% 100%;
+    animation: progressSheen 1.4s linear infinite;
+    min-width: 6%;
+}
+@keyframes progressSheen { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+.job-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.job-action-btn {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+    color: var(--text-muted); font-size: 11.5px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+.job-action-btn:hover { background: var(--surface); border-color: var(--border-color); color: var(--color-blue); }
+.job-action-btn[data-job-action="dismiss"]:hover,
+.job-action-btn[data-job-action="cancel"]:hover { color: var(--color-red); }
+
+.job-empty { text-align: center; padding: 22px 12px; color: var(--text-muted); font-size: 12px; }
+.job-empty i { font-size: 20px; color: var(--border-strong); margin-bottom: 8px; display: block; }
+
+/* Task Center dropdown */
+.tasks-panel {
+    position: absolute; top: 44px; right: 60px;
+    width: 400px; max-width: calc(100vw - 32px);
+    max-height: min(520px, calc(100vh - 90px));
+    display: flex; flex-direction: column;
+    z-index: 500;
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 16px 40px rgba(16, 24, 40, 0.18);
+    animation: dropdownFade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top right;
+}
+.tasks-panel-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+.tasks-panel-head strong { display: block; font-size: 13px; }
+.tasks-panel-summary { display: block; font-size: 10.5px; margin-top: 2px; }
+.tasks-panel-head .btn-icon-subtle { font-size: 11px; font-weight: 600; font-family: var(--font-main); display: flex; align-items: center; gap: 6px; }
+.tasks-panel-list { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+
 /* ---- Pipeline page: task strip ---- */
 .job-strip {
     display: flex; align-items: center; gap: 10px;
