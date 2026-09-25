@@ -1711,6 +1711,19 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
    v2.4 — Visual polish (same tokens, same theme) + multitasking UI
    ========================================================================== */
 
+/* ---- Global motion & focus ---- */
+.app-view.active { animation: viewFadeIn 0.22s ease-out; }
+@keyframes viewFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+:where(button, a, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-blue);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
 kbd {
     font-family: var(--font-mono);
     font-size: 10px;
