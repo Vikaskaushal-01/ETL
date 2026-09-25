@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] - 2026-09-25
+
+### 🚀 Added
+- **Multitasking / Task Center**: pick or drop many files (or paste several URLs, one per line) and each becomes its own task. Tasks run in parallel up to a configurable limit (Preferences > Parallel Pipeline Runs, default 3); the rest wait in a queue and start as slots free up.
+- Task strip on the Pipeline page to switch which running or finished task the monitor, inspector and console show; other tasks keep running in the background.
+- Task Center in the topbar and sidebar (running / queued / finished, progress per stage, cancel queued, retry failed, clear finished), a **Task Queue** panel and **Running Now** KPI on the dashboard, and the running count in the browser tab title.
+- Running tasks are picked up again after a page reload; runs started from History or opened while running are tracked too.
+- History: select several runs and **Re-run selected** in one go.
+- **Command palette** (`Ctrl+K`): jump to pages, actions, tasks and recent runs.
+- Optional **desktop notifications** when a background task finishes while the tab is hidden.
+- Dashboard greeting with quick actions; KPI count-up; accent-aware chart with failed runs marked.
+
+### 🐛 Fixed / Changed
+- Real-time streaming no longer pauses because an unrelated run is in progress; it only waits for its own previous cycle.
+- Toasts are dismissible, capped at four, and render file names as plain text.
+- Dark-theme leftovers on the light UI (chat suggestions, RAG link input, Power BI inspector card, SQL preview) now use the theme tokens; inspector data previews are HTML-escaped.
+
 ## [2.3.0] - 2026-09-24
 
 ### 🚀 Added
