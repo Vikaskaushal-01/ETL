@@ -113,7 +113,8 @@ ETL-A/
 ├── agents/               # 4 agents: Intake, Transformation, Storage (validation + load), Report
 ├── agents_graph/         # LangGraph state machine, execution graph nodes, and edges
 ├── snaplogic/            # SnapLogic pipeline definition (`snaplogic_pipeline.json`)
-├── docker/               # `docker-compose.yml`, `Dockerfile.backend`
+├── docker/               # `docker-compose.yml`, `Dockerfile.backend`, `entrypoint.sh`
+├── render.yaml           # Render Blueprint (one-click hosting, see docs/Deployment.md)
 ├── Accounts/<user>/      # Per-user workspace: data/raw, cleaned data, reports, logs, powerbi exports (git-ignored)
 ├── data/raw/             # Shared intake folder (SnapLogic / CLI runs)
 ├── reports/, logs/       # Copies of reports and process logs named after each file
@@ -162,6 +163,13 @@ Access Services:
 - **Web Frontend Dashboard**: `http://localhost:8000/`
 - **FastAPI OpenAPI Interactive Specs**: `http://localhost:8000/docs`
 - **MySQL Database**: `localhost:3306`
+
+### 5. Deploy to Render
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Vikaskaushal-01/ETL)
+
+The button creates the service from `render.yaml` (Starter instance with a persistent disk). You are asked for
+`DEFAULT_ADMIN_PASSWORD` (12+ characters) and, optionally, `GEMINI_API_KEY`. Full steps, costs and the free-plan
+option are in [docs/Deployment.md](docs/Deployment.md#5-deploying-to-render).
 
 ---
 
