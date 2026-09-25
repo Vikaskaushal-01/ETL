@@ -12,8 +12,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN chmod +x docker/entrypoint.sh
 
 EXPOSE 8000
+
+# Links runtime folders to $STORAGE_DIR when a persistent volume is mounted
+ENTRYPOINT ["docker/entrypoint.sh"]
 
 # Hosts such as Render pass the port in $PORT. Proxy headers keep generated links on https
 # when the app runs behind the platform's load balancer.
