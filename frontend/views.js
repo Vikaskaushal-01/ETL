@@ -7,7 +7,8 @@ const viewState = {
     logsSelectedBatch: null,
     logsText: '',
     logsRefreshTimer: null,
-    notificationsSeenAt: null
+    notificationsSeenAt: null,
+    historySelected: new Set() // batch ids ticked for a bulk re-run
 };
 
 // ---------- small helpers ----------
@@ -57,7 +58,7 @@ window.loadHistoryView = async function() {
         renderHistoryKpis();
         renderHistoryTable();
     } catch (e) {
-        tbody.innerHTML = emptyRow(8, `Failed to load history: ${escapeHtml(e.message)}`);
+        tbody.innerHTML = emptyRow(9, `Failed to load history: ${escapeHtml(e.message)}`);
     }
 };
 
@@ -92,10 +93,15 @@ function renderHistoryTable() {
         (!query || (r.filename || '').toLowerCase().includes(query) || r.batch_id.toLowerCase().includes(query))
     );
     if (!runs.length) {
-        tbody.innerHTML = emptyRow(8, viewState.history.length ? 'No runs match the filter.' : 'No uploads yet. Run a dataset from the Pipeline page.');
+        tbody.innerHTML = emptyRow(9, viewState.history.length ? 'No runs match the filter.' : 'No uploads yet. Run a dataset from the Pipeline page.');
+        syncHistorySelection([]);
         return;
     }
     tbody.innerHTML = runs.map(r => {
+        const selectable = !!r.raw_file && r.status !== 'Running';
+        const checkbox = selectable
+            ? `<input type="checkbox" class="row-check" data-history-select="${escapeHtml(r.batch_id)}" ${viewState.historySelected.has(r.batch_id) ? 'checked' : ''} aria-label="Select ${escapeHtml(r.filename || r.batch_id)}">`
+            : '';
         const quality = r.quality_after != null
             ? `${r.quality_before != null ? r.quality_before + '% &rarr; ' : ''}<strong>${r.quality_after}%</strong>` : '-';
         const rows = r.rows_loaded != null ? `${(r.rows_loaded).toLocaleString()} / <span class="${r.rows_rejected ? 'text-red' : ''}">${(r.rows_rejected || 0).toLocaleString()}</span>` : '-';
@@ -105,7 +111,8 @@ function renderHistoryTable() {
         const cleanBtn = r.clean_file ? `<button class="btn-refresh" onclick="downloadNodeData(${jsArg(r.clean_file)})" title="Download cleaned data"><i class="fa-solid fa-broom"></i></button>` : '';
         const rerunBtn = r.raw_file && r.status !== 'Running' ? `<button class="btn-refresh" onclick="rerunBatch('${r.batch_id}')" title="Run the pipeline again on this file"><i class="fa-solid fa-rotate-right"></i></button>` : '';
         return `
-            <tr>
+            <tr class="${viewState.historySelected.has(r.batch_id) ? 'row-selected' : ''}">
+                <td class="check-cell">${checkbox}</td>
                 <td><strong>${escapeHtml(r.filename || '-')}</strong><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
                 <td><code>${r.batch_id}</code></td>
                 <td>${fmtDateTime(r.uploaded_at)}</td>
@@ -120,25 +127,50 @@ function renderHistoryTable() {
                 </td>
             </tr>`;
     }).join('');
+    syncHistorySelection(runs);
 }
 
-window.rerunBatch = async function(batchId) {
+// Keeps the header checkbox and the bulk re-run button in step with the ticked rows
+function syncHistorySelection(visibleRuns) {
+    const selectableIds = visibleRuns.filter(r => r.raw_file && r.status !== 'Running').map(r => r.batch_id);
+    // Drop selections that are no longer re-runnable (e.g. now running)
+    const valid = new Set(viewState.history.filter(r => r.raw_file && r.status !== 'Running').map(r => r.batch_id));
+    viewState.historySelected.forEach(id => { if (!valid.has(id)) viewState.historySelected.delete(id); });
+
+    const all = document.getElementById('history-select-all');
+    if (all) {
+        const ticked = selectableIds.filter(id => viewState.historySelected.has(id)).length;
+        all.checked = selectableIds.length > 0 && ticked === selectableIds.length;
+        all.indeterminate = ticked > 0 && ticked < selectableIds.length;
+        all.disabled = !selectableIds.length;
+    }
+    const btn = document.getElementById('btn-history-rerun-selected');
+    if (btn) {
+        const n = viewState.historySelected.size;
+        btn.disabled = n === 0;
+        btn.innerHTML = `<i class="fa-solid fa-layer-group"></i> Re-run selected${n ? ` (${n})` : ''}`;
+    }
+}
+
+function queueRerun(run, focusOnStart) {
+    enqueueJob({ kind: 'rerun', rawFile: run.raw_file, batchId: run.batch_id, label: run.filename, focusOnStart });
+}
+
+window.rerunBatch = function(batchId) {
     const run = viewState.history.find(r => r.batch_id === batchId);
     if (!run || !run.raw_file) return;
-    try {
-        await fetchJson('/api/v1/pipeline/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file_path: run.raw_file, batch_id: batchId })
-        });
-        showToast('info', `Re-running ${run.filename}...`);
-        state.currentBatchId = batchId;
-        if (window.activateView) window.activateView('pipeline-monitor-page');
-        window.openPipelineMonitorOverlay(batchId, run.filename);
-        startPipelinePolling(`pipe_${batchId}`);
-    } catch (e) {
-        showToast('error', e.message);
-    }
+    queueRerun(run, true);
+    showToast('info', `Re-running ${run.filename}...`);
+    if (window.activateView) window.activateView('pipeline-monitor-page');
+};
+
+window.rerunSelectedBatches = function() {
+    const runs = viewState.history.filter(r => viewState.historySelected.has(r.batch_id) && r.raw_file && r.status !== 'Running');
+    if (!runs.length) return;
+    runs.forEach(run => queueRerun(run, false));
+    viewState.historySelected.clear();
+    renderHistoryTable();
+    showToast('info', `${runs.length} re-run(s) queued. Up to ${maxParallelJobs()} run at the same time; follow them in the Task Center.`);
 };
 
 // ---------- Reports ----------
@@ -408,6 +440,26 @@ document.addEventListener('DOMContentLoaded', () => {
     on('history-search', 'input', renderHistoryTable);
     on('history-status-filter', 'change', renderHistoryTable);
     on('btn-refresh-history', 'click', () => window.loadHistoryView());
+    on('btn-history-rerun-selected', 'click', () => window.rerunSelectedBatches());
+    on('history-select-all', 'change', (e) => {
+        document.querySelectorAll('#history-table [data-history-select]').forEach(box => {
+            const id = box.getAttribute('data-history-select');
+            if (e.target.checked) viewState.historySelected.add(id);
+            else viewState.historySelected.delete(id);
+        });
+        renderHistoryTable();
+    });
+    on('history-table', 'change', (e) => {
+        const box = e.target.closest('[data-history-select]');
+        if (!box) return;
+        const id = box.getAttribute('data-history-select');
+        if (box.checked) viewState.historySelected.add(id);
+        else viewState.historySelected.delete(id);
+        box.closest('tr')?.classList.toggle('row-selected', box.checked);
+        syncHistorySelection(Array.from(document.querySelectorAll('#history-table [data-history-select]'))
+            .map(b => viewState.history.find(r => r.batch_id === b.getAttribute('data-history-select')))
+            .filter(Boolean));
+    });
     on('btn-refresh-explorer', 'click', () => loadExplorerFiles());
     on('explorer-search', 'input', (e) => {
         state.explorerSearchQuery = e.target.value.toLowerCase();

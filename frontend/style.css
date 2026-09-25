@@ -1732,6 +1732,10 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
 .dash-tasks-panel { margin-top: 18px; }
 .dash-tasks-panel .job-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
 .dash-tasks-panel .job-empty { grid-column: 1 / -1; }
+tr.row-selected td { background: var(--color-blue-soft) !important; }
+.check-cell { width: 34px; padding-right: 0 !important; }
+.row-check { width: 15px; height: 15px; accent-color: var(--color-blue); cursor: pointer; vertical-align: middle; }
+.page-toolbar button[disabled] { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- Task list (Task Center, dashboard) ---- */
 .job-item {

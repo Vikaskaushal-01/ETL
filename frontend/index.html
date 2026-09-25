@@ -333,6 +333,7 @@
                                 <option value="Running">Running</option>
                                 <option value="Not Run">Not Run</option>
                             </select>
+                            <button class="btn-refresh-table" id="btn-history-rerun-selected" disabled title="Queue the ticked runs to run again in parallel"><i class="fa-solid fa-layer-group"></i> Re-run selected</button>
                             <button class="btn-refresh-table" id="btn-refresh-history"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
                         </div>
                         <div class="kpi-grid" id="history-kpis"></div>
@@ -341,6 +342,7 @@
                                 <table class="data-table" id="history-table">
                                     <thead>
                                         <tr>
+                                            <th class="check-cell"><input type="checkbox" class="row-check" id="history-select-all" aria-label="Select all re-runnable runs"></th>
                                             <th>File</th>
                                             <th>Batch</th>
                                             <th>Uploaded</th>
@@ -351,7 +353,7 @@
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody><tr><td colspan="8" class="text-center text-secondary">Loading run history...</td></tr></tbody>
+                                    <tbody><tr><td colspan="9" class="text-center text-secondary">Loading run history...</td></tr></tbody>
                                 </table>
                             </div>
                         </div>

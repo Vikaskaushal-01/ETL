@@ -1191,54 +1191,6 @@ async function startPipeline(filePath, batchId) {
     }
 }
 
-// Pipeline Polling Status: drives the monitor, console and notifications until the run finishes
-function startPipelinePolling(pipelineId) {
-    if (state.pipelinePollingInterval) clearInterval(state.pipelinePollingInterval);
-    const stopPolling = () => {
-        clearInterval(state.pipelinePollingInterval);
-        state.pipelinePollingInterval = null;
-    };
-
-    state.pipelinePollingInterval = setInterval(async () => {
-        try {
-            const response = await fetch(`/api/v1/pipeline/status?pipeline_id=${pipelineId}`);
-            if (response.status === 404) {
-                stopPolling();
-                writeConsoleLog('[System Error] This pipeline run no longer exists.', 'text-red');
-                return;
-            }
-            if (!response.ok) return;
-            const data = await response.json();
-            state.currentPipelineData = data;
-            updatePipelineMonitorUI(data);
-            updateLogsConsole(data.logs);
-
-            if (data.status === 'Success' || data.status === 'Passed with Warnings') {
-                stopPolling();
-                writeConsoleLog(`[System Success] Pipeline complete! Status: ${data.status}. Duration: ${(data.execution_time || 0).toFixed(2)}s`, 'text-green');
-                showToast(data.status === 'Success' ? 'success' : 'info', `${data.filename || data.batch_id}: ${data.status}`);
-                playAlertChime(true);
-            } else if (data.status === 'Failed') {
-                stopPolling();
-                writeConsoleLog(`[System Failure] Pipeline execution aborted: ${data.error || 'see the process log for details'}`, 'text-red');
-                showToast('error', `${data.filename || data.batch_id}: pipeline failed. ${data.error || ''}`);
-                playAlertChime(false);
-            } else {
-                return;
-            }
-            // Run finished: refresh everything that depends on run results
-            if (window.refreshNotifications) window.refreshNotifications();
-            loadDashboardStats();
-            loadChatBatchContexts();
-            if (data.status !== 'Failed' && localStorage.getItem('pref_auto_ai') !== 'false') {
-                fetchSelectedBatchInsights(state.currentBatchId);
-            }
-        } catch (e) {
-            loggerError('polling', e);
-        }
-    }, 1500);
-}
-
 // Short success / failure chime when a run finishes (Preferences > Audio Alerts)
 function playAlertChime(success) {
     if (localStorage.getItem('pref_audio_alerts') === 'false') return;
