@@ -532,8 +532,8 @@
 
                             <!-- URL Ingestion Panel -->
                             <div class="url-ingest-panel" id="url-ingest-panel" style="display: none;">
-                                <label for="ingest-url-input" class="stream-config-label"><span>Direct link to a CSV / JSON / XML / Excel file</span></label>
-                                <input type="url" id="ingest-url-input" class="page-input" placeholder="https://example.com/data/sales.csv">
+                                <label for="ingest-url-input" class="stream-config-label"><span>Direct links, one per line</span><span class="text-blue">Parallel</span></label>
+                                <textarea id="ingest-url-input" class="page-input url-textarea" rows="3" spellcheck="false" placeholder="https://example.com/data/sales.csv&#10;https://example.com/data/orders.json"></textarea>
                             </div>
                             
                             <!-- Batch Upload Dropzone -->

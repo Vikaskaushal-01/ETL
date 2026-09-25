@@ -1706,3 +1706,10 @@ body.glass-solid .card-glass { backdrop-filter: none; background: var(--surface)
     background: #0f172a; color: #e2e8f0; font-family: var(--font-mono); font-size: 10.5px; line-height: 1.5; white-space: pre;
 }
 .message-bubble .chat-code code { background: none; padding: 0; color: inherit; }
+
+/* ==========================================================================
+   v2.4 — Visual polish (same tokens, same theme) + multitasking UI
+   ========================================================================== */
+.url-textarea { resize: vertical; min-height: 64px; font-family: var(--font-mono); font-size: 11px; line-height: 1.6; outline: none; }
+.url-textarea:focus,
+.page-input:focus { border-color: var(--color-blue); box-shadow: 0 0 0 3px var(--color-blue-soft); outline: none; }
