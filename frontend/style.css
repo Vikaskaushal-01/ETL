@@ -1851,11 +1851,16 @@ kbd {
 .kpi-card-value { font-variant-numeric: tabular-nums; }
 .kpi-card-live { background: linear-gradient(180deg, var(--color-blue-soft) 0%, var(--surface) 70%); border-color: #c7d2fe; }
 .kpi-card-live .kpi-card-value { color: var(--color-blue-strong); }
+
+.dash-panel h3 { display: flex; align-items: center; gap: 8px; }
+.dash-panel h3 > i { color: var(--color-blue); font-size: 12px; }
 .dash-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .dash-panel-head h3 { margin-bottom: 0; }
 .dash-tasks-panel { margin-top: 18px; }
 .dash-tasks-panel .job-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px; }
 .dash-tasks-panel .job-empty { grid-column: 1 / -1; }
+
+.table-scroll thead th { position: sticky; top: 0; z-index: 1; }
 tr.row-selected td { background: var(--color-blue-soft) !important; }
 .check-cell { width: 34px; padding-right: 0 !important; }
 .row-check { width: 15px; height: 15px; accent-color: var(--color-blue); cursor: pointer; vertical-align: middle; }
