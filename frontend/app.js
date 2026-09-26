@@ -145,6 +145,7 @@ function initAppShell() {
             setTimeout(() => {
                 if (typeof updateMonitorPaths === 'function') updateMonitorPaths();
             }, 50);
+            if (!animFrameId) animFrameId = requestAnimationFrame(canvasAnimationLoop);
         }
     }
 
@@ -2307,9 +2308,7 @@ async function uploadRagFile(file) {
 // 3. Pipeline monitor page initialization
 // startTime: epoch ms the run started (live duration clock), or null for a finished run
 window.openPipelineMonitorOverlay = function(batchId, filename, startTime = Date.now()) {
-    const monPage = document.getElementById('pipeline-monitor-page');
-    if (monPage) monPage.style.display = 'flex';
-    
+    // Which page is visible is decided by activateView() alone
     // Set Header Info
     const bId = document.getElementById('monitor-batch-id');
     if (bId) bId.textContent = batchId;
@@ -2822,11 +2821,10 @@ function initGamificationCanvas() {
 
 function canvasAnimationLoop() {
     const canvas = document.getElementById('gamification-canvas');
-    if (!canvas || !canvas.parentElement) {
-        if (animFrameId) {
-            cancelAnimationFrame(animFrameId);
-            animFrameId = null;
-        }
+    // Stop while the Pipeline page is not shown; activateView restarts the loop when it is
+    if (!canvas || !canvas.offsetParent) {
+        animFrameId = null;
+        canvasParticles = [];
         return;
     }
     
