@@ -181,6 +181,11 @@ def update_pipeline_overall_status(pipeline_id: str, status: str, execution_time
             state["execution_time"] = execution_time
         if error:
             state["error"] = error
+        if status == "Failed":
+            # A stage that was mid-flight when the run died did not complete
+            for stage in (state.get("stages") or {}).values():
+                if stage.get("status") == "processing":
+                    stage["status"] = "failed"
         write_pipeline_state(pipeline_id, state)
 
 def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_by: Optional[str], summary_logs: list = None) -> str:
@@ -344,6 +349,27 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
     finally:
         db.close()
 
+def recover_stale_runs(db: Session) -> int:
+    """Marks runs still 'Running' after STALE_PIPELINE_SECONDS as failed (e.g. the server restarted mid-run)."""
+    now = datetime.utcnow()
+    stale_runs = db.query(PipelineLog).filter(
+        PipelineLog.status == "Running",
+        PipelineLog.start_time < now - timedelta(seconds=STALE_PIPELINE_SECONDS)
+    ).all()
+    for run in stale_runs:
+        run.status = "Failed"
+        run.end_time = now
+        run.execution_time = None  # unknown: the time since start includes the downtime
+        update_raw_upload_status_by_batch(db, run.pipeline_id[5:], "Failed")
+        if pipeline_state_exists(run.pipeline_id):
+            update_pipeline_overall_status(run.pipeline_id, "Failed", None,
+                                           error="The run was interrupted (the server stopped while it was running). Run it again.")
+    if stale_runs:
+        db.commit()
+        logger.warning(f"Marked {len(stale_runs)} interrupted run(s) as failed")
+    return len(stale_runs)
+
+
 def SessionLocal_helper():
     from backend.database.mysql import SessionLocal
     return SessionLocal()
@@ -386,17 +412,7 @@ def start_pipeline(req: PipelineStartRequest, background_tasks: BackgroundTasks,
         create_raw_upload(db, filename=os.path.basename(file_path), source="API_Pipeline_Start", file_type=ext[1:], batch_id=batch_id, uploaded_by=x_user_email)
     pipeline_id = f"pipe_{batch_id}"
 
-    # Auto-recover stale running pipelines (e.g. interrupted by a server restart)
-    stale_cutoff = datetime.utcnow() - timedelta(seconds=STALE_PIPELINE_SECONDS)
-    stale_runs = db.query(PipelineLog).filter(
-        PipelineLog.status == "Running",
-        PipelineLog.start_time < stale_cutoff
-    ).all()
-    for sr in stale_runs:
-        sr.status = "Failed"
-        sr.end_time = datetime.utcnow()
-    if stale_runs:
-        db.commit()
+    recover_stale_runs(db)
 
     # Refuse to start a second concurrent run of the same batch
     existing = db.query(PipelineLog).filter(PipelineLog.pipeline_id == pipeline_id).first()
