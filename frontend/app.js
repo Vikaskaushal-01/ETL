@@ -84,16 +84,22 @@ function parseUTCDate(dateStr) {
 function initAppShell() {
     const sidebar = document.getElementById('app-sidebar');
     const collapseBtn = document.getElementById('btn-sidebar-collapse');
+    const narrowScreen = window.matchMedia('(max-width: 980px)');
+    const setSidebarCollapsed = (collapsed) => {
+        if (!sidebar) return;
+        sidebar.classList.toggle('collapsed', collapsed);
+        const icon = collapseBtn && collapseBtn.querySelector('i');
+        if (icon) icon.className = `fa-solid ${collapsed ? 'fa-angles-right' : 'fa-angles-left'}`;
+    };
     if (collapseBtn && sidebar) {
-        collapseBtn.addEventListener('click', () => {
-            sidebar.classList.toggle('collapsed');
-            const icon = collapseBtn.querySelector('i');
-            if (icon) {
-                icon.classList.toggle('fa-angles-left');
-                icon.classList.toggle('fa-angles-right');
-            }
-        });
+        collapseBtn.addEventListener('click', () => setSidebarCollapsed(!sidebar.classList.contains('collapsed')));
     }
+    // On narrow screens the sidebar starts as an icon rail and folds away again after navigating
+    if (narrowScreen.matches) setSidebarCollapsed(true);
+    narrowScreen.addEventListener('change', (e) => { if (e.matches) setSidebarCollapsed(true); });
+    document.querySelectorAll('.app-nav-item').forEach(btn => {
+        btn.addEventListener('click', () => { if (narrowScreen.matches) setSidebarCollapsed(true); });
+    });
 
     const topbarTitle = document.getElementById('app-topbar-title');
     const topbarCrumb = document.getElementById('app-topbar-crumb');
