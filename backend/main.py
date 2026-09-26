@@ -29,8 +29,8 @@ logging.basicConfig(
 logger = logging.getLogger("etl_main")
 
 # Auto-create tables (SQLite fallback or MySQL connection initialized)
-def _add_missing_columns():
-    """create_all() never alters existing tables, so add columns introduced after a database was created."""
+def _upgrade_schema():
+    """create_all() never alters existing tables, so add the columns and indexes introduced after a database was created."""
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
     for table in Base.metadata.sorted_tables:
@@ -43,13 +43,21 @@ def _add_missing_columns():
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {ddl_type}"))
                 logger.info(f"Added missing column {table.name}.{column.name}")
+        existing_indexes = {i["name"] for i in inspector.get_indexes(table.name)}
+        for index in table.indexes:
+            if index.name not in existing_indexes:
+                try:
+                    index.create(bind=engine)
+                    logger.info(f"Created missing index {index.name}")
+                except Exception as e:
+                    logger.warning(f"Could not create index {index.name}: {e}")
 
 
 try:
     logger.info("Initializing database schemas...")
     import backend.database.models  # noqa: F401 - registers every table on Base.metadata
     Base.metadata.create_all(bind=engine)
-    _add_missing_columns()
+    _upgrade_schema()
     logger.info("Database schemas initialized successfully.")
 except Exception as e:
     logger.error(f"Error during schema initialization: {e}")

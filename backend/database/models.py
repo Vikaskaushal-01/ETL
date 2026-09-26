@@ -7,18 +7,18 @@ class RawUpload(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     filename = Column(String(255), nullable=False)
-    batch_id = Column(String(100), nullable=True)
+    batch_id = Column(String(100), nullable=True, index=True)
     source = Column(String(100))
     file_type = Column(String(50))
     upload_time = Column(DateTime, server_default=func.now())
-    uploaded_by = Column(String(100))
+    uploaded_by = Column(String(100), index=True)
     status = Column(String(50), default='Pending')
 
 class StagingDataset(Base):
     __tablename__ = 'staging_dataset'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
+    batch_id = Column(String(100), nullable=False, index=True)
     row_number = Column(Integer)
     data_json = Column(Text)
     validation_status = Column(String(50))
@@ -55,7 +55,7 @@ class StagingCustomer(Base):
     email = Column(String(255))
     phone = Column(String(50))
     region = Column(String(100))
-    batch_id = Column(String(100))
+    batch_id = Column(String(100), index=True)
     row_number = Column(Integer)
     validation_status = Column(String(50))
 
@@ -81,7 +81,7 @@ class StagingOrder(Base):
     order_date = Column(String(100))
     status = Column(String(50))
     total_amount = Column(String(100))
-    batch_id = Column(String(100))
+    batch_id = Column(String(100), index=True)
     row_number = Column(Integer)
     validation_status = Column(String(50))
 
@@ -111,7 +111,7 @@ class StagingSale(Base):
     unit_price = Column(String(100))
     total_price = Column(String(100))
     sale_date = Column(String(100))
-    batch_id = Column(String(100))
+    batch_id = Column(String(100), index=True)
     row_number = Column(Integer)
     validation_status = Column(String(50))
 
@@ -132,7 +132,7 @@ class AgentLog(Base):
     __tablename__ = 'agent_logs'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100))
+    batch_id = Column(String(100), index=True)
     agent_name = Column(String(100))
     task = Column(Text)
     reasoning = Column(Text)
@@ -144,7 +144,7 @@ class QualityReport(Base):
     __tablename__ = 'quality_reports'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
+    batch_id = Column(String(100), nullable=False, index=True)
     missing_values = Column(Integer)
     duplicate_count = Column(Integer)
     quality_score = Column(Float)
@@ -154,7 +154,7 @@ class RootCauseReport(Base):
     __tablename__ = 'root_cause_reports'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
+    batch_id = Column(String(100), nullable=False, index=True)
     issue = Column(Text)
     root_cause = Column(Text)
     business_impact = Column(Text)
@@ -166,7 +166,7 @@ class GeneratedReport(Base):
     __tablename__ = 'generated_reports'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
+    batch_id = Column(String(100), nullable=False, index=True)
     pdf_path = Column(String(500))
     docx_path = Column(String(500), nullable=True)
     txt_path = Column(String(500), nullable=True)
