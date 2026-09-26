@@ -224,7 +224,6 @@ async def upload_rag_url(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     
-    import httpx
     try:
         from bs4 import BeautifulSoup  # type: ignore
         has_bs4 = True
@@ -233,9 +232,12 @@ async def upload_rag_url(
         has_bs4 = False
     
     # Fetch content
+    from starlette.concurrency import run_in_threadpool
+    from backend.api.upload import _get_public
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, follow_redirects=True, timeout=15.0)
+        response = await run_in_threadpool(_get_public, url)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
     if response.status_code != 200:

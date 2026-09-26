@@ -70,33 +70,50 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
     return _store_upload(db, content, filename, "API_Upload", x_user_email, f"batch_{uuid.uuid4().hex[:8]}")
 
 
-async def fetch_dataset_from_url(url: str, default_stem: str = "downloaded_data") -> tuple:
-    """Downloads a dataset from a public URL. Returns (content bytes, inferred filename)."""
+class DatasetFetchError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+MAX_REDIRECTS = 5
+
+
+def _get_public(url: str):
+    """GET that re-validates every redirect target, so a public URL cannot bounce the server to an internal one."""
     import httpx
+    from urllib.parse import urljoin
+    for _ in range(MAX_REDIRECTS + 1):
+        validate_public_url(url)
+        response = httpx.get(url, follow_redirects=False, timeout=20.0)
+        if not response.is_redirect:
+            return response
+        url = urljoin(url, response.headers.get("location", ""))
+    raise ValueError("Too many redirects.")
+
+
+def download_dataset(url: str, default_stem: str = "downloaded_data") -> tuple:
+    """Downloads a dataset from a public URL. Returns (content bytes, inferred filename). Blocking."""
     from urllib.parse import urlparse
     parsed_url = urlparse(url)
     if (parsed_url.hostname or "").lower().endswith("kaggle.com") and "/api/" not in parsed_url.path:
-        raise HTTPException(
-            status_code=400,
-            detail="Kaggle dataset pages require a Kaggle login and cannot be downloaded directly. "
-                   "Download the file from Kaggle and upload it, or use a direct CSV/JSON download URL."
+        raise DatasetFetchError(
+            "Kaggle dataset pages require a Kaggle login and cannot be downloaded directly. "
+            "Download the file from Kaggle and upload it, or use a direct CSV/JSON download URL."
         )
     try:
-        validate_public_url(url)
+        response = _get_public(url)
     except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, follow_redirects=True, timeout=20.0)
+        raise DatasetFetchError(str(ve))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+        raise DatasetFetchError(f"Failed to fetch URL: {str(e)}")
     if response.status_code != 200:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL. Status code: {response.status_code}")
+        raise DatasetFetchError(f"Failed to fetch URL. Status code: {response.status_code}")
     if len(response.content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="The downloaded file exceeds the upload size limit.")
+        raise DatasetFetchError("The downloaded file exceeds the upload size limit.", 413)
     content_type = response.headers.get("content-type", "").lower()
     if "text/html" in content_type:
-        raise HTTPException(status_code=400, detail="The URL returned a web page, not a data file. Use a direct link to a CSV, JSON, XML or Excel file.")
+        raise DatasetFetchError("The URL returned a web page, not a data file. Use a direct link to a CSV, JSON, XML or Excel file.")
 
     filename = os.path.basename(parsed_url.path)
     if not filename or "." not in filename:
@@ -111,7 +128,16 @@ async def fetch_dataset_from_url(url: str, default_stem: str = "downloaded_data"
         else:
             ext = "csv"
         filename = f"{filename or default_stem}.{ext}"
-    return response.content, filename
+    return response.content, _validate_upload_name(filename)
+
+
+async def fetch_dataset_from_url(url: str, default_stem: str = "downloaded_data") -> tuple:
+    """download_dataset() for request handlers: runs in a worker thread and raises HTTPException."""
+    from starlette.concurrency import run_in_threadpool
+    try:
+        return await run_in_threadpool(download_dataset, url, default_stem)
+    except DatasetFetchError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
 
 
 class UrlUploadRequest(BaseModel):
@@ -125,7 +151,6 @@ async def upload_file_from_url(
 ):
     url = str(req.url).strip()
     content, filename = await fetch_dataset_from_url(url)
-    filename = _validate_upload_name(filename)
     return _store_upload(db, content, filename, "URL_Upload", x_user_email, f"batch_{uuid.uuid4().hex[:8]}")
 
 
