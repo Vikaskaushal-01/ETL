@@ -348,6 +348,11 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         ], file_path, uploaded_by)
     finally:
         db.close()
+        try:
+            from backend.core.notify import notify_run_finished
+            notify_run_finished(batch_id)
+        except Exception as notify_err:
+            logger.error(f"Run notification failed: {notify_err}")
 
 def recover_stale_runs(db: Session) -> int:
     """Marks runs still 'Running' after STALE_PIPELINE_SECONDS as failed (e.g. the server restarted mid-run)."""

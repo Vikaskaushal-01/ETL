@@ -183,6 +183,8 @@ class User(Base):
     reset_code = Column(String(50), nullable=True)
     display_name = Column(String(255), nullable=True)
     date_of_birth = Column(String(20), nullable=True)
+    webhook_url = Column(String(1000), nullable=True)  # called when a run finishes (Slack/Teams/Discord compatible)
+    notify_on = Column(String(20), nullable=True)  # "all" (default) or "failures"
     created_at = Column(DateTime, server_default=func.now())
 
 
