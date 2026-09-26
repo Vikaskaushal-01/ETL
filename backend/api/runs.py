@@ -1,11 +1,16 @@
-"""Run management on top of the History: compare two runs and export the history as CSV."""
+"""
+Run management on top of the History: compare two runs, export the history as CSV
+and preview and profile a run's dataset.
+"""
 import csv
 import io
+import json
 import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+import pandas as pd
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -33,6 +38,7 @@ EXPORT_COLUMNS = [
     "batch_id", "filename", "source", "status", "uploaded_at", "started_at", "ended_at", "execution_time",
     "rows", "columns", "rows_loaded", "rows_rejected", "quality_before", "quality_after", "format_selected",
 ]
+PROFILE_SAMPLE_ROWS = 5000
 
 
 def _dataset_path(run: dict) -> Optional[str]:
@@ -50,6 +56,27 @@ def _get_run(db: Session, batch_id: str, email: Optional[str]) -> dict:
     if not runs:
         raise HTTPException(status_code=404, detail=f"Batch not found: {batch_id}")
     return runs[0]
+
+
+def _column_profile(df: pd.DataFrame) -> list:
+    profile = []
+    for col in df.columns:
+        series = df[col]
+        non_null = int(series.notna().sum())
+        entry = {
+            "name": str(col),
+            "dtype": str(series.dtype),
+            "non_null": non_null,
+            "null_pct": round(100 * (1 - non_null / len(df)), 1) if len(df) else 0.0,
+            "unique": int(series.nunique(dropna=True)),
+        }
+        if pd.api.types.is_numeric_dtype(series) and non_null:
+            entry.update(min=float(series.min()), max=float(series.max()), mean=round(float(series.mean()), 4))
+        elif non_null:
+            top = series.astype(str).value_counts().head(1)
+            entry["top"] = {"value": top.index[0], "count": int(top.iloc[0])}
+        profile.append(entry)
+    return profile
 
 
 @router.get("/compare")
@@ -102,4 +129,28 @@ def export_history(db: Session = Depends(get_db), x_user_email: Optional[str] = 
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="pipeline_run_history.csv"'},
     )
+
+
+@router.get("/{batch_id}/preview")
+def preview_run_dataset(batch_id: str, rows: int = Query(50, ge=1, le=500), db: Session = Depends(get_db),
+                        x_user_email: Optional[str] = Header(None)):
+    """First rows of a run's dataset plus a per-column profile (types, nulls, distinct values, ranges)."""
+    run = _get_run(db, batch_id, x_user_email)
+    path = _dataset_path(run)
+    if not path:
+        raise HTTPException(status_code=404, detail="This run has no dataset file on disk.")
+    try:
+        df = read_dataset(path, nrows=PROFILE_SAMPLE_ROWS)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not read the dataset: {e}")
+    return {
+        "batch_id": batch_id,
+        "filename": run.get("filename"),
+        "source": "cleaned" if path == run.get("clean_file") else "raw",
+        "total_rows": run.get("rows") or len(df),
+        "profiled_rows": len(df),
+        "columns": _column_profile(df),
+        # to_json turns NaN/NaT/numpy values into plain JSON
+        "rows": json.loads(df.head(rows).to_json(orient="records", date_format="iso", default_handler=str)),
+    }
 
