@@ -115,29 +115,10 @@ class StagingSale(Base):
     row_number = Column(Integer)
     validation_status = Column(String(50))
 
+# Per-batch staging tables: every row of a batch with its validation outcome
+STAGING_TABLES = [StagingCustomer.__tablename__, StagingOrder.__tablename__, StagingSale.__tablename__, StagingDataset.__tablename__]
+
 # Logs & Meta Info
-class TransformationLog(Base):
-    __tablename__ = 'transformation_logs'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
-    agent_name = Column(String(100))
-    column_name = Column(String(100))
-    old_value = Column(Text)
-    new_value = Column(Text)
-    reason = Column(Text)
-    timestamp = Column(DateTime, server_default=func.now())
-
-class ValidationLog(Base):
-    __tablename__ = 'validation_logs'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    batch_id = Column(String(100), nullable=False)
-    validation_type = Column(String(100))
-    status = Column(String(50))
-    message = Column(Text)
-    timestamp = Column(DateTime, server_default=func.now())
-
 class PipelineLog(Base):
     __tablename__ = 'pipeline_logs'
 
@@ -215,8 +196,6 @@ class RagDocument(Base):
     content = Column(Text, nullable=True)
     upload_time = Column(DateTime, server_default=func.now())
     uploaded_by = Column(String(100))
-
-
 
 
 class ApiKey(Base):
