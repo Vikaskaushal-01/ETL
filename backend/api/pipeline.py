@@ -308,11 +308,6 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
             db.rollback()
             log_pipeline_end(db, pipeline_id, "Failed", execution_time)
             update_raw_upload_status_by_batch(db, batch_id, "Failed")
-            db.execute(text("INSERT INTO validation_logs (batch_id, validation_type, status, message) VALUES (:b, 'Pipeline', 'Failed', :m)"), {
-                "b": batch_id,
-                "m": f"Runtime Crash: {str(e)}"
-            })
-            db.commit()
         except Exception as inner_err:
             logger.error(f"Failed to log crash to DB: {inner_err}")
         update_pipeline_overall_status(pipeline_id, "Failed", execution_time, error=str(e))

@@ -70,8 +70,6 @@ Order item sales transactions.
 
 ## 3. Logs & Analytics Tables
 
-- **`transformation_logs`**: Tracks column cleaning operations. Columns: `batch_id`, `agent_name`, `column_name`, `old_value`, `new_value`, `reason`, `timestamp`.
-- **`validation_logs`**: Logs step-by-step loading validation records. Columns: `batch_id`, `validation_type`, `status`, `message`.
 - **`pipeline_logs`**: Aggregates job run durations. Columns: `pipeline_id`, `start_time`, `end_time`, `execution_time`, `status`.
 - **`agent_logs`**: Audits agent thoughts and confidence. Columns: `batch_id`, `agent_name`, `task`, `reasoning`, `confidence`, `execution_time`.
 - **`quality_reports`**: Completeness metrics. Columns: `batch_id`, `missing_values`, `duplicate_count`, `quality_score`, `schema_match`.
