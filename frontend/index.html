@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Control AI - ETL Automation Platform</title>
+    <!-- Theme and accent before first paint (no white flash in dark mode) -->
+    <script>
+        try {
+            var pref = localStorage.getItem('pref_theme') || 'system';
+            document.documentElement.dataset.theme = pref === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : pref;
+            var accent = localStorage.getItem('pref_accent_theme');
+            if (accent === 'emerald' || accent === 'violet') document.documentElement.dataset.accent = accent;
+        } catch (e) { document.documentElement.dataset.theme = 'light'; }
+    </script>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 22V10h14M9 16h10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
     <!-- Font Awesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -238,6 +247,7 @@
                             <span>Search or jump to...</span>
                             <kbd>Ctrl K</kbd>
                         </button>
+                        <button class="app-topbar-icon-btn" id="btn-theme-toggle" title="Switch light / dark theme"><i class="fa-solid fa-moon"></i></button>
                         <button class="app-topbar-icon-btn" id="btn-topbar-tasks" title="Task Center"><i class="fa-solid fa-layer-group"></i></button>
                         <button class="app-topbar-icon-btn" id="btn-topbar-notifications" title="Notifications"><i class="fa-regular fa-bell"></i></button>
 
@@ -1075,24 +1085,24 @@
                 <div class="settings-tab-panel" id="tab-preferences">
                     <div class="settings-section">
                         <div class="section-header">
-                            <h3><i class="fa-solid fa-palette"></i> Interface & Visual Theme</h3>
-                            <p>Customize system accent color and density preferences</p>
+                            <h3><i class="fa-solid fa-palette"></i> Appearance</h3>
+                            <p>Light or dark theme and the accent colour used across the app</p>
                         </div>
                         <div class="settings-grid">
                             <div class="form-group">
-                                <label for="pref-accent-theme"><i class="fa-solid fa-wand-magic-sparkles"></i> System Accent Glow</label>
+                                <label for="pref-accent-theme"><i class="fa-solid fa-palette"></i> Accent colour</label>
                                 <select id="pref-accent-theme" class="settings-select">
-                                    <option value="cyan">Cyan Glow (Default)</option>
-                                    <option value="emerald">Emerald Matrix</option>
-                                    <option value="violet">Violet Cyberpunk</option>
+                                    <option value="cyan">Indigo (Default)</option>
+                                    <option value="emerald">Emerald</option>
+                                    <option value="violet">Violet</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="pref-glass-intensity"><i class="fa-solid fa-eye"></i> Glassmorphism Intensity</label>
-                                <select id="pref-glass-intensity" class="settings-select">
-                                    <option value="high">High Blur (16px)</option>
-                                    <option value="medium">Medium Blur (10px)</option>
-                                    <option value="solid">Solid Dark Mode</option>
+                                <label for="pref-theme"><i class="fa-solid fa-circle-half-stroke"></i> Theme</label>
+                                <select id="pref-theme" class="settings-select">
+                                    <option value="system">Match system</option>
+                                    <option value="light">Light</option>
+                                    <option value="dark">Dark</option>
                                 </select>
                             </div>
                         </div>

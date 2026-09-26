@@ -1261,6 +1261,9 @@ function renderCharts(recentRuns) {
     const css = getComputedStyle(document.documentElement);
     const accent = css.getPropertyValue('--color-blue').trim() || '#4f46e5';
     const red = css.getPropertyValue('--color-red').trim() || '#dc2626';
+    const surface = css.getPropertyValue('--surface').trim() || '#ffffff';
+    const gridColor = css.getPropertyValue('--chart-grid').trim() || 'rgba(15, 23, 42, 0.06)';
+    const tickColor = css.getPropertyValue('--text-muted').trim() || '#8a8f9a';
     const fill = ctxHistory.createLinearGradient(0, 0, 0, canvas.clientHeight || 220);
     fill.addColorStop(0, `${accent}33`);
     fill.addColorStop(1, `${accent}00`);
@@ -1280,7 +1283,7 @@ function renderCharts(recentRuns) {
                 borderWidth: 2,
                 pointRadius: 3,
                 pointHoverRadius: 5,
-                pointBackgroundColor: statuses.map(s => s === 'Failed' ? red : '#ffffff'),
+                pointBackgroundColor: statuses.map(s => s === 'Failed' ? red : surface),
                 pointBorderColor: statuses.map(s => s === 'Failed' ? red : accent),
                 pointBorderWidth: 2
             }]
@@ -1306,13 +1309,13 @@ function renderCharts(recentRuns) {
             scales: {
                 x: {
                     grid: { display: false },
-                    ticks: { color: '#8a8f9a', font: tickFont, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }
+                    ticks: { color: tickColor, font: tickFont, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 }
                 },
                 y: {
                     beginAtZero: true,
                     border: { display: false },
-                    grid: { color: 'rgba(15, 23, 42, 0.06)' },
-                    ticks: { color: '#8a8f9a', font: tickFont, callback: (v) => `${v}s` }
+                    grid: { color: gridColor },
+                    ticks: { color: tickColor, font: tickFont, callback: (v) => `${v}s` }
                 }
             }
         }
@@ -1725,7 +1728,7 @@ function initSettingsPage() {
 
     // Preferences Inputs & Buttons
     const selectAccent = document.getElementById('pref-accent-theme');
-    const selectGlass = document.getElementById('pref-glass-intensity');
+    const selectTheme = document.getElementById('pref-theme');
     const selectDbEngine = document.getElementById('pref-db-engine');
     const selectLogLevel = document.getElementById('pref-log-level');
     const checkAutoAi = document.getElementById('pref-auto-ai');
@@ -2008,7 +2011,7 @@ function initSettingsPage() {
     // Preferences Tab Load & Save (per-browser UI preferences)
     function loadPreferencesData() {
         if (selectAccent) selectAccent.value = localStorage.getItem('pref_accent_theme') || 'cyan';
-        if (selectGlass) selectGlass.value = localStorage.getItem('pref_glass_intensity') || 'high';
+        if (selectTheme) selectTheme.value = themePreference();
         if (selectLogLevel) selectLogLevel.value = localStorage.getItem('pref_log_level') || 'INFO';
         if (checkAutoAi) checkAutoAi.checked = localStorage.getItem('pref_auto_ai') !== 'false';
         if (checkAudioAlerts) checkAudioAlerts.checked = localStorage.getItem('pref_audio_alerts') !== 'false';
@@ -2021,15 +2024,14 @@ function initSettingsPage() {
         }
     }
 
-    // Apply saved accent theme on init
+    // Apply saved accent on init (the theme itself is applied by the inline script in <head>)
     applyAccentTheme(localStorage.getItem('pref_accent_theme') || 'cyan');
-    applyGlassIntensity(localStorage.getItem('pref_glass_intensity') || 'high');
 
     if (btnSavePreferences) {
         btnSavePreferences.addEventListener('click', () => {
             const themeVal = selectAccent ? selectAccent.value : 'cyan';
             if (selectAccent) localStorage.setItem('pref_accent_theme', themeVal);
-            if (selectGlass) localStorage.setItem('pref_glass_intensity', selectGlass.value);
+            if (selectTheme) setThemePreference(selectTheme.value);
             if (selectLogLevel) localStorage.setItem('pref_log_level', selectLogLevel.value);
             if (checkAutoAi) localStorage.setItem('pref_auto_ai', checkAutoAi.checked ? 'true' : 'false');
             if (checkAudioAlerts) localStorage.setItem('pref_audio_alerts', checkAudioAlerts.checked ? 'true' : 'false');
@@ -2039,17 +2041,10 @@ function initSettingsPage() {
             if (typeof pumpJobQueue === 'function') { pumpJobQueue(); renderJobs(); }
 
             applyAccentTheme(themeVal);
-            applyGlassIntensity(selectGlass ? selectGlass.value : 'high');
             showToast('success', 'Preferences saved & applied.');
             closeSettingsPage();
         });
     }
-}
-
-function applyGlassIntensity(level) {
-    document.body.classList.remove('glass-medium', 'glass-solid');
-    if (level === 'medium') document.body.classList.add('glass-medium');
-    if (level === 'solid') document.body.classList.add('glass-solid');
 }
 
 // Native confirm is avoided in automation contexts; this keeps destructive actions explicit
@@ -2057,31 +2052,49 @@ function confirmAction(message) {
     return window.confirm(message);
 }
 
-// Accent Theme Dynamic Switcher
+// Accent colour: the palettes live in style.css ([data-accent]) so they have dark-theme variants too
 function applyAccentTheme(theme) {
     const root = document.documentElement;
-    if (theme === 'emerald') {
-        root.style.setProperty('--color-blue', '#059669');
-        root.style.setProperty('--color-blue-strong', '#065f46');
-        root.style.setProperty('--color-blue-soft', '#ecfdf5');
-        root.style.setProperty('--color-teal', '#047857');
-        root.style.setProperty('--border-glow', 'rgba(5, 150, 105, 0.3)');
-    } else if (theme === 'violet') {
-        root.style.setProperty('--color-blue', '#7c3aed');
-        root.style.setProperty('--color-blue-strong', '#5b21b6');
-        root.style.setProperty('--color-blue-soft', '#f3f0fd');
-        root.style.setProperty('--color-teal', '#6d28d9');
-        root.style.setProperty('--border-glow', 'rgba(124, 58, 237, 0.3)');
-    } else {
-        root.style.setProperty('--color-blue', '#4f46e5');
-        root.style.setProperty('--color-blue-strong', '#3730a3');
-        root.style.setProperty('--color-blue-soft', '#eef0fd');
-        root.style.setProperty('--color-teal', '#0d9488');
-        root.style.setProperty('--border-glow', 'rgba(79, 70, 229, 0.25)');
-    }
+    if (theme === 'emerald' || theme === 'violet') root.dataset.accent = theme;
+    else delete root.dataset.accent;
+    // Charts read the accent from CSS; redraw them with the new colours
+    if (window.renderDashboardChart && document.getElementById('dashboard-view')?.classList.contains('active')) window.renderDashboardChart();
 }
 
+// Light / dark theme. The preference is 'system' (default), 'light' or 'dark'; <html data-theme> holds the result.
+const darkSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
+function themePreference() {
+    try { return localStorage.getItem('pref_theme') || 'system'; } catch (e) { return 'system'; }
+}
+
+function resolvedTheme() {
+    const pref = themePreference();
+    return pref === 'system' ? (darkSchemeQuery.matches ? 'dark' : 'light') : pref;
+}
+
+function applyTheme() {
+    const theme = resolvedTheme();
+    document.documentElement.dataset.theme = theme;
+    const icon = document.querySelector('#btn-theme-toggle i');
+    if (icon) icon.className = `fa-solid ${theme === 'dark' ? 'fa-sun' : 'fa-moon'}`;
+    const btn = document.getElementById('btn-theme-toggle');
+    if (btn) btn.title = theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    if (window.renderDashboardChart && document.getElementById('dashboard-view')?.classList.contains('active')) window.renderDashboardChart();
+}
+
+function setThemePreference(pref) {
+    try { localStorage.setItem('pref_theme', pref); } catch (e) { /* private mode: applies for this page only */ }
+    applyTheme();
+}
+
+darkSchemeQuery.addEventListener('change', () => { if (themePreference() === 'system') applyTheme(); });
+document.addEventListener('DOMContentLoaded', () => {
+    applyTheme();
+    document.getElementById('btn-theme-toggle')?.addEventListener('click', () => {
+        setThemePreference(resolvedTheme() === 'dark' ? 'light' : 'dark');
+    });
+});
 
 
 // Global download helpers

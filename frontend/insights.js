@@ -306,6 +306,9 @@ function renderTrendChart(data) {
     const green = css.getPropertyValue('--color-green').trim() || '#16a34a';
     const red = css.getPropertyValue('--color-red').trim() || '#dc2626';
     const accent = css.getPropertyValue('--color-blue').trim() || '#4f46e5';
+    const muted = css.getPropertyValue('--text-muted').trim() || '#8a8f9a';
+    const secondary = css.getPropertyValue('--text-secondary').trim() || '#565b66';
+    const gridColor = css.getPropertyValue('--chart-grid').trim() || 'rgba(15, 23, 42, 0.06)';
     const tickFont = { family: 'Plus Jakarta Sans', size: 10 };
     const labels = data.series.map(d => new Date(d.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }));
 
@@ -324,15 +327,15 @@ function renderTrendChart(data) {
             maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-                legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, font: tickFont, color: '#565b66' } },
+                legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, font: tickFont, color: secondary } },
                 tooltip: { backgroundColor: '#12141a', padding: 10, cornerRadius: 8, titleFont: { ...tickFont, size: 11, weight: '700' }, bodyFont: { ...tickFont, size: 11 } }
             },
             scales: {
-                x: { stacked: true, grid: { display: false }, ticks: { color: '#8a8f9a', font: tickFont, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
-                y: { stacked: true, beginAtZero: true, border: { display: false }, grid: { color: 'rgba(15, 23, 42, 0.06)' },
-                     ticks: { color: '#8a8f9a', font: tickFont, precision: 0 }, title: { display: true, text: 'Runs', color: '#8a8f9a', font: tickFont } },
+                x: { stacked: true, grid: { display: false }, ticks: { color: muted, font: tickFont, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
+                y: { stacked: true, beginAtZero: true, border: { display: false }, grid: { color: gridColor },
+                     ticks: { color: muted, font: tickFont, precision: 0 }, title: { display: true, text: 'Runs', color: muted, font: tickFont } },
                 q: { position: 'right', min: 0, max: 100, border: { display: false }, grid: { display: false },
-                     ticks: { color: '#8a8f9a', font: tickFont, callback: (v) => `${v}%` } }
+                     ticks: { color: muted, font: tickFont, callback: (v) => `${v}%` } }
             }
         }
     });
