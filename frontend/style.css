@@ -450,22 +450,52 @@ table tr:hover td { background: var(--surface-2); }
 .presentation-brand-text { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; }
 .presentation-title { font-size: 30px; font-weight: 800; color: #ffffff; letter-spacing: -0.8px; margin-bottom: 14px; line-height: 1.2; }
 .presentation-desc { font-size: 13px; color: rgba(255,255,255,0.65); line-height: 1.65; margin-bottom: 32px; max-width: 380px; }
-.presentation-counter { display: none; }
 
-.floating-badge-card {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+/* Miniature pipeline on the sign-in panel: five stages joined by a rail, a light pulse travels along it */
+.login-flow {
+    position: relative;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    margin-bottom: 30px;
+    padding: 18px 10px 14px;
     border-radius: var(--radius-lg);
-    padding: 22px;
-    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
-.floating-badge-card h4 { font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 6px; }
-.floating-badge-card p { font-size: 11.5px; color: rgba(255,255,255,0.6); line-height: 1.5; margin-bottom: 16px; }
+.login-flow::before {
+    content: '';
+    position: absolute; left: 10%; right: 10%; top: 35px;
+    height: 2px; border-radius: 2px;
+    background: rgba(255, 255, 255, 0.14);
+}
+.login-flow-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 1; }
+.login-flow-step i {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: #c7d2fe;
+    background: #1c1d33; border: 1px solid rgba(199, 210, 254, 0.25);
+    animation: loginStepGlow 5s ease-in-out infinite;
+}
+.login-flow-step span { font-size: 10.5px; font-weight: 600; color: rgba(255, 255, 255, 0.6); letter-spacing: 0.02em; }
+.login-flow-step:nth-child(2) i { animation-delay: 1s; }
+.login-flow-step:nth-child(3) i { animation-delay: 2s; }
+.login-flow-step:nth-child(4) i { animation-delay: 3s; }
+.login-flow-step:nth-child(5) i { animation-delay: 4s; }
+@keyframes loginStepGlow {
+    0%, 22%, 100% { border-color: rgba(199, 210, 254, 0.25); box-shadow: none; color: #c7d2fe; }
+    8% { border-color: #a5b4fc; box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.18); color: #ffffff; }
+}
+.login-flow-pulse {
+    position: absolute; top: 32px; left: 10%;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #a5b4fc; box-shadow: 0 0 12px 2px rgba(165, 180, 252, 0.7);
+    animation: loginPulseTravel 5s linear infinite;
+}
+@keyframes loginPulseTravel { from { left: 10%; opacity: 1; } 80% { opacity: 1; } to { left: 90%; opacity: 0; } }
 
-.avatar-stack { display: flex; align-items: center; }
-.avatar-stack img { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #1f2033; margin-left: -6px; }
-.avatar-stack img:first-child { margin-left: 0; }
-.avatar-more { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.15); border: 1.5px solid #1f2033; color: #ffffff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-left: -6px; }
+.login-feature-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.login-feature-list li { display: flex; gap: 10px; font-size: 12px; line-height: 1.55; color: rgba(255, 255, 255, 0.6); }
+.login-feature-list li i { color: #818cf8; margin-top: 3px; font-size: 12px; }
+.login-feature-list strong { color: #ffffff; font-weight: 600; }
 
 .forgot-password-link { color: var(--text-secondary) !important; font-weight: 500 !important; text-decoration: none; }
 .forgot-password-link:hover { color: var(--color-blue) !important; }
