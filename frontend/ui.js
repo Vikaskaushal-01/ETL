@@ -49,6 +49,9 @@ function paletteCommands() {
         { group: 'Actions', icon: 'fa-code-compare', label: 'Compare two runs', hint: 'Metrics & columns side by side', run: () => window.openCompareRuns() },
         { group: 'Actions', icon: 'fa-file-csv', label: 'Export run history', hint: 'Download as CSV', run: () => window.exportHistory() },
         { group: 'Actions', icon: 'fa-heart-pulse', label: 'Check system status', hint: 'Database, AI engine, uptime', run: () => { go('dashboard-view')(); window.loadSystemStatus(true); } },
+        { group: 'Actions', icon: 'fa-circle-half-stroke', label: 'Toggle dark mode', hint: 'Light / dark theme', run: () => document.getElementById('btn-theme-toggle')?.click() },
+        { group: 'Actions', icon: 'fa-bell', label: 'Run notifications', hint: 'Webhook to Slack, Teams, Discord', run: () => { document.getElementById('btn-dropdown-profile')?.click(); setTimeout(() => document.getElementById('tab-btn-notifications')?.click(), 50); } },
+        { group: 'Actions', icon: 'fa-keyboard', label: 'Keyboard shortcuts', hint: 'Press ? anywhere', run: () => window.openShortcuts() },
         { group: 'Actions', icon: 'fa-robot', label: 'Ask the AI assistant', hint: 'Chat about any batch', run: () => openAssistant() },
         { group: 'Actions', icon: 'fa-sliders', label: 'Preferences', hint: 'Parallel runs, alerts, accent', run: () => document.getElementById('btn-dropdown-preferences')?.click() },
         { group: 'Actions', icon: 'fa-key', label: 'API keys', hint: 'Create & manage keys', run: () => document.getElementById('btn-dropdown-security')?.click() }
@@ -210,6 +213,33 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('tasks-panel') && window.toggleTasksPanel();
             document.getElementById('notifications-panel')?.remove();
         }
+    });
+
+    // Single-key shortcuts outside text fields: ?, N, T and G-then-letter navigation
+    let pendingGo = 0;
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+        const el = document.activeElement;
+        if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+        if (document.getElementById('main-app-container')?.classList.contains('app-hidden')) return;
+        const key = e.key.toLowerCase();
+        const goTargets = { d: 'dashboard-view', p: 'pipeline-monitor-page', h: 'history-view', s: 'schedules-view' };
+        if (Date.now() - pendingGo < 1200 && goTargets[key]) {
+            pendingGo = 0;
+            window.closeSheet && window.closeSheet();
+            window.activateView(goTargets[key]);
+        } else if (key === 'g') {
+            pendingGo = Date.now();
+        } else if (e.key === '?') {
+            window.openShortcuts();
+        } else if (key === 't') {
+            document.getElementById('btn-theme-toggle')?.click();
+        } else if (key === 'n') {
+            document.querySelector('[data-quick="new-run"]')?.click();
+        } else {
+            return;
+        }
+        e.preventDefault();
     });
 
     // Dashboard quick actions

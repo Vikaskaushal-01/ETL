@@ -2494,3 +2494,8 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 #tab-notifications .settings-footer { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 @media (max-width: 640px) { .notify-options { grid-template-columns: 1fr; } }
 
+/* ---- Keyboard shortcuts ---- */
+.shortcut-list { display: flex; flex-direction: column; }
+.shortcut-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px dashed var(--border-color); font-size: 12.5px; }
+.shortcut-row:last-child { border-bottom: none; }
+

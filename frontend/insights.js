@@ -490,6 +490,26 @@ window.downloadRejectedRows = function(batchId) {
     link.remove();
 };
 
+// ---------- Keyboard shortcuts ----------
+
+window.openShortcuts = function() {
+    const rows = [
+        ['Ctrl + K', null, 'Search pages, actions and runs'],
+        ['?', null, 'Show this list'],
+        ['G', 'D', 'Go to Dashboard'],
+        ['G', 'P', 'Go to Pipeline'],
+        ['G', 'H', 'Go to History'],
+        ['G', 'S', 'Go to Schedules'],
+        ['N', null, 'New pipeline run (pick files)'],
+        ['T', null, 'Toggle light / dark theme'],
+        ['Esc', null, 'Close dialogs and panels']
+    ];
+    window.openSheet('Keyboard shortcuts', 'Available anywhere outside text fields', `
+        <div class="shortcut-list">${rows.map(([a, b, label]) => `
+            <div class="shortcut-row"><span>${label}</span><span><kbd>${a}</kbd>${b ? ` <span class="text-secondary">then</span> <kbd>${b}</kbd>` : ''}</span></div>`).join('')}
+        </div>`);
+};
+
 // ---------- wiring ----------
 
 document.addEventListener('DOMContentLoaded', () => {
