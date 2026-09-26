@@ -73,8 +73,14 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | **SnapLogic Agents** | `/api/v1/pipeline/intake` · `/transform` · `/store` · `/report` | `POST` | Run a single agent (called by SnapLogic IIP) |
 | **Quality & Logs** | `/api/v1/data-quality` · `/api/v1/root-cause` · `/api/v1/logs` | `GET` | Quality scores, RCA findings and agent logs (optional `batch_id`) |
 | **Run History** | `/api/v1/history` · `/api/v1/history/{batch_id}/log` | `GET` | Every upload with its run results / the full process log of a run |
+| | `/api/v1/history/{batch_id}/preview?rows=50` | `GET` | First rows of a run's dataset plus a per-column profile (type, nulls, distinct, range) |
+| | `/api/v1/history/compare?a=&b=` | `GET` | Two runs side by side: metrics with deltas and column differences |
+| | `/api/v1/history/export` | `GET` | Run history as CSV |
+| | `/api/v1/history/{batch_id}` | `DELETE` | Delete a run with its records, logs and reports (files shared with other runs of the same file are kept) |
 | **Dashboard Analytics**| `/api/v1/dashboard/summary` | `GET` | KPIs: rows processed, success rate, quality, recent runs |
 | | `/api/v1/dashboard/metrics` | `GET` | Run telemetry: totals, availability, latency |
+| | `/api/v1/dashboard/trends?days=14` | `GET` | Runs per day (succeeded / failed), average runtime and quality |
+| | `/api/v1/dashboard/system` | `GET` | Version, uptime, database latency, active AI engine, workspace size |
 | | `/api/v1/dashboard/datasets` · `/download?file_path=` | `GET` | List / download cleaned datasets and reports |
 | **Reports Exporter** | `/api/v1/reports/folders` · `/history` | `GET` | Reports grouped per dataset / report history |
 | | `/api/v1/reports/download/{batch_id}?format=pdf\|docx\|markdown\|json` | `GET` | Download a batch report |

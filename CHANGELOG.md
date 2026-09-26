@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.0] - 2026-09-26
+
+### 🚀 Added
+- **Dataset preview & column profile**: open any run's cleaned (or raw) data in a dialog with row samples and per-column type, null %, distinct count and range / most common value (`GET /history/{batch_id}/preview`).
+- **Compare runs**: pick two runs and see rows, quality, rejections and runtime side by side with deltas, plus columns only in one of them (`GET /history/compare`).
+- **Delete a run** from the dashboard or History; logs, reports, state and staging rows go with it, while files still used by another run of the same file are kept (`DELETE /history/{batch_id}`).
+- **Export history** as CSV (`GET /history/export`).
+- **Daily activity chart**: the dashboard chart switches between the last runs and a 14 / 30 day view of succeeded and failed runs with average quality (`GET /dashboard/trends`).
+- **System status** panel with *Check now*: database and latency, active AI engine, API version and uptime, workspace size (`GET /dashboard/system`).
+- The new actions are also in the command palette (`Ctrl+K`).
+
+### 🎨 Changed
+- Sign-in panel describes the real product with a small animated pipeline instead of placeholder copy and stock avatars.
+- Subtle motion: staggered page entrance, button press feedback, a soft ring when a pipeline stage completes (replaces the confetti burst). All respect *reduce motion*.
+
+### 🧹 Removed
+- Mock social sign-in (fake Google/GitHub/Facebook accounts) and its `/auth/social-login` endpoint.
+- Unused `TransformationLog` / `ValidationLog` models, `PipelineStatusResponse` schema, TXT report generator, duplicate HTML-escape helper and dead canvas effects; dashboard queries share one helper and no longer query per row.
+
 ## [2.4.0] - 2026-09-25
 
 ### 🚀 Added
