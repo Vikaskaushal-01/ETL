@@ -759,17 +759,13 @@ def _stage_output(state: dict, stage_id: str) -> dict:
     return (state.get("stages", {}).get(stage_id) or {}).get("output") or {}
 
 
-@router.get("/history")
-def get_run_history(limit: int = 200, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
-    """Every batch the caller uploaded, newest first, with its run status and measured results."""
+def list_runs(db: Session, email: Optional[str], limit: int = 200, batch_ids: Optional[list] = None) -> list:
+    """Batches uploaded by `email`, newest first, with their run status and measured results."""
     from backend.database.models import RawUpload, GeneratedReport
-    uploads = (
-        db.query(RawUpload)
-        .filter(RawUpload.uploaded_by == x_user_email)
-        .order_by(RawUpload.upload_time.desc())
-        .limit(max(1, min(limit, 1000)))
-        .all()
-    )
+    query = db.query(RawUpload).filter(RawUpload.uploaded_by == email)
+    if batch_ids is not None:
+        query = query.filter(RawUpload.batch_id.in_(batch_ids))
+    uploads = query.order_by(RawUpload.upload_time.desc()).limit(max(1, min(limit, 1000))).all()
     batch_ids = [u.batch_id for u in uploads if u.batch_id]
     runs = {p.pipeline_id: p for p in db.query(PipelineLog).filter(PipelineLog.pipeline_id.in_([f"pipe_{b}" for b in batch_ids])).all()} if batch_ids else {}
     reports = {}
@@ -813,6 +809,12 @@ def get_run_history(limit: int = 200, db: Session = Depends(get_db), x_user_emai
             "error": state.get("error"),
         })
     return history
+
+
+@router.get("/history")
+def get_run_history(limit: int = 200, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Every batch the caller uploaded, newest first, with its run status and measured results."""
+    return list_runs(db, x_user_email, limit)
 
 
 @router.get("/history/{batch_id}/log")
