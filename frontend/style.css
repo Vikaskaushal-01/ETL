@@ -282,11 +282,14 @@ table tr:hover td { background: var(--surface-2); }
     transform: scale(1.02);
     pointer-events: none;
 }
+/* The assistant needs a session: hide it while the sign-in screen is up */
+.login-screen-overlay:not(.fade-out) ~ .chatbot-floating-trigger,
+.login-screen-overlay:not(.fade-out) ~ .chatbot-popup-container { display: none !important; }
 
 .login-left-panel {
     flex: 1;
     height: 100%;
-    background: #ffffff;
+    background: var(--surface);
     display: flex;
     align-items: center;
     justify-content: center;
