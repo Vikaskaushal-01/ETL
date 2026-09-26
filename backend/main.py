@@ -4,6 +4,7 @@ import os
 from urllib.parse import parse_qsl, urlencode
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from backend.database.mysql import engine, Base
@@ -146,6 +147,8 @@ class AuthIdentityMiddleware:
 
 
 app.add_middleware(AuthIdentityMiddleware)
+# Compress JSON, logs and the large JS/CSS bundles
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # The UI is served from this same origin; extra origins can be allowed explicitly.
 cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
