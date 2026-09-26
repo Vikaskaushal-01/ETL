@@ -1491,7 +1491,7 @@ function jsArg(value) {
 }
 
 function escapeHtml(value) {
-    return String(value)
+    return String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -1689,13 +1689,6 @@ function initialsAvatar(name) {
 }
 
 // Helper to escape HTML characters
-function escapeHTML(str) {
-    if (!str) return '';
-    return str.replace(/[&<>'"]/g, 
-        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-    );
-}
-
 // Full Settings & Profile Management Controller
 function initSettingsPage() {
     const overlay = document.getElementById('settings-page-overlay');
@@ -1918,8 +1911,8 @@ function initSettingsPage() {
         keys.forEach(k => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong>${escapeHTML(k.name)}</strong></td>
-                <td><span class="key-code">${escapeHTML(k.key_preview)}</span></td>
+                <td><strong>${escapeHtml(k.name)}</strong></td>
+                <td><span class="key-code">${escapeHtml(k.key_preview)}</span></td>
                 <td><span class="env-badge ${k.environment.toLowerCase()}">${k.environment}</span></td>
                 <td><span style="color:var(--text-secondary); font-size:0.85rem;">${k.created_at ? parseUTCDate(k.created_at).toLocaleDateString() : '-'}</span></td>
                 <td><button class="btn-icon-subtle delete delete-key-btn" data-id="${k.id}" title="Revoke key"><i class="fa-solid fa-trash-can"></i></button></td>
@@ -1973,10 +1966,10 @@ function initSettingsPage() {
         const box = document.createElement('div');
         box.className = 'api-secret-once';
         box.innerHTML = `
-            <strong>New key "${escapeHTML(name)}" - copy it now, it will not be shown again:</strong>
-            <div class="key-code-wrapper"><code class="key-code">${escapeHTML(secret)}</code>
+            <strong>New key "${escapeHtml(name)}" - copy it now, it will not be shown again:</strong>
+            <div class="key-code-wrapper"><code class="key-code">${escapeHtml(secret)}</code>
             <button class="btn-icon-subtle" title="Copy"><i class="fa-solid fa-copy"></i></button></div>
-            <span class="text-secondary">Use it as the <code>X-API-Key</code> header, e.g. <code>curl -H "X-API-Key: ${escapeHTML(secret)}" ${window.location.origin}/api/v1/dashboard/summary</code></span>`;
+            <span class="text-secondary">Use it as the <code>X-API-Key</code> header, e.g. <code>curl -H "X-API-Key: ${escapeHtml(secret)}" ${window.location.origin}/api/v1/dashboard/summary</code></span>`;
         box.querySelector('button').addEventListener('click', () => {
             navigator.clipboard.writeText(secret).then(() => showToast('success', 'API key copied.'));
         });
@@ -1996,7 +1989,7 @@ function initSettingsPage() {
         apiLogsList.innerHTML = keys.map(k => `
             <div class="api-log-entry">
                 <div class="log-meta">
-                    <span class="log-endpoint">${escapeHTML(k.name)}</span>
+                    <span class="log-endpoint">${escapeHtml(k.name)}</span>
                     <span class="log-time">${k.last_used_at ? 'last used ' + parseUTCDate(k.last_used_at).toLocaleString() : 'never used'}</span>
                 </div>
                 <span class="log-status">${k.request_count} request(s)</span>
