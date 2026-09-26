@@ -83,6 +83,30 @@ def read_pipeline_state(pipeline_id: str) -> dict:
                 time.sleep(0.05)
     return _new_pipeline_state(pipeline_id)
 
+# History parses every run's state file on each load; unchanged files are served from memory
+_state_cache = {}  # path -> (mtime_ns, state)
+
+
+def read_pipeline_state_cached(pipeline_id: str) -> dict:
+    """A run's state (or {} when it has none), re-read only when its file changed. Treat the result as read-only."""
+    path = get_pipeline_state_path(pipeline_id)
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except OSError:
+        _state_cache.pop(path, None)
+        return {}
+    cached = _state_cache.get(path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return read_pipeline_state(pipeline_id)  # transient failure: retry path, never cached
+    _state_cache[path] = (mtime, state)
+    return state
+
+
 def clean_json_value(v):
     import math
     from datetime import date
@@ -774,7 +798,7 @@ def list_runs(db: Session, email: Optional[str], limit: int = 200, batch_ids: Op
             continue
         pipeline_id = f"pipe_{u.batch_id}"
         run = runs.get(pipeline_id)
-        state = read_pipeline_state(pipeline_id) if pipeline_state_exists(pipeline_id) else {}
+        state = read_pipeline_state_cached(pipeline_id)
         intake, transform, storage = _stage_output(state, "intake"), _stage_output(state, "transformation"), _stage_output(state, "storage")
         report = reports.get(u.batch_id)
         history.append({
