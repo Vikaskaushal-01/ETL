@@ -407,16 +407,6 @@ table tr:hover td { background: var(--surface-2); }
 .login-form-footer a { color: var(--text-primary); text-decoration: none; font-weight: 600; }
 .login-form-footer a:hover { color: var(--color-blue); }
 
-.social-login-row { display: flex; justify-content: center; gap: 12px; margin-top: 30px; }
-.social-btn {
-    width: 40px; height: 40px; border-radius: 50%;
-    border: 1.5px solid var(--border-color);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; color: var(--text-primary); text-decoration: none;
-    transition: all 0.2s;
-}
-.social-btn:hover { border-color: var(--color-blue); background: var(--color-blue-soft); }
-
 /* Right presentation panel — clean brand surface, no stock photography */
 .login-right-panel {
     flex: 1;
@@ -1535,53 +1525,7 @@ input:checked + .slider:before { transform: translateX(20px); }
     .btn-save-settings { width: 100%; justify-content: center; }
 }
 
-/* ==========================================================================
-   OAuth Modal + User Profile Modal
-   ========================================================================== */
-.oauth-modal-overlay {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(15, 17, 23, 0.55);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 6000;
-    animation: oauthFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes oauthFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-.oauth-card {
-    background: var(--surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
-    padding: 34px 28px; max-width: 380px; width: 90%; box-shadow: var(--shadow-lg);
-    position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
-    color: var(--text-primary); animation: oauthSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes oauthSlideUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-.oauth-close-btn { position: absolute; top: 16px; right: 16px; background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: var(--transition-smooth); }
-.oauth-close-btn:hover { color: var(--text-primary); background: var(--surface-2); }
-
-.oauth-header { margin-bottom: 26px; width: 100%; }
-.oauth-provider-logo { width: 60px; height: 60px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 26px; margin: 0 auto 16px auto; }
-.oauth-provider-logo.google { color: #ea4335; background: #fdeceb; border-color: #f6c6c1; }
-.oauth-provider-logo.github { color: #12141a; background: var(--surface-2); border-color: var(--border-color); }
-.oauth-provider-logo.facebook { color: #1877f2; background: #eaf2fe; border-color: #bcd6fb; }
-
-.oauth-header h3 { font-size: 19px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.4px; }
-.oauth-header p { font-size: 12.5px; color: var(--text-secondary); }
-.oauth-body { width: 100%; margin-bottom: 20px; min-height: 150px; display: flex; align-items: center; justify-content: center; }
-.oauth-loading { display: flex; flex-direction: column; align-items: center; gap: 14px; color: var(--text-secondary); font-size: 13px; }
-.oauth-spinner { width: 34px; height: 34px; border: 3px solid var(--color-blue-soft); border-top: 3px solid var(--color-blue); border-radius: 50%; animation: oauthSpin 0.9s linear infinite; }
-@keyframes oauthSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-.oauth-accounts { width: 100%; text-align: left; animation: modalFadeIn 0.2s ease; }
-.oauth-select-text { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 700; margin-bottom: 12px; }
-.oauth-account-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-.oauth-account-card { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition-smooth); }
-.oauth-account-card:hover { border-color: var(--color-blue); background: var(--color-blue-soft); }
-.oauth-account-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border-color); }
-.oauth-account-avatar img { width: 100%; height: 100%; object-fit: cover; }
-.oauth-account-info { display: flex; flex-direction: column; }
-.oauth-account-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.oauth-account-email { font-size: 11px; color: var(--text-secondary); }
-.oauth-footer { width: 100%; border-top: 1px solid var(--border-color); padding-top: 16px; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 6px; }
+@keyframes overlayFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 #forgot-code { font-size: 16px !important; text-transform: uppercase; }
 
@@ -2091,7 +2035,7 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
     padding: 12vh 16px 16px 16px;
     background: rgba(15, 17, 23, 0.4);
     backdrop-filter: blur(3px);
-    animation: oauthFadeIn 0.15s ease;
+    animation: overlayFadeIn 0.15s ease;
 }
 .palette-overlay[hidden] { display: none; }
 .palette {
