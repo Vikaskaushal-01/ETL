@@ -26,14 +26,6 @@ class PipelineStartResponse(BaseModel):
     batch_id: str
     dataset_name: str
 
-class PipelineStatusResponse(BaseModel):
-    pipeline_id: str
-    status: str
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    execution_time: Optional[float] = None
-    logs: List[str]
-
 class ReportSummary(BaseModel):
     id: int
     batch_id: str
