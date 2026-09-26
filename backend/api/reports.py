@@ -7,7 +7,7 @@ from backend.database.models import GeneratedReport, RawUpload
 from backend.schemas.schemas import ReportSummary
 from backend.core.security import DEFAULT_ADMIN_EMAIL, is_valid_batch_id
 from backend.utils.account_utils import (
-    get_user_path, is_path_accessible, resolve_project_path, user_owns_batch
+    get_user_batch_ids, get_user_path, is_path_accessible, resolve_project_path, user_owns_batch
 )
 from typing import List, Optional
 
@@ -31,17 +31,13 @@ FORMAT_MEDIA = {
 }
 
 
-def resolve_report_path(path: str) -> str:
-    return resolve_project_path(path)
-
-
 def _active_email(x_user_email: Optional[str], email: Optional[str] = None) -> str:
     return x_user_email or email or DEFAULT_ADMIN_EMAIL
 
 
 def _user_reports(db: Session, email: str):
     """Generated reports belonging to batches uploaded by this user, newest first."""
-    batch_ids = [b[0] for b in db.query(RawUpload.batch_id).filter(RawUpload.uploaded_by == email).all() if b[0]]
+    batch_ids = get_user_batch_ids(db, email)
     if not batch_ids:
         return []
     return db.query(GeneratedReport).filter(GeneratedReport.batch_id.in_(batch_ids)).order_by(GeneratedReport.created_at.desc()).all()
@@ -132,7 +128,7 @@ def get_latest_report(format: str = Query("pdf", enum=list(FORMAT_COLUMNS.keys()
     fmt = format.lower()
     for report in _user_reports(db, active_email):
         path = getattr(report, FORMAT_COLUMNS[fmt]) or ""
-        abs_path = resolve_report_path(path)
+        abs_path = resolve_project_path(path)
         if abs_path and os.path.isfile(abs_path) and is_path_accessible(abs_path, active_email):
             return _report_file_response(abs_path, fmt)
     raise HTTPException(status_code=404, detail="No reports found for this account.")
@@ -152,7 +148,7 @@ def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=list
         path = getattr(report, FORMAT_COLUMNS[fmt]) or ""
 
     # 2. Fall back to an exact <batch_id>_report.<ext> file in the owner's reports folder
-    if not path or not os.path.isfile(resolve_report_path(path)):
+    if not path or not os.path.isfile(resolve_project_path(path)):
         path = ""
         owner = db.query(RawUpload.uploaded_by).filter(RawUpload.batch_id == batch_id).scalar()
         reports_dir = os.path.dirname(get_user_path(owner, "reports/dummy.txt"))
@@ -162,7 +158,7 @@ def download_report_by_batch(batch_id: str, format: str = Query("pdf", enum=list
                 path = os.path.join(root, target_name)
                 break
 
-    abs_path = resolve_report_path(path)
+    abs_path = resolve_project_path(path)
     if not abs_path or not os.path.isfile(abs_path) or not is_path_accessible(abs_path, active_email):
         raise HTTPException(status_code=404, detail=f"Report file ({fmt}) not found for batch: {batch_id}")
     return _report_file_response(abs_path, fmt)
@@ -177,7 +173,7 @@ def download_file(path: str, x_user_email: Optional[str] = Header(None), email: 
     if not path:
         raise HTTPException(status_code=400, detail="Path parameter is required.")
 
-    abs_path = resolve_report_path(path)
+    abs_path = resolve_project_path(path)
     if not abs_path or not os.path.isfile(abs_path) or not is_path_accessible(abs_path, active_email):
         raise HTTPException(status_code=404, detail="File not found.")
 
