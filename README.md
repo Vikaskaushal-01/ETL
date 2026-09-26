@@ -64,6 +64,7 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | | `/api/v1/auth/forgot-password` · `/verify-reset-code` · `/reset-password` | `POST` | Password reset (15 min codes, 5 attempts) |
 | | `/api/v1/auth/profile` · `/change-password` | `GET`/`PUT`/`POST` | Profile (display name, date of birth) and password change |
 | | `/api/v1/auth/api-keys` | `GET`/`POST`/`DELETE` | Personal API keys, sent as `X-API-Key` (only a hash is stored) |
+| | `/api/v1/auth/notifications` · `/notifications/test` | `GET`/`PUT`/`POST` | Webhook called when a run finishes (Slack, Teams, Discord, Mattermost or custom JSON) |
 | **Data Ingestion** | `/api/v1/upload` | `POST` | Upload a dataset file (CSV, TSV, XLSX, JSON, XML, ...) |
 | | `/api/v1/upload/url` | `POST` | Ingest a dataset from a public URL |
 | | `/api/v1/upload/realtime` | `POST` | Generate and register a synthetic streaming batch |
@@ -77,6 +78,11 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | | `/api/v1/history/compare?a=&b=` | `GET` | Two runs side by side: metrics with deltas and column differences |
 | | `/api/v1/history/export` | `GET` | Run history as CSV |
 | | `/api/v1/history/{batch_id}` | `DELETE` | Delete a run with its records, logs and reports (files shared with other runs of the same file are kept) |
+| | `/api/v1/history/{batch_id}/details` | `GET` | Everything a run recorded: summary, missing values, applied changes, rejected rows with reasons, root causes |
+| | `/api/v1/history/{batch_id}/rejected.csv` | `GET` | Every rejected row with its row number and rejection reason |
+| **Schedules** | `/api/v1/schedules` | `GET`/`POST` | List / create schedules: a public dataset URL ingested and run every N minutes by the server |
+| | `/api/v1/schedules/{id}` | `PATCH`/`DELETE` | Rename, change interval, pause / resume, or delete a schedule |
+| | `/api/v1/schedules/{id}/run` | `POST` | Run a schedule now |
 | **Dashboard Analytics**| `/api/v1/dashboard/summary` | `GET` | KPIs: rows processed, success rate, quality, recent runs |
 | | `/api/v1/dashboard/metrics` | `GET` | Run telemetry: totals, availability, latency |
 | | `/api/v1/dashboard/trends?days=14` | `GET` | Runs per day (succeeded / failed), average runtime and quality |

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - 2026-09-27
+
+### 🚀 Added
+- **Run details**: every run opens a dialog with its summary, quality before and after, missing values per column, every change the cleaner made, rejected rows with their reasons (all rows downloadable as CSV), root causes, insights and recommendations. Open it from a run's name or the info button on the dashboard and in History (`GET /history/{batch_id}/details`, `/rejected.csv`).
+- **Schedules**: a public dataset URL downloaded and run through the full pipeline every 15 minutes to every week, by the server itself. Pause, resume, run now and delete from the new Schedules page (`/schedules`).
+- **Run notifications**: a webhook called when a run finishes, for every run or failures only, with a test button (Settings > Notifications). Works with Slack, Teams workflows, Discord and Mattermost.
+- **Dark mode**: follows the system by default, toggled from the top bar or Preferences, with dark variants of every accent colour.
+- **Keyboard shortcuts**: `?` lists them; `G` then `D`/`P`/`H`/`S` navigates, `N` starts a run, `T` switches theme.
+
+### ⚡ Performance
+- Responses are gzip-compressed (the main script shrinks from 131 KB to 30 KB).
+- Indexes on the batch and owner columns every page filters by, created on existing databases at startup.
+- History reads each run's state file only when it changed.
+- The pipeline animation stops while the Pipeline page is not shown.
+
+### 🐛 Fixed
+- The Pipeline page was rendered underneath every other page once a run had been opened.
+- Runs interrupted by a server restart stayed "Running" forever and could not be deleted; they are now marked failed at startup and every 30 seconds (without counting the downtime as runtime).
+- URL downloads and RAG imports validate every redirect, so a public URL cannot redirect the server to an internal address.
+- The phone layout: the sidebar collapses to an icon rail instead of covering the page.
+- The AI assistant button no longer shows on the sign-in screen; the sign-in button is readable in dark mode.
+- History rows no longer overflow (report and cleaned-data downloads moved into Run details).
+
+### 🧹 Removed
+- The "Glassmorphism intensity" preference (it had no visible effect); accent names now match their colours.
+- A write to the removed `validation_logs` table on pipeline crashes.
+
 ## [2.5.0] - 2026-09-26
 
 ### 🚀 Added
