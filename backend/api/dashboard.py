@@ -1,6 +1,8 @@
 import logging
 import mimetypes
 import os
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -27,6 +29,15 @@ def _iso(value) -> Optional[str]:
     return value.isoformat() if hasattr(value, "isoformat") else str(value)
 
 
+def _as_datetime(value) -> Optional[datetime]:
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 def _visible_batch_ids(db: Session, email: Optional[str]) -> list:
     """The caller's batches; every batch for a service call made without a user."""
     if email is None:
@@ -44,6 +55,16 @@ def _runs(db: Session, batch_ids: list, columns: str, suffix: str = "") -> list:
         text(f"SELECT {columns} FROM pipeline_logs WHERE pipeline_id IN :pids {suffix}").bindparams(bindparam("pids", expanding=True)),
         {"pids": [f"pipe_{b}" for b in batch_ids]},
     ).fetchall()
+
+
+def _quality_by_batch(db: Session, batch_ids: list) -> dict:
+    if not batch_ids:
+        return {}
+    rows = db.execute(
+        text("SELECT batch_id, AVG(quality_score) FROM quality_reports WHERE batch_id IN :b GROUP BY batch_id").bindparams(bindparam("b", expanding=True)),
+        {"b": batch_ids},
+    ).fetchall()
+    return {r[0]: float(r[1]) for r in rows if r[1] is not None}
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -100,6 +121,55 @@ def get_dashboard_summary(db: Session = Depends(get_db), x_user_email: Optional[
         active_pipelines=sum(1 for r in runs if r[2] == "Running"),
         recent_runs=recent_runs,
     )
+
+
+@router.get("/trends")
+def get_dashboard_trends(days: int = Query(14, ge=1, le=90), db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Runs per day (succeeded / failed), average runtime and average data quality over the last `days` days."""
+    batch_ids = _visible_batch_ids(db, x_user_email)
+    today = datetime.utcnow().date()
+    first_day = today - timedelta(days=days - 1)
+    buckets = defaultdict(lambda: {"runs": 0, "succeeded": 0, "failed": 0, "runtimes": [], "qualities": []})
+    quality = _quality_by_batch(db, batch_ids)
+
+    for pipeline_id, start, status, runtime in _runs(db, batch_ids, "pipeline_id, start_time, status, execution_time"):
+        started = _as_datetime(start)
+        if not started or started.date() < first_day:
+            continue
+        day = buckets[started.date()]
+        day["runs"] += 1
+        if str(status).lower() in SUCCESS_STATUSES:
+            day["succeeded"] += 1
+        elif str(status).lower() == "failed":
+            day["failed"] += 1
+        if runtime is not None:
+            day["runtimes"].append(float(runtime))
+        if pipeline_id[5:] in quality:
+            day["qualities"].append(quality[pipeline_id[5:]])
+
+    series = []
+    for offset in range(days):
+        date = first_day + timedelta(days=offset)
+        day = buckets.get(date) or buckets.default_factory()
+        series.append({
+            "date": date.isoformat(),
+            "runs": day["runs"],
+            "succeeded": day["succeeded"],
+            "failed": day["failed"],
+            "avg_runtime": round(sum(day["runtimes"]) / len(day["runtimes"]), 2) if day["runtimes"] else None,
+            "avg_quality": round(sum(day["qualities"]) / len(day["qualities"]), 2) if day["qualities"] else None,
+        })
+    total_runs = sum(d["runs"] for d in series)
+    return {
+        "days": days,
+        "series": series,
+        "totals": {
+            "runs": total_runs,
+            "succeeded": sum(d["succeeded"] for d in series),
+            "failed": sum(d["failed"] for d in series),
+            "busiest_day": max(series, key=lambda d: d["runs"])["date"] if total_runs else None,
+        },
+    }
 
 
 _FORMAT_ALIASES = {"XLSX": "EXCEL", "XLS": "EXCEL", "DOCX": "WORD", "MD": "MARKDOWN"}
