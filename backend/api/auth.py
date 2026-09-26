@@ -21,8 +21,8 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 4
 RESET_CODE_TTL_SECONDS = 15 * 60
 MAX_RESET_ATTEMPTS = 5
-# Social accounts are created with this marker instead of a password hash, so they can never
-# be signed into with a password and a social login can never take over a password account.
+# Accounts created by the removed demo social sign-in carry this marker instead of a password hash,
+# so they can never be signed into with a password.
 SOCIAL_PASSWORD_MARKER = "!social:"
 # Never used for the seeded administrator on a production (publicly reachable) server
 WEAK_ADMIN_PASSWORDS = {"admin", "password", "changeme", "123456"}
@@ -35,11 +35,6 @@ class LoginRequest(BaseModel):
 class SignupRequest(BaseModel):
     email: str
     password: str
-
-class SocialLoginRequest(BaseModel):
-    provider: str
-    email: str
-    name: str
 
 class ForgotPasswordRequest(BaseModel):
     email: str
@@ -150,43 +145,6 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         db.commit()
 
     return _session_payload(user.email)
-
-
-@router.post("/social-login")
-def social_login(req: SocialLoginRequest, db: Session = Depends(get_db)):
-    """
-    Demo social sign-in. There is no real OAuth provider behind the UI, so this is disabled in
-    production (ENV=production) unless ENABLE_DEMO_SOCIAL_LOGIN=true is set explicitly.
-    """
-    demo_enabled = (os.getenv("ENABLE_DEMO_SOCIAL_LOGIN") or ("false" if is_production() else "true")).lower() == "true"
-    if not demo_enabled:
-        raise HTTPException(status_code=403, detail="Social login is not enabled on this server.")
-
-    email = req.email.strip().lower()
-    provider = req.provider.strip().lower()
-    name = req.name.strip()
-
-    if not email or not provider or not name:
-        raise HTTPException(status_code=400, detail="Email, provider, and name are required.")
-    if not EMAIL_RE.match(email):
-        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
-
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        user = User(email=email, password=f"{SOCIAL_PASSWORD_MARKER}{provider}")
-        db.add(user)
-        db.commit()
-    elif not is_password_hashed(user.password) and re.fullmatch(r"[0-9a-f]{12}", user.password or ""):
-        # Legacy social accounts were stored with a random 12-hex plaintext password; migrate them.
-        user.password = f"{SOCIAL_PASSWORD_MARKER}{provider}"
-        db.commit()
-    elif not user.password.startswith(SOCIAL_PASSWORD_MARKER):
-        raise HTTPException(status_code=409, detail="An account with this email uses password sign-in. Please sign in with your password.")
-
-    payload = _session_payload(email, display_name=name)
-    payload["message"] = f"Successfully authenticated via {provider}"
-    payload["user"]["username"] = name
-    return payload
 
 
 @router.get("/me")

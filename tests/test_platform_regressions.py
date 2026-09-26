@@ -81,9 +81,10 @@ class TestAuthentication(PlatformTestCase):
         finally:
             db.close()
 
-    def test_social_login_cannot_take_over_password_account(self):
+    def test_demo_social_login_is_removed(self):
+        # The mock OAuth sign-in issued a session for any email; it must not exist any more.
         res = self.client.post("/api/v1/auth/social-login", json={"provider": "google", "email": ADMIN[0], "name": "Mallory"})
-        self.assertEqual(res.status_code, 409)
+        self.assertIn(res.status_code, (404, 405))
 
     def test_reset_code_flow(self):
         code = self.client.post("/api/v1/auth/forgot-password", json={"email": ADMIN[0]}).json()["demo_code"]
