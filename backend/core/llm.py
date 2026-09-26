@@ -363,6 +363,22 @@ _ollama_circuit_open_until = 0.0
 _response_source = threading.local()
 
 
+def llm_status() -> dict:
+    """The AI engine expected to answer the next query, from configuration and circuit breakers (no network call)."""
+    now = time.time()
+    if gemini_models and now >= _gemini_circuit_open_until:
+        active = "gemini"
+    elif LLM_PROVIDER == "ollama" and now >= _ollama_circuit_open_until:
+        active = "ollama"
+    else:
+        active = "offline"
+    return {
+        "provider": LLM_PROVIDER,
+        "active_engine": active,
+        "models": [name for name, _ in gemini_models][:3],
+    }
+
+
 def is_real_llm_available() -> bool:
     """True when the last query_llm call on this thread was answered by Gemini or Ollama, not the offline engine."""
     return getattr(_response_source, "value", "offline") in ("gemini", "ollama")
