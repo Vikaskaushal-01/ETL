@@ -346,6 +346,150 @@ window.refreshDashboard = function() {
     window.loadSystemStatus();
 };
 
+// ---------- Run details: everything the run recorded ----------
+
+function listHtml(items, empty) {
+    return items && items.length
+        ? `<ul class="detail-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`
+        : `<p class="text-secondary sheet-note">${empty}</p>`;
+}
+
+window.openRunDetails = async function(batchId) {
+    window.openSheet('Run details', batchId, sheetLoading('Loading the run...'), true);
+    let d;
+    try {
+        d = await fetchJson(`/api/v1/history/${encodeURIComponent(batchId)}/details`);
+    } catch (e) {
+        setSheetBody(`<p class="sheet-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(e.message)}</p>`);
+        return;
+    }
+    const run = d.run;
+    document.getElementById('sheet-title').textContent = run.filename || batchId;
+    document.getElementById('sheet-subtitle').textContent =
+        `${batchId}${run.started_at ? ' · started ' + fmtDateTime(run.started_at) : ''}${d.dataset_type ? ' · ' + d.dataset_type + ' dataset' : ''}`;
+
+    const qBefore = run.quality_before, qAfter = run.quality_after ?? d.quality_score;
+    const chips = `
+        <div class="stat-chips">
+            <div class="stat-chip"><span>Status</span><strong>${statusBadge(run.status)}</strong></div>
+            <div class="stat-chip"><span>Rows in</span><strong>${fmtNumber(run.rows)}</strong></div>
+            <div class="stat-chip"><span>Loaded</span><strong class="text-green">${fmtNumber(run.rows_loaded)}</strong></div>
+            <div class="stat-chip"><span>Rejected</span><strong class="${d.rejected.count ? 'text-red' : ''}">${fmtNumber(d.rejected.count)}</strong></div>
+            <div class="stat-chip"><span>Quality</span><strong>${qBefore != null ? `${fmtNumber(qBefore)}% &rarr; ` : ''}${qAfter != null ? fmtNumber(qAfter) + '%' : '-'}</strong></div>
+            <div class="stat-chip"><span>Runtime</span><strong>${run.execution_time != null ? run.execution_time.toFixed(1) + 's' : '-'}</strong></div>
+        </div>`;
+
+    const actions = `
+        <div class="detail-actions">
+            ${run.reports && run.reports.pdf ? `<button class="btn-refresh-table" onclick="downloadReport('${batchId}', 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF report</button>` : ''}
+            ${run.reports && run.reports.docx ? `<button class="btn-refresh-table" onclick="downloadReport('${batchId}', 'docx')"><i class="fa-solid fa-file-word"></i> Word report</button>` : ''}
+            ${run.clean_file ? `<button class="btn-refresh-table" onclick="downloadNodeData(${jsArg(run.clean_file)})"><i class="fa-solid fa-broom"></i> Cleaned data</button>` : ''}
+            ${run.clean_file || run.raw_file ? `<button class="btn-refresh-table" onclick="previewRun('${batchId}')"><i class="fa-solid fa-table"></i> Preview data</button>` : ''}
+            <button class="btn-refresh-table" onclick="closeSheet(); openRunLog('${batchId}')"><i class="fa-solid fa-terminal"></i> Process log</button>
+            <button class="btn-refresh-table" onclick="closeSheet(); selectBatchDetail('${batchId}')"><i class="fa-solid fa-diagram-project"></i> Open in pipeline</button>
+        </div>`;
+
+    if (!d.has_report) {
+        const why = run.status === 'Running'
+            ? 'The run is still in progress; details appear when its report is written.'
+            : 'This run did not reach the reporting stage, so there are no details beyond the status above.';
+        setSheetBody(`${chips}${run.error ? `<p class="sheet-error detail-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(run.error)}</p>` : ''}
+            <div class="sheet-empty"><i class="fa-solid fa-hourglass-half"></i><p>${why}</p></div>${actions}`);
+        return;
+    }
+
+    // Overview: summary, missing values before cleaning, insights, recommendations, storage decision
+    const missing = Object.entries(d.missing_values || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    const maxMissing = Math.max(1, ...missing.map(([, n]) => n));
+    const missingHtml = missing.length ? missing.map(([col, n]) => `
+        <div class="bar-row">
+            <span class="bar-label" title="${escapeHtml(col)}">${escapeHtml(col)}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${(n / maxMissing) * 100}%"></span></span>
+            <span class="bar-value">${fmtNumber(n)}</span>
+        </div>`).join('') : '<p class="text-secondary sheet-note">No missing values in the source file.</p>';
+    const overview = `
+        ${d.summary ? `<p class="detail-summary">${escapeHtml(d.summary)}</p>` : ''}
+        <div class="detail-grid">
+            <section>
+                <h4><i class="fa-solid fa-droplet-slash"></i> Missing values in the source</h4>
+                ${missingHtml}
+                ${d.duplicate_rows ? `<p class="text-secondary sheet-note">${fmtNumber(d.duplicate_rows)} duplicate row(s) found.</p>` : ''}
+            </section>
+            <section>
+                <h4><i class="fa-solid fa-lightbulb"></i> Insights</h4>
+                ${listHtml(d.insights, 'No insights recorded.')}
+                <h4><i class="fa-solid fa-list-check"></i> Recommendations</h4>
+                ${listHtml(d.recommendations, 'No recommendations.')}
+                ${d.storage.format ? `<h4><i class="fa-solid fa-database"></i> Stored as ${escapeHtml(d.storage.format)}</h4><p class="text-secondary detail-small">${escapeHtml(d.storage.reason || '')}</p>` : ''}
+            </section>
+        </div>`;
+
+    const changes = d.transformations.length ? `
+        <div class="table-scroll sheet-table">
+            <table class="data-table compact wrap">
+                <thead><tr><th>Column</th><th>Before</th><th>After</th><th>What was done</th></tr></thead>
+                <tbody>${d.transformations.map(t => `
+                    <tr><td><strong>${escapeHtml(t.column_name)}</strong></td><td class="text-secondary">${escapeHtml(t.old_value)}</td>
+                        <td>${escapeHtml(t.new_value)}</td><td>${escapeHtml(t.reason)}</td></tr>`).join('')}
+                </tbody>
+            </table>
+        </div>` : '<p class="text-secondary sheet-note">The data needed no changes.</p>';
+
+    const sampleCols = [...new Set(d.rejected.sample.flatMap(r => Object.keys(r.record || {})))].slice(0, 8);
+    const rejectedRows = d.rejected.sample.map(r => {
+        const cells = sampleCols.map(c => {
+            const v = (r.record || {})[c];
+            return `<td>${v == null || v === '' ? '<span class="null-cell">empty</span>' : escapeHtml(v)}</td>`;
+        }).join('');
+        return `<tr><td>${r.row_number ?? '-'}</td><td class="text-red">${escapeHtml(r.reason)}</td>${cells}</tr>`;
+    }).join('');
+    const rejected = d.rejected.count ? `
+        <div class="reason-chips">${d.rejected.reasons.map(r => `<span class="reason-chip"><strong>${fmtNumber(r.rows)}</strong> ${escapeHtml(r.reason)}</span>`).join('')}</div>
+        <div class="detail-actions">
+            <button class="btn-refresh-table" onclick="downloadRejectedRows('${batchId}')"><i class="fa-solid fa-file-csv"></i> Download all ${fmtNumber(d.rejected.count)} rejected rows</button>
+            ${d.rejected.count > d.rejected.sample.length ? `<span class="text-secondary">Showing the first ${d.rejected.sample.length}</span>` : ''}
+        </div>
+        <div class="table-scroll sheet-table">
+            <table class="data-table compact">
+                <thead><tr><th>Row</th><th>Reason</th>${sampleCols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${rejectedRows}</tbody>
+            </table>
+        </div>` : '<div class="sheet-empty"><i class="fa-solid fa-circle-check"></i><p>Every row passed validation.</p></div>';
+
+    const causes = d.root_causes.length ? d.root_causes.map(c => `
+        <div class="cause-card">
+            <div class="cause-head"><strong>${escapeHtml(c.issue)}</strong>${c.confidence != null ? `<span class="schedule-chip">${fmtNumber(c.confidence)}% confidence</span>` : ''}</div>
+            <dl>
+                <dt>Root cause</dt><dd>${escapeHtml(c.root_cause)}</dd>
+                <dt>Business impact</dt><dd>${escapeHtml(c.business_impact)}</dd>
+                <dt>Technical impact</dt><dd>${escapeHtml(c.technical_impact)}</dd>
+                <dt>Recommendation</dt><dd>${escapeHtml(c.recommendation)}</dd>
+            </dl>
+        </div>`).join('') : '<div class="sheet-empty"><i class="fa-solid fa-circle-check"></i><p>No issues needed a root-cause analysis.</p></div>';
+
+    const tab = (name, label, count) =>
+        `<button class="segmented-btn ${name === 'overview' ? 'active' : ''}" data-sheet-tab="${name}" role="tab">${label}${count ? ` <span class="tab-count">${count}</span>` : ''}</button>`;
+    setSheetBody(`
+        ${chips}
+        ${actions}
+        <div class="segmented sheet-tabs" role="tablist">
+            ${tab('overview', 'Overview')}${tab('changes', 'Changes', d.transformations.length)}${tab('rejected', 'Rejected rows', d.rejected.count)}${tab('causes', 'Root causes', d.root_causes.length)}
+        </div>
+        <div data-sheet-pane="overview">${overview}</div>
+        <div data-sheet-pane="changes" hidden>${changes}</div>
+        <div data-sheet-pane="rejected" hidden>${rejected}</div>
+        <div data-sheet-pane="causes" hidden>${causes}</div>`);
+};
+
+window.downloadRejectedRows = function(batchId) {
+    const link = document.createElement('a');
+    link.href = withAuthToken(`/api/v1/history/${encodeURIComponent(batchId)}/rejected.csv`);
+    link.download = `${batchId}_rejected_rows.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+};
+
 // ---------- wiring ----------
 
 document.addEventListener('DOMContentLoaded', () => {

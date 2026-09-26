@@ -67,6 +67,11 @@ function paletteCommands() {
             label: run.filename || run.batch_id, hint: `${run.status} · ${run.batch_id}`,
             run: () => window.selectBatchDetail(run.batch_id)
         });
+        commands.push({
+            group: 'Recent runs', icon: 'fa-circle-info',
+            label: `Details of ${run.filename || run.batch_id}`, hint: 'Changes, rejected rows, root causes',
+            run: () => window.openRunDetails(run.batch_id)
+        });
         if (run.clean_file || run.raw_file) {
             commands.push({
                 group: 'Recent runs', icon: 'fa-table',

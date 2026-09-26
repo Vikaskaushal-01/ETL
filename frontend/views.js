@@ -105,15 +105,11 @@ function renderHistoryTable() {
         const quality = r.quality_after != null
             ? `${r.quality_before != null ? r.quality_before + '% &rarr; ' : ''}<strong>${r.quality_after}%</strong>` : '-';
         const rows = r.rows_loaded != null ? `${(r.rows_loaded).toLocaleString()} / <span class="${r.rows_rejected ? 'text-red' : ''}">${(r.rows_rejected || 0).toLocaleString()}</span>` : '-';
-        const reportBtns = ['pdf', 'docx'].map(fmt => r.reports && r.reports[fmt]
-            ? `<button class="btn-refresh" onclick="downloadReport('${r.batch_id}', '${fmt}')" title="Download ${fmt.toUpperCase()} report"><i class="fa-solid ${fmt === 'pdf' ? 'fa-file-pdf' : 'fa-file-word'}"></i></button>`
-            : '').join('');
-        const cleanBtn = r.clean_file ? `<button class="btn-refresh" onclick="downloadNodeData(${jsArg(r.clean_file)})" title="Download cleaned data"><i class="fa-solid fa-broom"></i></button>` : '';
         const rerunBtn = r.raw_file && r.status !== 'Running' ? `<button class="btn-refresh" onclick="rerunBatch('${r.batch_id}')" title="Run the pipeline again on this file"><i class="fa-solid fa-rotate-right"></i></button>` : '';
         return `
             <tr class="${viewState.historySelected.has(r.batch_id) ? 'row-selected' : ''}">
                 <td class="check-cell">${checkbox}</td>
-                <td><strong>${escapeHtml(r.filename || '-')}</strong><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
+                <td><button class="link-btn run-name" onclick="openRunDetails('${r.batch_id}')" title="Run details">${escapeHtml(r.filename || '-')}</button><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
                 <td><code>${r.batch_id}</code></td>
                 <td>${fmtDateTime(r.uploaded_at)}</td>
                 <td>${statusBadge(r.status)}${r.error ? `<div class="text-red cell-sub" title="${escapeHtml(r.error)}">${escapeHtml(r.error.slice(0, 60))}</div>` : ''}</td>
@@ -121,9 +117,10 @@ function renderHistoryTable() {
                 <td>${quality}</td>
                 <td>${r.execution_time != null ? r.execution_time.toFixed(1) + 's' : '-'}</td>
                 <td class="actions-cell">
-                    <button class="btn-refresh" onclick="openRunLog('${r.batch_id}')" title="View process log"><i class="fa-solid fa-terminal"></i> Log</button>
+                    <button class="btn-refresh" onclick="openRunDetails('${r.batch_id}')" title="Run details: changes, rejected rows, root causes"><i class="fa-solid fa-circle-info"></i> Details</button>
+                    <button class="btn-refresh" onclick="openRunLog('${r.batch_id}')" title="View process log"><i class="fa-solid fa-terminal"></i></button>
                     <button class="btn-refresh" onclick="selectBatchDetail('${r.batch_id}')" title="Open in the pipeline view"><i class="fa-solid fa-diagram-project"></i></button>
-                    ${reportBtns}${cleanBtn}${rerunBtn}
+                    ${rerunBtn}
                     ${r.clean_file || r.raw_file ? `<button class="btn-refresh" onclick="previewRun('${r.batch_id}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i></button>` : ''}
                     ${r.status !== 'Running' ? `<button class="btn-refresh btn-danger-soft" onclick="deleteRun('${r.batch_id}')" title="Delete this run"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                 </td>

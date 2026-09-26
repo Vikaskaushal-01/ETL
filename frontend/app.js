@@ -1193,14 +1193,13 @@ async function loadDashboardStats() {
                     
                     const runBatch = run.pipeline_id.replace('pipe_', '');
                     tr.innerHTML = `
-                        <td><strong>${escapeHtml(run.filename || runBatch)}</strong><div class="text-secondary" style="font-size:10px;">${runBatch}</div></td>
+                        <td><button class="link-btn run-name" onclick="openRunDetails('${runBatch}')" title="${escapeHtml(run.filename || runBatch)} - run details">${escapeHtml(run.filename || runBatch)}</button><div class="text-secondary" style="font-size:10px;">${runBatch}</div></td>
                         <td>${startStr}</td>
                         <td>${runtimeStr}</td>
                         <td><span class="badge ${badgeClass}">${run.status}</span></td>
                         <td class="actions-cell">
+                            <button class="btn-icon" onclick="openRunDetails('${runBatch}')" title="Run details: changes, rejected rows, root causes"><i class="fa-solid fa-circle-info"></i></button>
                             <button class="btn-icon" onclick="openRunLog('${runBatch}')" title="Process log"><i class="fa-solid fa-terminal"></i></button>
-                            <button class="btn-icon" onclick="selectBatchDetail('${runBatch}')" title="Open in the pipeline view"><i class="fa-solid fa-diagram-project"></i></button>
-                            <button class="btn-icon" onclick="previewRun('${runBatch}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i></button>
                             ${run.status === 'Running' ? '' : `<button class="btn-icon danger" onclick="deleteRun('${runBatch}')" title="Delete this run"><i class="fa-solid fa-trash-can"></i></button>`}
                         </td>
                     `;
