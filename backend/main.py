@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from backend.database.mysql import engine, Base
 from typing import Optional
 from backend.core.security import API_KEY_PREFIX, hash_api_key, verify_token
+from backend import __version__
 from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag
 
 # Set up storage directories and logging format
@@ -57,7 +58,7 @@ except Exception as e:
 app = FastAPI(
     title="Intelligent Autonomous Agentic AI ETL Platform API",
     description="SnapLogic (Commercial Intelligent Integration Platform - SnapLogic IIP) + Multi-Agent AI + LangGraph + FastAPI + MySQL + Power BI Backend System",
-    version="2.2.0"
+    version=__version__
 )
 
 # Endpoints reachable without a session token
