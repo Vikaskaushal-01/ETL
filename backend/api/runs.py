@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import os
+from collections import Counter
 from typing import Optional
 
 import pandas as pd
@@ -41,6 +42,7 @@ EXPORT_COLUMNS = [
     "rows", "columns", "rows_loaded", "rows_rejected", "quality_before", "quality_after", "format_selected",
 ]
 PROFILE_SAMPLE_ROWS = 5000
+REJECTED_SAMPLE_ROWS = 200
 
 
 def _dataset_path(run: dict) -> Optional[str]:
@@ -79,6 +81,79 @@ def _column_profile(df: pd.DataFrame) -> list:
             entry["top"] = {"value": top.index[0], "count": int(top.iloc[0])}
         profile.append(entry)
     return profile
+
+
+def _load_report(db: Session, batch_id: str) -> dict:
+    """The JSON report written by the report agent for this batch, or {} when the run never reached it."""
+    candidates = [r.json_path for r in db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id)
+                  .order_by(GeneratedReport.created_at.desc()).all()]
+    candidates.append(_stage_output(read_pipeline_state(f"pipe_{batch_id}"), "report").get("json_path"))
+    for path in candidates:
+        if path and os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"Unreadable report {path}: {e}")
+    return {}
+
+
+def _rejection_reasons(rejected: list) -> list:
+    """Individual reasons ("a; b") counted across rejected rows, most frequent first."""
+    counts = Counter(part.strip() for r in rejected for part in str(r.get("reason") or "Unknown").split(";") if part.strip())
+    return [{"reason": reason, "rows": n} for reason, n in counts.most_common()]
+
+
+@router.get("/{batch_id}/details")
+def run_details(batch_id: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Everything a run recorded: summary, quality, missing values, applied changes, rejected rows, root causes."""
+    run = _get_run(db, batch_id, x_user_email)
+    report = _load_report(db, batch_id)
+    metadata = report.get("metadata") or {}
+    validation = report.get("validation_results") or {}
+    rejected = validation.get("rejected_records") or []
+    return {
+        "run": run,
+        "has_report": bool(report),
+        "summary": report.get("business_summary"),
+        "quality_score": report.get("quality_score", run.get("quality_after")),
+        "dataset_type": validation.get("dataset_type"),
+        "duplicate_rows": report.get("duplicate_rows", metadata.get("duplicate_rows")),
+        "missing_values": report.get("missing_values") or metadata.get("missing_values") or {},
+        "column_types": report.get("column_types") or metadata.get("column_types") or {},
+        "transformations": report.get("transformation_history") or [],
+        "storage": {
+            "format": report.get("format_selected") or run.get("format_selected"),
+            "reason": report.get("storage_reason"),
+            "staging_status": validation.get("staging_status"),
+            "production_status": validation.get("production_status"),
+        },
+        "rejected": {
+            "count": validation.get("rows_rejected", run.get("rows_rejected")) or 0,
+            "reasons": _rejection_reasons(rejected),
+            "sample": rejected[:REJECTED_SAMPLE_ROWS],
+        },
+        "root_causes": report.get("root_cause_report") or [],
+        "insights": report.get("business_insights") or [],
+        "recommendations": report.get("recommendations") or [],
+    }
+
+
+@router.get("/{batch_id}/rejected.csv")
+def export_rejected_rows(batch_id: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Every rejected row of a run with its row number and rejection reason."""
+    run = _get_run(db, batch_id, x_user_email)
+    rejected = (_load_report(db, batch_id).get("validation_results") or {}).get("rejected_records") or []
+    fields = list(dict.fromkeys(k for r in rejected for k in (r.get("record") or {})))
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["row_number", "rejection_reason", *fields])
+    for r in rejected:
+        record = r.get("record") or {}
+        writer.writerow([r.get("row_number"), r.get("reason"), *[record.get(f) for f in fields]])
+    stem = os.path.splitext(run.get("filename") or batch_id)[0]
+    return Response(buffer.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{stem}_rejected_rows.csv"'})
 
 
 @router.get("/compare")
