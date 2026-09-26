@@ -1,6 +1,6 @@
 """
-Run management on top of the History: compare two runs, export the history as CSV
-and preview and profile a run's dataset.
+Run management on top of the History: compare two runs, export the history as CSV,
+preview and profile a run's dataset, and delete a run with its artifacts.
 """
 import csv
 import io
@@ -12,13 +12,15 @@ from typing import Optional
 import pandas as pd
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.api.pipeline import (
-    _require_batch_access, list_runs
+    PROJECT_ROOT, _require_batch_access, _stage_output, get_pipeline_state_path, list_runs, read_pipeline_state
 )
-from backend.database.models import RawUpload
+from backend.database.models import STAGING_TABLES, GeneratedReport, PipelineLog, RawUpload
 from backend.database.mysql import get_db
+from backend.utils.account_utils import get_user_path, is_path_accessible
 from backend.utils.file_utils import read_dataset
 
 router = APIRouter(prefix="/history", tags=["Run Management"])
@@ -154,3 +156,55 @@ def preview_run_dataset(batch_id: str, rows: int = Query(50, ge=1, le=500), db: 
         "rows": json.loads(df.head(rows).to_json(orient="records", date_format="iso", default_handler=str)),
     }
 
+
+@router.delete("/{batch_id}")
+def delete_run(batch_id: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """
+    Deletes a run: its database records, staging rows, state and log files and generated reports.
+    Output files are named after the uploaded file, so the raw upload, cleaned dataset and process log
+    are only removed when no other run of the same file remains. Production rows are kept because
+    they are upserted by business key and may be shared with other runs.
+    """
+    run = _get_run(db, batch_id, x_user_email)
+    pipeline_id = f"pipe_{batch_id}"
+    if db.query(PipelineLog.status).filter(PipelineLog.pipeline_id == pipeline_id).scalar() == "Running":
+        raise HTTPException(status_code=409, detail="This run is still in progress. Wait for it to finish first.")
+
+    owner = db.query(RawUpload.uploaded_by).filter(RawUpload.batch_id == batch_id).scalar()
+    filename = run.get("filename")
+    state_path = get_pipeline_state_path(pipeline_id)
+    state = read_pipeline_state(pipeline_id) if os.path.isfile(state_path) else {}
+    report_output = _stage_output(state, "report")
+    files = [state_path, os.path.join(PROJECT_ROOT, "logs", f"{batch_id}.log")]
+    files += [report_output.get(k) for k in ("pdf_path", "docx_path", "markdown_path", "json_path")]
+    for report in db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id).all():
+        files += [report.pdf_path, report.docx_path, report.markdown_path, report.json_path, report.txt_path]
+
+    same_file_runs = db.query(RawUpload).filter(
+        RawUpload.uploaded_by == owner, RawUpload.filename == filename, RawUpload.batch_id != batch_id
+    ).count()
+    if filename and not same_file_runs:
+        files += [
+            run.get("raw_file"), run.get("clean_file"),
+            _stage_output(state, "storage").get("formatted_file_path"),
+            os.path.join(PROJECT_ROOT, "logs", f"{filename}.log"),
+        ]
+        if owner:
+            files.append(get_user_path(owner, f"logs/{filename}.log"))
+
+    for table in ["agent_logs", "quality_reports", "root_cause_reports", "generated_reports", *STAGING_TABLES, "raw_uploads"]:
+        db.execute(text(f"DELETE FROM {table} WHERE batch_id = :b"), {"b": batch_id})
+    db.execute(text("DELETE FROM pipeline_logs WHERE pipeline_id = :p"), {"p": pipeline_id})
+    db.commit()
+
+    removed = 0
+    for path in {os.path.abspath(p) for p in files if p}:
+        # Only the owner's workspace and the shared data folders are touched, whatever a stored path says
+        if (is_path_accessible(path, owner) or is_path_accessible(path, None)) and os.path.isfile(path):
+            try:
+                os.remove(path)
+                removed += 1
+            except OSError as e:
+                logger.warning(f"Could not remove {path}: {e}")
+    logger.info(f"Deleted run {batch_id} ({filename}) and {removed} file(s)")
+    return {"status": "Deleted", "batch_id": batch_id, "files_removed": removed}
