@@ -1,6 +1,7 @@
 import logging
 import mimetypes
 import os
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -10,15 +11,18 @@ from fastapi.responses import FileResponse
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from backend import __version__
+from backend.core.llm import llm_status
 from backend.core.security import DEFAULT_ADMIN_EMAIL
 from backend.database.models import STAGING_TABLES
-from backend.database.mysql import get_db
+from backend.database.mysql import check_database_health, get_db
 from backend.schemas.schemas import DashboardSummary
-from backend.utils.account_utils import is_path_accessible, resolve_project_path
+from backend.utils.account_utils import get_user_dir, is_path_accessible, resolve_project_path
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 logger = logging.getLogger("etl_dashboard_api")
 
+STARTED_AT = time.time()
 SUCCESS_STATUSES = ("success", "passed with warnings", "completed")
 
 
@@ -169,6 +173,29 @@ def get_dashboard_trends(days: int = Query(14, ge=1, le=90), db: Session = Depen
             "failed": sum(d["failed"] for d in series),
             "busiest_day": max(series, key=lambda d: d["runs"])["date"] if total_runs else None,
         },
+    }
+
+
+@router.get("/system")
+def get_system_status(x_user_email: Optional[str] = Header(None)):
+    """Live platform status: version, uptime, database, AI engine and the caller's workspace size."""
+    workspace_bytes = workspace_files = 0
+    user_dir = get_user_dir(x_user_email)
+    if user_dir:
+        for root, _, files in os.walk(user_dir):
+            for name in files:
+                try:
+                    workspace_bytes += os.path.getsize(os.path.join(root, name))
+                    workspace_files += 1
+                except OSError:
+                    pass
+    return {
+        "version": __version__,
+        "uptime_seconds": round(time.time() - STARTED_AT),
+        "server_time": datetime.utcnow().isoformat(),
+        "database": check_database_health(),
+        "llm": llm_status(),
+        "workspace": {"files": workspace_files, "bytes": workspace_bytes},
     }
 
 
