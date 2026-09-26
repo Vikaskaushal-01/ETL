@@ -1,6 +1,7 @@
 import hmac
 import logging
 import os
+from contextlib import asynccontextmanager
 from urllib.parse import parse_qsl, urlencode
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,8 @@ from backend.database.mysql import engine, Base
 from typing import Optional
 from backend.core.security import API_KEY_PREFIX, hash_api_key, verify_token
 from backend import __version__
-from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag, runs
+from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag, runs, schedules
+from backend.core import scheduler
 
 # Set up storage directories and logging format
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -63,8 +65,17 @@ try:
 except Exception as e:
     logger.error(f"Error during schema initialization: {e}")
 
+@asynccontextmanager
+async def lifespan(_app):
+    scheduler.recover_interrupted_runs()
+    scheduler.start()
+    yield
+    scheduler.stop()
+
+
 # Initialize FastAPI
 app = FastAPI(
+    lifespan=lifespan,
     title="Intelligent Autonomous Agentic AI ETL Platform API",
     description="SnapLogic (Commercial Intelligent Integration Platform - SnapLogic IIP) + Multi-Agent AI + LangGraph + FastAPI + MySQL + Power BI Backend System",
     version=__version__
@@ -166,6 +177,7 @@ app.include_router(health.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
 app.include_router(runs.router, prefix="/api/v1")
+app.include_router(schedules.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")

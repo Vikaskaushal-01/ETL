@@ -12,6 +12,7 @@ os.environ["LLM_PROVIDER"] = "mock"
 os.environ.setdefault("SECRET_KEY", "test-secret-key")
 os.environ.setdefault("PIPELINE_STEP_DELAY", "0")
 os.environ.setdefault("PBI_REFRESH_DELAY", "0")
+os.environ["SCHEDULER_ENABLED"] = "false"
 
 
 def pytest_sessionfinish(session, exitstatus):
