@@ -349,3 +349,61 @@ def revoke_api_key(key_id: int, email: str = Depends(require_session_email), db:
     key.revoked = True
     db.commit()
     return {"status": "Success", "message": f"API key '{key.name}' revoked"}
+
+
+# --- Run notifications (webhook) ---------------------------------------------
+
+class NotificationSettings(BaseModel):
+    webhook_url: Optional[str] = None
+    notify_on: str = "all"
+
+
+def _notification_payload(user: User) -> dict:
+    return {"webhook_url": user.webhook_url or "", "notify_on": user.notify_on or "all"}
+
+
+def _checked_webhook(url: Optional[str]) -> Optional[str]:
+    from backend.core.security import validate_public_url
+    url = (url or "").strip()
+    if not url:
+        return None
+    if len(url) > 1000:
+        raise HTTPException(status_code=400, detail="The webhook URL is too long.")
+    try:
+        validate_public_url(url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return url
+
+
+@router.get("/notifications")
+def get_notifications(email: str = Depends(require_session_email), db: Session = Depends(get_db)):
+    return _notification_payload(_get_user(db, email))
+
+
+@router.put("/notifications")
+def update_notifications(req: NotificationSettings, email: str = Depends(require_session_email), db: Session = Depends(get_db)):
+    if req.notify_on not in ("all", "failures"):
+        raise HTTPException(status_code=400, detail="notify_on must be 'all' or 'failures'.")
+    user = _get_user(db, email)
+    user.webhook_url = _checked_webhook(req.webhook_url)
+    user.notify_on = req.notify_on
+    db.commit()
+    return _notification_payload(user)
+
+
+@router.post("/notifications/test")
+def test_notifications(req: NotificationSettings, email: str = Depends(require_session_email)):
+    """Sends a sample message to the given (not yet saved) webhook URL."""
+    from backend.core.notify import send
+    url = _checked_webhook(req.webhook_url)
+    if not url:
+        raise HTTPException(status_code=400, detail="Enter a webhook URL first.")
+    ok, detail = send(url, {
+        "batch_id": "batch_test0000", "filename": "sample_sales.csv", "status": "Success",
+        "rows": 1200, "rows_loaded": 1188, "rows_rejected": 12, "quality_before": 91.4, "quality_after": 99.2,
+        "execution_time": 14.2, "error": None,
+    })
+    if not ok:
+        raise HTTPException(status_code=400, detail=detail)
+    return {"status": "Success", "detail": detail}
