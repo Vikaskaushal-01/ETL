@@ -212,3 +212,22 @@ class ApiKey(Base):
     last_used_at = Column(DateTime, nullable=True)
     request_count = Column(Integer, default=0)
     revoked = Column(Boolean, default=False)
+
+
+class Schedule(Base):
+    """A public dataset URL that the server downloads and runs through the pipeline on an interval."""
+    __tablename__ = 'schedules'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    source_url = Column(String(2000), nullable=False)
+    interval_minutes = Column(Integer, nullable=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    next_run_at = Column(DateTime, nullable=True, index=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_batch_id = Column(String(100), nullable=True)
+    last_status = Column(String(50), nullable=True)
+    last_error = Column(Text, nullable=True)
+    run_count = Column(Integer, default=0)
