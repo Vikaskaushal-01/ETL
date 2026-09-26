@@ -2491,28 +2491,16 @@ function updatePipelineMonitorUI(data) {
             if (labelEl) labelEl.className = 'active';
             progress = Math.max(progress, (index + 1) * 20);
 
-            // Confetti triggers on node completion transition
+            // A soft ring pulse marks the moment a stage completes
             state.previousStageStatuses = state.previousStageStatuses || {};
             if (state.previousStageStatuses[key] !== 'completed') {
                 state.previousStageStatuses[key] = 'completed';
-                setTimeout(() => {
-                    const r = nodeEl.getBoundingClientRect();
-                    const canvasEl = document.getElementById('gamification-canvas');
-                    if (canvasEl) {
-                        const canvasRect = canvasEl.getBoundingClientRect();
-                        const x = r.left + r.width / 2 - canvasRect.left;
-                        const y = r.top + r.height / 2 - canvasRect.top;
-                        
-                        let flowColor = '#8b5cf6';
-                        if (key === 'intake') flowColor = '#ffb703';
-                        else if (key === 'transformation') flowColor = '#219ebc';
-                        else if (key === 'storage') flowColor = '#8b5cf6';
-                        else if (key === 'report') flowColor = '#ef4444';
-                        else if (key === 'pbi') flowColor = '#10b981';
-                        
-                        spawnExplosion(x, y, flowColor);
-                    }
-                }, 100);
+                if (nodeEl.animate && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    nodeEl.animate([
+                        { boxShadow: '0 0 0 0 rgba(22, 163, 74, 0.45)' },
+                        { boxShadow: '0 0 0 12px rgba(22, 163, 74, 0)' }
+                    ], { duration: 750, easing: 'ease-out' });
+                }
             }
         } else if (stage.status === 'processing') {
             nodeEl.className = `monitor-node-card ${key}-squircle processing`;
@@ -2805,12 +2793,9 @@ function renderInspectorGrid(records) {
 
 
 
-// Gamification Canvas Particles System
+// Pipeline canvas: particles flowing along active stage paths
 let animFrameId = null;
 let canvasParticles = [];
-let canvasExplosions = [];
-let canvasFloatingTexts = [];
-let canvasBanners = [];
 
 function initGamificationCanvas() {
     const canvas = document.getElementById('gamification-canvas');
@@ -2826,33 +2811,9 @@ function initGamificationCanvas() {
     window.addEventListener('resize', resizeCanvas);
     
     canvasParticles = [];
-    canvasExplosions = [];
-    canvasFloatingTexts = [];
-    canvasBanners = [];
-
-    // Boot banner disabled — restrained UI, no splash overlay on load.
 
     if (animFrameId) cancelAnimationFrame(animFrameId);
     animFrameId = requestAnimationFrame(canvasAnimationLoop);
-}
-
-
-function spawnExplosion(x, y, color = "#ffb703") {
-    for (let i = 0; i < 60; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 4 + 2;
-        canvasExplosions.push({
-            x: x,
-            y: y,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
-            color: color,
-            size: Math.random() * 4 + 2,
-            alpha: 1,
-            decay: Math.random() * 0.015 + 0.01,
-            gravity: 0.08
-        });
-    }
 }
 
 
@@ -2943,51 +2904,7 @@ function canvasAnimationLoop() {
         ctx.shadowBlur = 0; // reset
     });
     
-    // 2. Update & Draw Explosions (Confetti)
-    canvasExplosions.forEach((e, idx) => {
-        e.x += e.vx;
-        e.y += e.vy;
-        e.vy += e.gravity;
-        e.alpha -= e.decay;
-        
-        if (e.alpha <= 0) {
-            canvasExplosions.splice(idx, 1);
-            return;
-        }
-        
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-        ctx.fillStyle = e.color;
-        ctx.globalAlpha = e.alpha;
-        ctx.shadowColor = e.color;
-        ctx.shadowBlur = 4;
-        ctx.fill();
-        ctx.shadowBlur = 0; // reset
-        ctx.globalAlpha = 1; // reset
-    });
-    
-    // 3. Update & Draw Floating Texts
-    canvasFloatingTexts.forEach((t, idx) => {
-        t.y += t.vy;
-        t.alpha -= t.decay;
-        
-        if (t.alpha <= 0) {
-            canvasFloatingTexts.splice(idx, 1);
-            return;
-        }
-        
-        ctx.font = "bold 14px 'Outfit', sans-serif";
-        ctx.fillStyle = t.color;
-        ctx.globalAlpha = t.alpha;
-        ctx.textAlign = "center";
-        ctx.shadowColor = "#000000";
-        ctx.shadowBlur = 3;
-        ctx.fillText(t.text, t.x, t.y);
-        ctx.shadowBlur = 0; // reset
-        ctx.globalAlpha = 1; // reset
-    });
-    
-    // 4. Update & Draw Active Glow Portal Rings around processing nodes
+    // 2. Update & Draw Active Glow Portal Rings around processing nodes
     const activePortalAngle = (Date.now() / 300) % (Math.PI * 2);
     flows.forEach(flow => {
         const stage = stages[flow.key] || {};
@@ -3012,60 +2929,6 @@ function canvasAnimationLoop() {
                 ctx.restore();
             }
         }
-    });
-    
-    // 5. Update & Draw Central Banner Popups
-    canvasBanners.forEach((b, idx) => {
-        b.life--;
-        if (b.life <= 0) {
-            canvasBanners.splice(idx, 1);
-            return;
-        }
-        
-        // Easing alpha
-        if (b.life > b.maxLife - 20) {
-            b.alpha = (b.maxLife - b.life) / 20;
-            b.scale = 0.8 + 0.2 * b.alpha;
-        } else if (b.life < 20) {
-            b.alpha = b.life / 20;
-            b.scale = 1.0 + 0.1 * (1 - b.alpha);
-        } else {
-            b.alpha = 1;
-            b.scale = 1;
-        }
-        
-        ctx.save();
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.scale(b.scale, b.scale);
-        ctx.globalAlpha = b.alpha;
-        
-        // Card Background (Futuristic Dark Translucent)
-        ctx.beginPath();
-        const width = 360;
-        const height = 90;
-        ctx.roundRect(-width / 2, -height / 2, width, height, 15);
-        ctx.fillStyle = "rgba(10, 24, 30, 0.9)";
-        ctx.strokeStyle = b.color;
-        ctx.lineWidth = 2;
-        ctx.shadowColor = b.color;
-        ctx.shadowBlur = 15;
-        ctx.fill();
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        
-        // Title Text
-        ctx.font = "bold 20px 'Outfit', sans-serif";
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.fillText(b.title, 0, -8);
-        
-        // Subtitle Text
-        ctx.font = "500 12px 'Outfit', sans-serif";
-        ctx.fillStyle = b.color;
-        ctx.fillText(b.subtitle, 0, 16);
-        
-        ctx.restore();
-        ctx.globalAlpha = 1;
     });
     
     animFrameId = requestAnimationFrame(canvasAnimationLoop);
