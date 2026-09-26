@@ -138,6 +138,7 @@ function initAppShell() {
 
         if (viewId === 'dashboard-view' && typeof loadDashboardStats === 'function') {
             loadDashboardStats();
+            if (window.loadSystemStatus) window.loadSystemStatus();
         }
         if (viewLoaders[viewId]) viewLoaders[viewId]();
         if (viewId === 'pipeline-monitor-page') {
@@ -1177,7 +1178,7 @@ async function loadDashboardStats() {
             tableBody.innerHTML = '';
             
             if (!stats.recent_runs || stats.recent_runs.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="5" class="text-center">No runs logged yet.</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">No runs yet. Start one with <strong>New pipeline run</strong>.</td></tr>';
             } else {
                 stats.recent_runs.forEach(run => {
                     const tr = document.createElement('tr');
@@ -1195,9 +1196,11 @@ async function loadDashboardStats() {
                         <td>${startStr}</td>
                         <td>${runtimeStr}</td>
                         <td><span class="badge ${badgeClass}">${run.status}</span></td>
-                        <td>
-                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="openRunLog('${runBatch}')"><i class="fa-solid fa-code"></i> Logs</button>
-                            <button class="btn-refresh" style="padding: 2px 8px; font-size:10px;" onclick="selectBatchDetail('${runBatch}')"><i class="fa-solid fa-eye"></i> Open</button>
+                        <td class="actions-cell">
+                            <button class="btn-icon" onclick="openRunLog('${runBatch}')" title="Process log"><i class="fa-solid fa-terminal"></i></button>
+                            <button class="btn-icon" onclick="selectBatchDetail('${runBatch}')" title="Open in the pipeline view"><i class="fa-solid fa-diagram-project"></i></button>
+                            <button class="btn-icon" onclick="previewRun('${runBatch}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i></button>
+                            ${run.status === 'Running' ? '' : `<button class="btn-icon danger" onclick="deleteRun('${runBatch}')" title="Delete this run"><i class="fa-solid fa-trash-can"></i></button>`}
                         </td>
                     `;
                     tableBody.appendChild(tr);
@@ -1205,9 +1208,9 @@ async function loadDashboardStats() {
             }
         }
         
-        if (stats.recent_runs) {
-            renderCharts(stats.recent_runs);
-        }
+        state.recentRuns = stats.recent_runs || [];
+        if (window.renderDashboardChart) window.renderDashboardChart();
+        else renderCharts(state.recentRuns);
     } catch (e) {
         loggerError('loadDashboardStats', e);
     }

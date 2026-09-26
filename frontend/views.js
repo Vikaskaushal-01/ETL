@@ -124,6 +124,8 @@ function renderHistoryTable() {
                     <button class="btn-refresh" onclick="openRunLog('${r.batch_id}')" title="View process log"><i class="fa-solid fa-terminal"></i> Log</button>
                     <button class="btn-refresh" onclick="selectBatchDetail('${r.batch_id}')" title="Open in the pipeline view"><i class="fa-solid fa-diagram-project"></i></button>
                     ${reportBtns}${cleanBtn}${rerunBtn}
+                    ${r.clean_file || r.raw_file ? `<button class="btn-refresh" onclick="previewRun('${r.batch_id}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i></button>` : ''}
+                    ${r.status !== 'Running' ? `<button class="btn-refresh btn-danger-soft" onclick="deleteRun('${r.batch_id}')" title="Delete this run"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                 </td>
             </tr>`;
     }).join('');
@@ -440,6 +442,11 @@ document.addEventListener('DOMContentLoaded', () => {
     on('history-search', 'input', renderHistoryTable);
     on('history-status-filter', 'change', renderHistoryTable);
     on('btn-refresh-history', 'click', () => window.loadHistoryView());
+    on('btn-history-compare', 'click', () => {
+        const ticked = [...viewState.historySelected];
+        window.openCompareRuns(ticked.length === 2 ? ticked : []);
+    });
+    on('btn-history-export', 'click', () => window.exportHistory());
     on('btn-history-rerun-selected', 'click', () => window.rerunSelectedBatches());
     on('history-select-all', 'change', (e) => {
         document.querySelectorAll('#history-table [data-history-select]').forEach(box => {

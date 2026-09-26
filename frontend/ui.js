@@ -45,6 +45,9 @@ function paletteCommands() {
             group: 'Actions', icon: 'fa-terminal', label: 'Toggle live console', hint: 'Logs of the task on screen',
             run: () => { go('pipeline-monitor-page')(); document.getElementById('btn-toggle-logs')?.click(); }
         },
+        { group: 'Actions', icon: 'fa-code-compare', label: 'Compare two runs', hint: 'Metrics & columns side by side', run: () => window.openCompareRuns() },
+        { group: 'Actions', icon: 'fa-file-csv', label: 'Export run history', hint: 'Download as CSV', run: () => window.exportHistory() },
+        { group: 'Actions', icon: 'fa-heart-pulse', label: 'Check system status', hint: 'Database, AI engine, uptime', run: () => { go('dashboard-view')(); window.loadSystemStatus(true); } },
         { group: 'Actions', icon: 'fa-robot', label: 'Ask the AI assistant', hint: 'Chat about any batch', run: () => openAssistant() },
         { group: 'Actions', icon: 'fa-sliders', label: 'Preferences', hint: 'Parallel runs, alerts, accent', run: () => document.getElementById('btn-dropdown-preferences')?.click() },
         { group: 'Actions', icon: 'fa-key', label: 'API keys', hint: 'Create & manage keys', run: () => document.getElementById('btn-dropdown-security')?.click() }
@@ -64,6 +67,13 @@ function paletteCommands() {
             label: run.filename || run.batch_id, hint: `${run.status} · ${run.batch_id}`,
             run: () => window.selectBatchDetail(run.batch_id)
         });
+        if (run.clean_file || run.raw_file) {
+            commands.push({
+                group: 'Recent runs', icon: 'fa-table',
+                label: `Preview ${run.filename || run.batch_id}`, hint: 'Rows & column profile',
+                run: () => window.previewRun(run.batch_id)
+            });
+        }
     });
     return commands;
 }
@@ -190,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
             else window.openPalette();
         } else if (e.key === 'Escape') {
             if (overlay && !overlay.hidden) window.closePalette();
+            window.closeSheet && window.closeSheet();
             document.getElementById('tasks-panel') && window.toggleTasksPanel();
             document.getElementById('notifications-panel')?.remove();
         }
@@ -210,6 +221,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 openAssistant();
             } else if (action === 'history') {
                 window.activateView('history-view');
+            } else if (action === 'compare') {
+                window.openCompareRuns();
+            } else if (action === 'export') {
+                window.exportHistory();
+            } else if (action === 'refresh') {
+                window.refreshDashboard();
             }
         });
     });

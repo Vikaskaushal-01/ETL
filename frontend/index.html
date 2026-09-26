@@ -13,7 +13,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=2.4">
+    <link rel="stylesheet" href="style.css?v=2.5">
 </head>
 <body>
 
@@ -278,7 +278,14 @@
                                 <button class="btn-hero-ghost" data-quick="assistant"><i class="fa-solid fa-robot"></i> Ask AI</button>
                             </div>
                         </section>
-                        <div class="dash-section-heading"><h3>Overview</h3></div>
+                        <div class="dash-section-heading">
+                            <h3>Overview</h3>
+                            <div class="dash-toolbar">
+                                <button class="btn-refresh-table" data-quick="compare" title="Compare the metrics and columns of two runs"><i class="fa-solid fa-code-compare"></i> Compare runs</button>
+                                <button class="btn-refresh-table" data-quick="export" title="Download your run history as CSV"><i class="fa-solid fa-file-csv"></i> Export history</button>
+                                <button class="btn-refresh-table" data-quick="refresh" title="Reload the dashboard"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                            </div>
+                        </div>
                         <div class="kpi-grid">
                             <div class="kpi-card">
                                 <div class="kpi-card-head"><span>Rows Ingested</span><div class="kpi-card-icon"><i class="fa-solid fa-database"></i></div></div>
@@ -309,8 +316,16 @@
 
                         <div class="dash-grid-2">
                             <div class="dash-panel">
-                                <h3><i class="fa-solid fa-chart-line"></i> Execution Duration Trend</h3>
+                                <div class="dash-panel-head">
+                                    <h3><i class="fa-solid fa-chart-line"></i> <span id="dash-chart-title">Execution Duration Trend</span></h3>
+                                    <div class="segmented" role="tablist" aria-label="Chart range">
+                                        <button class="segmented-btn active" data-chart-range="recent" role="tab" aria-selected="true">Last runs</button>
+                                        <button class="segmented-btn" data-chart-range="14" role="tab" aria-selected="false">14 days</button>
+                                        <button class="segmented-btn" data-chart-range="30" role="tab" aria-selected="false">30 days</button>
+                                    </div>
+                                </div>
                                 <div class="dash-chart-wrapper"><canvas id="executionHistoryChart"></canvas></div>
+                                <div class="dash-chart-foot" id="dash-chart-foot"></div>
                             </div>
                             <div class="dash-panel">
                                 <h3><i class="fa-solid fa-list-check"></i> Recent Pipeline Runs</h3>
@@ -323,12 +338,23 @@
                             </div>
                         </div>
 
-                        <div class="dash-panel dash-tasks-panel">
-                            <div class="dash-panel-head">
-                                <h3><i class="fa-solid fa-layer-group"></i> Task Queue</h3>
-                                <button class="btn-refresh-table" data-tasks-clear><i class="fa-solid fa-broom"></i> Clear finished</button>
+                        <div class="dash-grid-side">
+                            <div class="dash-panel dash-tasks-panel">
+                                <div class="dash-panel-head">
+                                    <h3><i class="fa-solid fa-layer-group"></i> Task Queue</h3>
+                                    <button class="btn-refresh-table" data-tasks-clear><i class="fa-solid fa-broom"></i> Clear finished</button>
+                                </div>
+                                <div class="job-list" id="dash-jobs-list"></div>
                             </div>
-                            <div class="job-list" id="dash-jobs-list"></div>
+                            <div class="dash-panel dash-system-panel">
+                                <div class="dash-panel-head">
+                                    <h3><i class="fa-solid fa-server"></i> System Status</h3>
+                                    <button class="btn-refresh-table" id="btn-system-check"><i class="fa-solid fa-heart-pulse"></i> Check now</button>
+                                </div>
+                                <div class="system-list" id="dash-system-status">
+                                    <div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -348,6 +374,8 @@
                                 <option value="Not Run">Not Run</option>
                             </select>
                             <button class="btn-refresh-table" id="btn-history-rerun-selected" disabled title="Queue the ticked runs to run again in parallel"><i class="fa-solid fa-layer-group"></i> Re-run selected</button>
+                            <button class="btn-refresh-table" id="btn-history-compare" title="Compare two runs (tick exactly two to preselect them)"><i class="fa-solid fa-code-compare"></i> Compare</button>
+                            <button class="btn-refresh-table" id="btn-history-export" title="Download the run history as CSV"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
                             <button class="btn-refresh-table" id="btn-refresh-history"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
                         </div>
                         <div class="kpi-grid" id="history-kpis"></div>
@@ -1147,6 +1175,20 @@
         </div>
     </div>
 
+    <!-- Dialog used by dataset preview and run comparison -->
+    <div class="sheet-overlay" id="sheet-overlay" hidden>
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+            <div class="sheet-head">
+                <div>
+                    <h3 id="sheet-title"></h3>
+                    <p id="sheet-subtitle"></p>
+                </div>
+                <button class="sheet-close" id="btn-sheet-close" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="sheet-body" id="sheet-body"></div>
+        </div>
+    </div>
+
     <!-- Command Palette (Ctrl+K) -->
     <div class="palette-overlay" id="palette-overlay" hidden>
         <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
@@ -1167,9 +1209,10 @@
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js?v=2.4"></script>
-    <script src="views.js?v=2.4"></script>
-    <script src="jobs.js?v=2.4"></script>
-    <script src="ui.js?v=2.4"></script>
+    <script src="app.js?v=2.5"></script>
+    <script src="views.js?v=2.5"></script>
+    <script src="jobs.js?v=2.5"></script>
+    <script src="ui.js?v=2.5"></script>
+    <script src="insights.js?v=2.5"></script>
 </body>
 </html>
