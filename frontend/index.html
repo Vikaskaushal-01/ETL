@@ -22,7 +22,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=2.5">
+    <link rel="stylesheet" href="style.css?v=2.6">
 </head>
 <body>
 
@@ -219,6 +219,7 @@
                     <button class="app-nav-item active" id="nav-pipeline" data-view="pipeline-monitor-page"><i class="fa-solid fa-diagram-project"></i><span class="app-nav-label">Pipeline</span></button>
                     <button class="app-nav-item" id="nav-ingestion"><i class="fa-solid fa-cloud-arrow-up"></i><span class="app-nav-label">Data Ingestion</span></button>
                     <button class="app-nav-item" id="nav-tasks" title="Task Center"><i class="fa-solid fa-layer-group"></i><span class="app-nav-label">Task Center</span></button>
+                    <button class="app-nav-item" id="nav-schedules" data-view="schedules-view"><i class="fa-solid fa-calendar-check"></i><span class="app-nav-label">Schedules</span></button>
                     <span class="app-sidebar-section-label">Insights</span>
                     <button class="app-nav-item" id="nav-history" data-view="history-view"><i class="fa-solid fa-clock-rotate-left"></i><span class="app-nav-label">History</span></button>
                     <button class="app-nav-item" id="nav-reports" data-view="reports-view"><i class="fa-solid fa-file-lines"></i><span class="app-nav-label">Reports</span></button>
@@ -284,7 +285,7 @@
                             </div>
                             <div class="dash-hero-actions">
                                 <button class="btn-primary-glow" data-quick="new-run"><i class="fa-solid fa-plus"></i> New pipeline run</button>
-                                <button class="btn-hero-ghost" data-quick="tasks"><i class="fa-solid fa-layer-group"></i> Task Center</button>
+                                <button class="btn-hero-ghost" data-quick="schedules"><i class="fa-solid fa-calendar-check"></i> Schedule a feed</button>
                                 <button class="btn-hero-ghost" data-quick="assistant"><i class="fa-solid fa-robot"></i> Ask AI</button>
                             </div>
                         </section>
@@ -365,6 +366,46 @@
                                     <div class="skeleton-line"></div><div class="skeleton-line"></div><div class="skeleton-line"></div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Schedules View: URLs ingested automatically on an interval -->
+                    <div id="schedules-view" class="app-view page-view">
+                        <div class="dash-panel schedule-form-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-calendar-plus"></i> New schedule</h3>
+                                <span class="text-secondary panel-hint">The server downloads the URL and runs the full pipeline, even when this page is closed.</span>
+                            </div>
+                            <form id="schedule-form" class="schedule-form" autocomplete="off">
+                                <label class="field">
+                                    <span>Name</span>
+                                    <input type="text" id="schedule-name" class="page-input" maxlength="120" placeholder="Nightly sales export" required>
+                                </label>
+                                <label class="field field-wide">
+                                    <span>Dataset URL</span>
+                                    <input type="url" id="schedule-url" class="page-input" placeholder="https://example.com/exports/sales.csv" required>
+                                </label>
+                                <label class="field">
+                                    <span>Run every</span>
+                                    <select id="schedule-interval" class="page-select">
+                                        <option value="15">15 minutes</option>
+                                        <option value="60" selected>Hour</option>
+                                        <option value="360">6 hours</option>
+                                        <option value="720">12 hours</option>
+                                        <option value="1440">Day</option>
+                                        <option value="10080">Week</option>
+                                    </select>
+                                </label>
+                                <label class="field-check"><input type="checkbox" id="schedule-run-now" checked> Run once now</label>
+                                <button type="submit" class="btn-primary-glow" id="btn-schedule-create"><i class="fa-solid fa-plus"></i> Create schedule</button>
+                            </form>
+                        </div>
+                        <div class="dash-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-calendar-check"></i> Your schedules</h3>
+                                <button class="btn-refresh-table" id="btn-refresh-schedules"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                            </div>
+                            <div id="schedules-list" class="schedules-list"></div>
                         </div>
                     </div>
 
@@ -955,6 +996,9 @@
                 <button class="settings-tab-btn" data-tab="tab-preferences" id="tab-btn-preferences">
                     <i class="fa-solid fa-sliders"></i> Preferences
                 </button>
+                <button class="settings-tab-btn" data-tab="tab-notifications" id="tab-btn-notifications">
+                    <i class="fa-solid fa-bell"></i> Notifications
+                </button>
             </div>
 
             <!-- Tab Content Area -->
@@ -1181,6 +1225,32 @@
                     </div>
                 </div>
 
+                <!-- TAB 4: RUN NOTIFICATIONS -->
+                <div class="settings-tab-panel" id="tab-notifications">
+                    <div class="settings-section">
+                        <div class="section-header">
+                            <h3><i class="fa-solid fa-bell"></i> Run notifications</h3>
+                            <p>Post a summary to a webhook whenever one of your runs finishes. Works with Slack, Microsoft Teams workflows, Discord and Mattermost incoming webhooks, or your own endpoint (it also receives the run as JSON).</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="notify-webhook-url"><i class="fa-solid fa-link"></i> Webhook URL</label>
+                            <input type="url" id="notify-webhook-url" class="settings-input" placeholder="https://hooks.slack.com/services/...">
+                        </div>
+                        <div class="notify-options" role="radiogroup" aria-label="When to notify">
+                            <label class="notify-option"><input type="radio" name="notify-on" value="all" checked><span><strong>Every run</strong><small>Successes, warnings and failures</small></span></label>
+                            <label class="notify-option"><input type="radio" name="notify-on" value="failures"><span><strong>Failures only</strong><small>Stay quiet unless something breaks</small></span></label>
+                        </div>
+                        <div class="notify-preview">
+                            <span class="notify-preview-label">Example message</span>
+                            <code>&#x2705; sample_sales.csv finished: Success &middot; 1,188 rows loaded, 12 rejected &middot; quality 99.2% &middot; 14.2s</code>
+                        </div>
+                    </div>
+                    <div class="settings-footer">
+                        <button class="btn-refresh-table" id="btn-notify-test" type="button"><i class="fa-solid fa-paper-plane"></i> Send test message</button>
+                        <button class="btn-save-settings" id="btn-notify-save" type="button"><i class="fa-solid fa-floppy-disk"></i> Save notification settings</button>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -1219,10 +1289,11 @@
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js?v=2.5"></script>
-    <script src="views.js?v=2.5"></script>
-    <script src="jobs.js?v=2.5"></script>
-    <script src="ui.js?v=2.5"></script>
-    <script src="insights.js?v=2.5"></script>
+    <script src="app.js?v=2.6"></script>
+    <script src="views.js?v=2.6"></script>
+    <script src="jobs.js?v=2.6"></script>
+    <script src="ui.js?v=2.6"></script>
+    <script src="insights.js?v=2.6"></script>
+    <script src="automation.js?v=2.6"></script>
 </body>
 </html>

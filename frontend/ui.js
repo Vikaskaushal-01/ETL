@@ -14,6 +14,7 @@ function paletteCommands() {
     const commands = [
         { group: 'Pages', icon: 'fa-gauge-high', label: 'Dashboard', hint: 'Overview & recent activity', run: go('dashboard-view') },
         { group: 'Pages', icon: 'fa-diagram-project', label: 'Pipeline', hint: 'Live data flow monitor', run: go('pipeline-monitor-page') },
+        { group: 'Pages', icon: 'fa-calendar-check', label: 'Schedules', hint: 'Ingest a URL on an interval', run: go('schedules-view') },
         { group: 'Pages', icon: 'fa-clock-rotate-left', label: 'History', hint: 'Every run and its results', run: go('history-view') },
         { group: 'Pages', icon: 'fa-file-lines', label: 'Reports', hint: 'PDF, Word, Markdown & JSON', run: go('reports-view') },
         { group: 'Pages', icon: 'fa-terminal', label: 'Logs', hint: 'Process log of each run', run: go('logs-view') },
@@ -232,6 +233,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.exportHistory();
             } else if (action === 'refresh') {
                 window.refreshDashboard();
+            } else if (action === 'schedules') {
+                window.activateView('schedules-view');
             }
         });
     });

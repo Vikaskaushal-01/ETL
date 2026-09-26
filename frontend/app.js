@@ -104,14 +104,16 @@ function initAppShell() {
         'reports-view': { title: 'Reports', crumb: 'Generated PDF, Word, Markdown & JSON reports' },
         'logs-view': { title: 'Logs', crumb: 'Full process log of each run' },
         'storage-view': { title: 'Storage', crumb: 'Raw uploads, cleaned data, reports, logs & exports' },
-        'powerbi-view': { title: 'Power BI', crumb: 'Star-schema dataset exports & DAX measures' }
+        'powerbi-view': { title: 'Power BI', crumb: 'Star-schema dataset exports & DAX measures' },
+        'schedules-view': { title: 'Schedules', crumb: 'Ingest a URL automatically on an interval' }
     };
     const viewLoaders = {
         'history-view': () => window.loadHistoryView && window.loadHistoryView(),
         'reports-view': () => window.loadReportsView && window.loadReportsView(),
         'logs-view': () => window.loadLogsView && window.loadLogsView(),
         'storage-view': () => loadExplorerFiles(),
-        'powerbi-view': () => window.loadPowerBIView && window.loadPowerBIView()
+        'powerbi-view': () => window.loadPowerBIView && window.loadPowerBIView(),
+        'schedules-view': () => window.loadSchedulesView && window.loadSchedulesView()
     };
 
     function activateView(viewId) {
