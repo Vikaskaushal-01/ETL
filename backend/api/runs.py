@@ -1,0 +1,105 @@
+"""Run management on top of the History: compare two runs and export the history as CSV."""
+import csv
+import io
+import logging
+import os
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import Response
+from sqlalchemy.orm import Session
+
+from backend.api.pipeline import (
+    _require_batch_access, list_runs
+)
+from backend.database.models import RawUpload
+from backend.database.mysql import get_db
+from backend.utils.file_utils import read_dataset
+
+router = APIRouter(prefix="/history", tags=["Run Management"])
+logger = logging.getLogger("etl_runs_api")
+
+# Metrics shown side by side when comparing two runs: (key, label, higher is better)
+COMPARE_METRICS = [
+    ("rows", "Input rows", None),
+    ("columns", "Columns", None),
+    ("rows_loaded", "Rows loaded", True),
+    ("rows_rejected", "Rows rejected", False),
+    ("quality_before", "Quality before (%)", True),
+    ("quality_after", "Quality after (%)", True),
+    ("execution_time", "Runtime (s)", False),
+]
+EXPORT_COLUMNS = [
+    "batch_id", "filename", "source", "status", "uploaded_at", "started_at", "ended_at", "execution_time",
+    "rows", "columns", "rows_loaded", "rows_rejected", "quality_before", "quality_after", "format_selected",
+]
+
+
+def _dataset_path(run: dict) -> Optional[str]:
+    """The cleaned dataset of a run, or its raw upload when cleaning has not produced one."""
+    for path in (run.get("clean_file"), run.get("raw_file")):
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _get_run(db: Session, batch_id: str, email: Optional[str]) -> dict:
+    _require_batch_access(db, batch_id, email)
+    owner = db.query(RawUpload.uploaded_by).filter(RawUpload.batch_id == batch_id).scalar()
+    runs = list_runs(db, owner, batch_ids=[batch_id])
+    if not runs:
+        raise HTTPException(status_code=404, detail=f"Batch not found: {batch_id}")
+    return runs[0]
+
+
+@router.get("/compare")
+def compare_runs(a: str, b: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Side-by-side metrics of two runs plus the columns that differ between their datasets."""
+    if a == b:
+        raise HTTPException(status_code=400, detail="Pick two different runs to compare.")
+    run_a, run_b = _get_run(db, a, x_user_email), _get_run(db, b, x_user_email)
+
+    metrics = []
+    for key, label, higher_is_better in COMPARE_METRICS:
+        va, vb = run_a.get(key), run_b.get(key)
+        delta = round(vb - va, 4) if isinstance(va, (int, float)) and isinstance(vb, (int, float)) else None
+        better = None
+        if delta and higher_is_better is not None:
+            better = "b" if (delta > 0) == higher_is_better else "a"
+        metrics.append({"key": key, "label": label, "a": va, "b": vb, "delta": delta, "better": better})
+
+    def columns_of(run):
+        path = _dataset_path(run)
+        try:
+            return [str(c) for c in read_dataset(path, nrows=1).columns] if path else []
+        except Exception as e:
+            logger.warning(f"Could not read columns of {path}: {e}")
+            return []
+
+    cols_a, cols_b = columns_of(run_a), columns_of(run_b)
+    summary = lambda r: {k: r.get(k) for k in ("batch_id", "filename", "status", "started_at")}
+    return {
+        "a": summary(run_a),
+        "b": summary(run_b),
+        "metrics": metrics,
+        "schema": {
+            "shared": [c for c in cols_a if c in cols_b],
+            "only_in_a": [c for c in cols_a if c not in cols_b],
+            "only_in_b": [c for c in cols_b if c not in cols_a],
+        },
+    }
+
+
+@router.get("/export")
+def export_history(db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """The caller's run history as a CSV file."""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=EXPORT_COLUMNS, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(list_runs(db, x_user_email, limit=1000))
+    return Response(
+        buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="pipeline_run_history.csv"'},
+    )
+

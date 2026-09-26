@@ -10,7 +10,7 @@ from backend.database.mysql import engine, Base
 from typing import Optional
 from backend.core.security import API_KEY_PREFIX, hash_api_key, verify_token
 from backend import __version__
-from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag
+from backend.api import health, upload, pipeline, reports, dashboard, chat, auth, powerbi, rag, runs
 
 # Set up storage directories and logging format
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -154,6 +154,7 @@ if cors_origins:
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(upload.router, prefix="/api/v1")
 app.include_router(pipeline.router, prefix="/api/v1")
+app.include_router(runs.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
