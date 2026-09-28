@@ -1,0 +1,23 @@
+# Local development: `docker compose` loads this file automatically next to docker-compose.yml.
+# The backend runs the code straight from the project folder and restarts when a .py file
+# changes, so the app on http://localhost:8000 is always the current code without a rebuild.
+# Rebuild (`docker compose up -d --build backend`) only after changing requirements.txt.
+# Render builds from Dockerfile.backend directly and never reads this file.
+services:
+  backend:
+    volumes:
+      - ../backend:/app/backend
+      - ../agents:/app/agents
+      - ../agents_graph:/app/agents_graph
+      - ../frontend:/app/frontend
+      - ../dashboards:/app/dashboards
+      - ../snaplogic:/app/snaplogic
+      - ../cleanup_all.py:/app/cleanup_all.py
+    # StatReload polls file times, which also works for Windows folders mounted into Docker
+    command:
+      - sh
+      - -c
+      - >-
+        exec uvicorn backend.main:app --host 0.0.0.0 --port $${PORT} --proxy-headers
+        --forwarded-allow-ips='*' --reload
+        --reload-dir backend --reload-dir agents --reload-dir agents_graph
