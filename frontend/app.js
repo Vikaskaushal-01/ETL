@@ -1219,6 +1219,7 @@ async function loadDashboardStats() {
         }
         
         state.recentRuns = stats.recent_runs || [];
+        if (window.loadDashboardReview) window.loadDashboardReview();
         if (window.renderDashboardChart) window.renderDashboardChart();
         else renderCharts(state.recentRuns);
     } catch (e) {
