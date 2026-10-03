@@ -7,6 +7,7 @@ import unittest
 import pandas as pd
 
 from agents.review_agent.review_agent import ReviewAgent
+from backend.utils import data_editor
 from tests.test_platform_regressions import PlatformTestCase
 
 CLEAN = b"customer_id,customer_name,email,region\nC1,Ann Lee,ann@example.com,North\nC2,Bo Chan,bo@example.com,South\n"
@@ -114,3 +115,107 @@ class TestReviewQueueThreshold(PlatformTestCase):
         self.assertIn("REVIEW NOTES", log)
         self.assertIn("extreme values in 'amount'", log)
         self.assertNotIn("HUMAN REVIEW REQUIRED", log)
+
+
+class TestDataEditor(PlatformTestCase):
+    def _data(self, batch, flt=None, headers=None):
+        params = {"filter": json.dumps(flt)} if flt else {}
+        res = self.client.get(f"/api/v1/review/{batch}/data", params=params, headers=headers or self.alice)
+        self.assertEqual(res.status_code, 200, res.text)
+        return res.json()
+
+    def _edit(self, batch, version, ops, expect=200):
+        res = self.client.post(f"/api/v1/review/{batch}/data", json={"version": version, "ops": ops}, headers=self.alice)
+        self.assertEqual(res.status_code, expect, res.text)
+        return res.json()
+
+    def test_fix_bias_then_rerun_clears_the_review(self):
+        batch = self.run_pipeline(self.alice, "review_fix.csv", BIASED)["batch_id"]
+        item = self.client.get(f"/api/v1/review/{batch}", headers=self.alice).json()
+        self.assertTrue(item["editable"])
+        mnar = next(i for i in item["issues"] if i["code"] == "missing_not_at_random")
+        data = self._data(batch, mnar["rows"])
+        self.assertEqual(data["total"], 40)
+        self.assertGreater(data["matched"], 0)
+        self.assertTrue(all(r["values"][data["columns"].index("region")] == "South" for r in data["rows"]))
+
+        # Apply the agent's suggested per-group fill
+        fix = next(f for f in mnar["fixes"] if f["op"].get("strategy") == "group_median")
+        res = self._edit(batch, data["version"], [fix["op"]])
+        self.assertIn("median of each 'region' group", res["changes"][0])
+        self.assertEqual(self._data(batch, {"kind": "missing", "column": "income"})["matched"], 0)
+        # A stale version is refused
+        self._edit(batch, data["version"], [{"op": "drop_duplicates"}], expect=409)
+
+        start = self.client.post("/api/v1/pipeline/start", json={"file_path": item["raw_file"], "batch_id": batch}, headers=self.alice)
+        self.assertEqual(start.status_code, 200, start.text)
+        after = self.client.get(f"/api/v1/review/{batch}", headers=self.alice).json()
+        self.assertEqual(after["status"], "resolved")
+        log = self.client.get(f"/api/v1/history/{batch}/log", headers=self.alice).text
+        self.assertIn("CHANGES MADE IN HUMAN REVIEW BEFORE THIS RUN", log)
+        self.assertIn("median of each 'region' group", log)
+
+    def test_cell_edits_row_deletes_and_revert(self):
+        batch = self.run_pipeline(self.alice, "review_cells.csv", MISSING_NAMES)["batch_id"]
+        self.assertEqual(self.client.get(f"/api/v1/review/{batch}/data", headers=self.bob).status_code, 404)
+        data = self._data(batch, {"kind": "missing", "column": "customer_name"})
+        self.assertEqual([r["row"] for r in data["rows"]], [1, 2])
+        res = self._edit(batch, data["version"], [
+            {"op": "set_cells", "changes": [{"row": 1, "column": "customer_name", "value": "Bo Chan"}]},
+            {"op": "delete_rows", "rows": [2]},
+        ])
+        self.assertEqual(res["total"], 2)
+        data = self._data(batch)
+        self.assertTrue(data["has_original"])
+        self.assertEqual(data["rows"][1]["values"][1], "Bo Chan")
+        self.assertEqual(len(data["edits"]), 1)
+
+        self.assertEqual(self.client.post(f"/api/v1/review/{batch}/data/revert", headers=self.alice).status_code, 200)
+        data = self._data(batch)
+        self.assertEqual(data["total"], 3)
+        self.assertEqual(data["rows"][1]["values"][1], "")
+        self.assertFalse(data["has_original"])
+
+    def test_only_review_items_are_editable(self):
+        batch = self.run_pipeline(self.alice, "review_not_flagged.csv", CLEAN)["batch_id"]
+        self.assertEqual(self.client.get(f"/api/v1/review/{batch}/data", headers=self.alice).status_code, 404)
+
+
+class TestDataEditorOps(unittest.TestCase):
+    def frame(self):
+        return pd.DataFrame({
+            "Order Date": ["31/01/2024", "2024-02-03", "bad"],
+            "qty": ["1", "two", "3"],
+            "city": ["Pune", "", "Pune"],
+        })
+
+    def test_ops(self):
+        df, notes = data_editor.apply_ops(self.frame(), [
+            {"op": "replace_values", "column": "qty", "find": "two", "replace": "2"},
+            {"op": "standardize_dates", "column": "order_date", "dayfirst": True},
+            {"op": "fill_missing", "column": "city", "strategy": "mode"},
+            {"op": "rename_column", "column": "qty", "new_name": "quantity"},
+        ])
+        self.assertEqual(df["quantity"].tolist(), ["1", "2", "3"])
+        self.assertEqual(df["Order Date"].tolist()[:2], ["2024-01-31", "2024-02-03"])
+        self.assertEqual(df["Order Date"].tolist()[2], "bad")
+        self.assertEqual(df["city"].tolist(), ["Pune"] * 3)
+        self.assertEqual(len(notes), 4)
+
+        df, _ = data_editor.apply_ops(self.frame(), [{"op": "clear_matching", "column": "qty", "filter": {"kind": "non_numeric", "column": "qty"}}])
+        self.assertEqual(df["qty"].tolist(), ["1", "", "3"])
+        with self.assertRaises(data_editor.EditError):
+            data_editor.apply_ops(self.frame(), [{"op": "replace_values", "column": "qty", "find": "two", "replace": None}])
+
+    def test_round_trip_keeps_other_cells(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, write in (("a.csv", lambda d, p: d.to_csv(p, index=False)), ("a.xlsx", lambda d, p: d.to_excel(p, index=False)),
+                                ("a.json", lambda d, p: d.to_json(p, orient="records"))):
+                path = os.path.join(tmp, name)
+                write(pd.DataFrame({"id": ["007", "8"] if name == "a.csv" else [7, 8], "price": [1.5, None]}), path)
+                df = data_editor.load(path)
+                df, _ = data_editor.apply_ops(df, [{"op": "set_cells", "changes": [{"row": 1, "column": "price", "value": "2.25"}]}])
+                data_editor.save(df, path)
+                again = data_editor.load(path)
+                self.assertEqual(again["price"].tolist(), ["1.5", "2.25"], name)
+                self.assertEqual(again["id"].tolist()[0], "007" if name == "a.csv" else "7", name)
