@@ -188,6 +188,40 @@ def update_pipeline_overall_status(pipeline_id: str, status: str, execution_time
                     stage["status"] = "failed"
         write_pipeline_state(pipeline_id, state)
 
+def set_pipeline_review(pipeline_id: str, review: dict):
+    """Stores the Review Agent's findings with the run, so the process log can list them."""
+    with _state_lock:
+        state = read_pipeline_state(pipeline_id)
+        state["review"] = review
+        write_pipeline_state(pipeline_id, state)
+
+
+def _review_log_lines(review: Optional[dict]) -> list:
+    if not review:
+        return []
+    issues = review.get("issues") or []
+    if not issues:
+        return ["--- HUMAN REVIEW ---", "  No problems that need a human decision.", ""]
+    headline = ("THIS FILE WAS NOT PROCESSED" if review.get("kind") == "not_processed"
+                else "PROCESSED, BUT A HUMAN DECISION IS NEEDED")
+    lines = [
+        "!" * 78,
+        f"HUMAN REVIEW REQUIRED: {headline} ({len(issues)} issue{'s' if len(issues) != 1 else ''})",
+        "!" * 78,
+    ]
+    for n, issue in enumerate(issues, 1):
+        column = f" | column: {issue['column']}" if issue.get("column") else ""
+        lines += [
+            f"[{n}] [{str(issue.get('severity')).upper()}] {issue.get('category')}{column}",
+            f"    {issue.get('title')}",
+            f"    What happened : {issue.get('problem')}",
+            f"    Why it matters: {issue.get('impact')}",
+            f"    What to do    : {issue.get('action')}",
+            "",
+        ]
+    return lines
+
+
 def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_by: Optional[str], summary_logs: list = None) -> str:
     """Full human-readable process log: run header, every stage's timeline and log lines, agent summaries."""
     state = read_pipeline_state(pipeline_id)
@@ -229,7 +263,20 @@ def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_b
         lines.append("")
     if state.get("error"):
         lines.append(f"!!! RUNTIME ERROR: {state['error']}")
+        lines.append("")
+    lines.extend(_review_log_lines(state.get("review")))
     return "\n".join(lines) + "\n"
+
+
+def _run_review(batch_id: str, file_path: str, final_state: Optional[dict] = None, error: Optional[str] = None):
+    """Hands the run to the Review Agent; a failing check never fails the run itself."""
+    try:
+        from backend.api.review import review_run
+        review = review_run(batch_id, file_path, final_state, error)
+        if review and review["issues"]:
+            logger.info(f"Run {batch_id} needs human review: {len(review['issues'])} issue(s), {review['kind']}")
+    except Exception as e:
+        logger.exception(f"Review Agent failed for {batch_id}: {e}")
 
 
 def save_pipeline_logs_to_file(batch_id: str, logs: list, raw_file_path: str = None, uploaded_by: Optional[str] = None):
