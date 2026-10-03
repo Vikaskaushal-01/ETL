@@ -278,6 +278,7 @@ class ReviewAgent:
         step = _fill_applied(history, col)
         fill = step.get("new_value") if step else None
         evidence = {"missing": nulls, "rows": len(raw), "missing_share": round(share, 4), "filled_with": fill}
+        rows = {"kind": "missing", "column": col}
 
         if share >= 0.999:
             return _issue(
@@ -287,7 +288,7 @@ class ReviewAgent:
                 + (f" The agent filled every one with '{fill}', so the column now holds no real information." if fill is not None else ""),
                 "Any analysis that uses this column is working with made-up values; the column looks valid but is not.",
                 f"Find out why the source does not send '{col}'. Drop the column, or get the values and re-run.",
-                column=col, evidence=evidence,
+                column=col, evidence=evidence, fixes=[_fix(f"Remove column '{col}'", {"op": "drop_column", "column": col})],
             )
 
         if fill is None:
@@ -300,7 +301,8 @@ class ReviewAgent:
                 f"'{col}' looks like an identifier or name, so the agent cannot invent a value and left it empty.",
                 "Rows without it cannot be matched to other tables and may have been rejected; joins and per-entity counts will miss them.",
                 f"Supply the missing '{col}' values in the source, or confirm those rows should be dropped, then re-run.",
-                column=col, evidence=evidence,
+                column=col, evidence=evidence, rows=rows,
+                fixes=[_fix(f"Delete the rows without '{col}'", {"op": "delete_matching", "filter": rows})],
             )
 
         effects, distorted = [], False
@@ -352,7 +354,7 @@ class ReviewAgent:
             problem, impact,
             f"Decide how '{col}' should be handled: collect the missing values, fill them per group instead of one value for all, "
             f"mark them as unknown and exclude them from averages, or drop the column. Then re-run.",
-            column=col, evidence=evidence,
+            column=col, evidence=evidence, rows=rows, fixes=_fill_fixes(col, is_numeric),
         )
 
     def _missing_not_at_random(self, raw, columns) -> list:
