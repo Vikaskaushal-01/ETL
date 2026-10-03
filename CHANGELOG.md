@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A **Human Review** page (sidebar, `G` then `R`) lists flagged files as "Not processed" or "Needs decision", with filters by status and problem type, re-run, and resolve / accept-as-is with a note. The dashboard shows the most urgent items, the sidebar shows the open count, and History and Run details link to them.
 - The process log of a flagged run ends with a **HUMAN REVIEW REQUIRED** section listing every problem; run notifications mention open reviews.
 - API: `GET /review`, `GET /review/{batch_id}`, `POST /review/{batch_id}` (`resolve`, `dismiss`, `reopen`).
+- **Fix data** editor in Human Review: show the rows behind each problem, apply the Review Agent's suggested fixes in one click, edit cells and delete rows by hand, restore the original upload, then save and re-run. Edits are recorded with who made them and listed in the next process log (`GET/POST /review/{batch_id}/data`, `POST /review/{batch_id}/data/revert`).
+
+### 🔧 Changed
+- Only runs with a critical or high problem go to Human Review; medium problems are written to the process log as notes.
 
 ---
 

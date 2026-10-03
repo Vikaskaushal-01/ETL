@@ -85,6 +85,8 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | | `/api/v1/schedules/{id}/run` | `POST` | Run a schedule now |
 | **Human Review** | `/api/v1/review?status=open\|resolved\|dismissed\|all` | `GET` | Runs the Review Agent flagged for a person, with every problem and counts per status, kind and severity |
 | | `/api/v1/review/{batch_id}` | `GET`/`POST` | One flagged run / resolve, dismiss (accept as it is) or reopen it with a note |
+| | `/api/v1/review/{batch_id}/data?offset=&limit=&filter=` | `GET` | Page of the uploaded file's rows, optionally only those a problem refers to |
+| | `/api/v1/review/{batch_id}/data` · `/data/revert` | `POST` | Apply edits to the uploaded file (cells, rows, fills, replacements, dates, columns) / restore the original |
 | **Dashboard Analytics**| `/api/v1/dashboard/summary` | `GET` | KPIs: rows processed, success rate, quality, recent runs |
 | | `/api/v1/dashboard/metrics` | `GET` | Run telemetry: totals, availability, latency |
 | | `/api/v1/dashboard/trends?days=14` | `GET` | Runs per day (succeeded / failed), average runtime and quality |
@@ -112,7 +114,9 @@ After every run (including crashed and interrupted ones) the **Review Agent** re
 | Outliers | Values beyond 3 IQR of the quartiles, or negative prices / quantities / amounts |
 | Duplicates | 10%+ of the rows were exact duplicates |
 
-A run with a critical problem is **Not processed**; any other problem makes it **Needs decision**. The problems appear on the Human Review page and at the end of the run's process log; re-running a file re-checks it and closes its review when it passes. The checks are computed from the data, so they work without an LLM.
+Only runs with a **critical** or **high** problem go to Human Review: **Not processed** (critical) or **Needs decision** (high). Medium problems (a few extreme values, some unreadable dates, a small share of rejected rows) are written to the process log as notes and do not involve a person. The checks are computed from the data, so they work without an LLM.
+
+**Fix data**: every file in Human Review opens in a data editor. Each problem can show the rows it refers to and offers one-click fixes from the Review Agent (fill a column per group, replace a text value, read dates day- or month-first, delete or empty the affected rows, drop a column, remove duplicates). Cells can also be edited by hand and rows deleted. The original upload is kept so every edit can be undone (**Restore original**). **Save & re-run** sends the corrected file through the pipeline again; the Review Agent re-checks it, closes the review when nothing needs a human any more, and the process log lists every change made in Human Review and who made it. CSV, TSV, TXT, Excel (xlsx/xlsm) and JSON files can be edited, up to 200,000 rows.
 
 ### ✅ Validation Rules Applied During Load
 - Rows missing a primary key, duplicating a primary key within the batch, missing `customer_name` (customers), or holding non-numeric quantities/prices or unparseable dates are **rejected individually** with a reason; the rest of the batch still loads. Rejections feed the Root Cause Analysis reports.
