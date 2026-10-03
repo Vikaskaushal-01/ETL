@@ -426,6 +426,11 @@ class ReviewAgent:
              "Because the column is stored as text, sums, averages and sorting on it do not work as numbers."),
             f"Correct the listed values in the source (or decide what they mean, e.g. 'N/A' = missing) and re-run.",
             column=col, evidence={"non_numeric": len(bad), "numeric_share": round(share, 4), "examples": examples},
+            rows={"kind": "non_numeric", "column": col},
+            fixes=[_fix(f"Replace '{e}' with...", {"op": "replace_values", "column": col, "find": e, "replace": None}, needs="replace")
+                   for e in examples[:3]]
+            + [_fix("Empty the non-numbers (treat them as missing)",
+                    {"op": "clear_matching", "column": col, "filter": {"kind": "non_numeric", "column": col}})],
         )
 
     def _dates(self, raw, clean, col, history) -> Optional[dict]:
@@ -451,6 +456,10 @@ class ReviewAgent:
             + ("" if standardized else ", and the column cannot be sorted or compared as dates at all") + ".",
             f"Confirm the date format used in '{col}' (e.g. day-first vs month-first) and fix the listed values, then re-run.",
             column=col, evidence={"unparseable": len(bad), "examples": examples},
+            rows={"kind": "bad_date", "column": col},
+            fixes=[_fix("Read the dates day-first (31/12/2024)", {"op": "standardize_dates", "column": col, "dayfirst": True}),
+                   _fix("Read the dates month-first (12/31/2024)", {"op": "standardize_dates", "column": col, "dayfirst": False}),
+                   _fix("Empty the unreadable dates", {"op": "clear_matching", "column": col, "filter": {"kind": "bad_date", "column": col}})],
         )
 
     def _outliers(self, raw, clean, col, history) -> Optional[dict]:
