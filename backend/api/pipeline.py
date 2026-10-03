@@ -857,7 +857,7 @@ def _stage_output(state: dict, stage_id: str) -> dict:
 
 def list_runs(db: Session, email: Optional[str], limit: int = 200, batch_ids: Optional[list] = None) -> list:
     """Batches uploaded by `email`, newest first, with their run status and measured results."""
-    from backend.database.models import RawUpload, GeneratedReport
+    from backend.database.models import RawUpload, GeneratedReport, ReviewItem
     query = db.query(RawUpload).filter(RawUpload.uploaded_by == email)
     if batch_ids is not None:
         query = query.filter(RawUpload.batch_id.in_(batch_ids))
@@ -868,6 +868,7 @@ def list_runs(db: Session, email: Optional[str], limit: int = 200, batch_ids: Op
     if batch_ids:
         for r in db.query(GeneratedReport).filter(GeneratedReport.batch_id.in_(batch_ids)).order_by(GeneratedReport.created_at.asc()).all():
             reports[r.batch_id] = r
+    reviews = {r.batch_id: r for r in db.query(ReviewItem).filter(ReviewItem.batch_id.in_(batch_ids)).all()} if batch_ids else {}
 
     history = []
     for u in uploads:
@@ -903,6 +904,12 @@ def list_runs(db: Session, email: Optional[str], limit: int = 200, batch_ids: Op
                 for fmt, col in (("pdf", "pdf_path"), ("docx", "docx_path"), ("markdown", "markdown_path"), ("json", "json_path"))
             } if report else {},
             "error": state.get("error"),
+            "review": {
+                "status": reviews[u.batch_id].status,
+                "kind": reviews[u.batch_id].kind,
+                "severity": reviews[u.batch_id].severity,
+                "issues": reviews[u.batch_id].issue_count,
+            } if u.batch_id in reviews else None,
         })
     return history
 
