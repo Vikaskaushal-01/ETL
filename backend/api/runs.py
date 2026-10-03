@@ -255,6 +255,10 @@ def delete_run(batch_id: str, db: Session = Depends(get_db), x_user_email: Optio
     for report in db.query(GeneratedReport).filter(GeneratedReport.batch_id == batch_id).all():
         files += [report.pdf_path, report.docx_path, report.markdown_path, report.json_path, report.txt_path]
 
+    if filename:
+        # The copy of the upload kept before it was edited in Human Review
+        files.append(get_user_path(owner, f"data/originals/{batch_id}_{filename}"))
+
     same_file_runs = db.query(RawUpload).filter(
         RawUpload.uploaded_by == owner, RawUpload.filename == filename, RawUpload.batch_id != batch_id
     ).count()
