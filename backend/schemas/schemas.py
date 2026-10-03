@@ -44,3 +44,7 @@ class DashboardSummary(BaseModel):
     quality_score_avg: float
     active_pipelines: int
     recent_runs: List[Dict[str, Any]]
+
+class ReviewDecisionRequest(BaseModel):
+    action: str = Field(..., pattern="^(resolve|dismiss|reopen)$")
+    note: Optional[str] = Field(None, max_length=4000)
