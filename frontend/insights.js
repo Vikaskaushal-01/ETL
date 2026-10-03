@@ -379,7 +379,14 @@ window.openRunDetails = async function(batchId) {
             <div class="stat-chip"><span>Runtime</span><strong>${run.execution_time != null ? run.execution_time.toFixed(1) + 's' : '-'}</strong></div>
         </div>`;
 
-    const actions = `
+    const review = run.review && run.review.status === 'open' ? `
+        <button class="review-banner ${run.review.kind === 'not_processed' ? 'critical' : ''}" onclick="openReviewFor('${batchId}')">
+            <i class="fa-solid fa-user-shield"></i>
+            <span><strong>${run.review.kind === 'not_processed' ? 'This file was not processed' : 'This run needs a human decision'}</strong>
+            ${run.review.issues} problem(s) found by the Review Agent. Open them in Human Review.</span>
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>` : '';
+    const actions = `${review}
         <div class="detail-actions">
             ${run.reports && run.reports.pdf ? `<button class="btn-refresh-table" onclick="downloadReport('${batchId}', 'pdf')"><i class="fa-solid fa-file-pdf"></i> PDF report</button>` : ''}
             ${run.reports && run.reports.docx ? `<button class="btn-refresh-table" onclick="downloadReport('${batchId}', 'docx')"><i class="fa-solid fa-file-word"></i> Word report</button>` : ''}
