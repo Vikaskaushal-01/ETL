@@ -453,6 +453,63 @@
                         </div>
                     </div>
 
+                    <!-- Data editor: fix a Human Review file by hand or with the agent's suggested fixes -->
+                    <div id="review-editor-view" class="app-view page-view">
+                        <div class="editor-head">
+                            <button class="btn-refresh-table" id="btn-editor-back"><i class="fa-solid fa-arrow-left"></i> Human Review</button>
+                            <div class="editor-title">
+                                <strong id="editor-filename">-</strong>
+                                <span class="text-secondary" id="editor-meta"></span>
+                            </div>
+                            <div class="editor-head-actions">
+                                <span class="editor-pending" id="editor-pending" hidden></span>
+                                <button class="btn-refresh-table" id="btn-editor-revert" hidden title="Undo every edit and go back to the file as it was uploaded"><i class="fa-solid fa-clock-rotate-left"></i> Restore original</button>
+                                <button class="btn-refresh-table" id="btn-editor-save" disabled><i class="fa-solid fa-floppy-disk"></i> Save changes</button>
+                                <button class="btn-primary-glow" id="btn-editor-rerun" title="Save your changes and run the pipeline again on the corrected file"><i class="fa-solid fa-play"></i> Save &amp; re-run</button>
+                            </div>
+                        </div>
+                        <div class="editor-layout">
+                            <aside class="dash-panel editor-side">
+                                <h3><i class="fa-solid fa-robot"></i> What the AI found</h3>
+                                <p class="text-secondary panel-hint">Show the rows a problem refers to, apply a suggested fix, or edit the cells yourself.</p>
+                                <div id="editor-issues" class="editor-issues"></div>
+                                <h3 class="editor-side-gap"><i class="fa-solid fa-pen-to-square"></i> Your changes</h3>
+                                <div id="editor-edits" class="editor-edits"></div>
+                            </aside>
+                            <section class="dash-panel editor-main">
+                                <div class="editor-filter" id="editor-filter"></div>
+                                <form class="editor-tools" id="editor-tools" autocomplete="off">
+                                    <select id="editor-tool-column" class="page-select" aria-label="Column"></select>
+                                    <select id="editor-tool-action" class="page-select" aria-label="Change">
+                                        <option value="fill_value">Fill empty cells with a value</option>
+                                        <option value="fill_median">Fill empty cells with the median</option>
+                                        <option value="fill_mean">Fill empty cells with the average</option>
+                                        <option value="fill_mode">Fill empty cells with the most common value</option>
+                                        <option value="fill_group_median">Fill empty cells with the median of each group</option>
+                                        <option value="fill_group_mode">Fill empty cells with the most common value of each group</option>
+                                        <option value="replace">Replace a value</option>
+                                        <option value="clear_non_numeric">Empty values that are not numbers</option>
+                                        <option value="dates_dayfirst">Rewrite dates, reading them day-first</option>
+                                        <option value="dates_monthfirst">Rewrite dates, reading them month-first</option>
+                                        <option value="delete_empty">Delete rows where this column is empty</option>
+                                        <option value="rename">Rename the column</option>
+                                        <option value="drop_column">Remove the column</option>
+                                        <option value="drop_duplicates">Remove duplicate rows (whole file)</option>
+                                    </select>
+                                    <input type="text" id="editor-tool-find" class="page-input" placeholder="Find value" hidden>
+                                    <input type="text" id="editor-tool-value" class="page-input" placeholder="Value">
+                                    <select id="editor-tool-group" class="page-select" aria-label="Group by column" hidden></select>
+                                    <button type="submit" class="btn-refresh-table"><i class="fa-solid fa-wand-magic-sparkles"></i> Apply</button>
+                                    <button type="button" class="btn-refresh-table btn-danger-soft" id="btn-editor-delete-rows" disabled><i class="fa-solid fa-trash-can"></i> Delete selected rows</button>
+                                </form>
+                                <div class="editor-grid-wrap" id="editor-grid-wrap">
+                                    <table class="editor-grid" id="editor-grid"></table>
+                                </div>
+                                <div class="editor-pager" id="editor-pager"></div>
+                            </section>
+                        </div>
+                    </div>
+
                     <!-- History View: every batch with its real run results -->
                     <div id="history-view" class="app-view page-view">
                         <div class="page-toolbar">
