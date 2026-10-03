@@ -1,4 +1,11 @@
-"""Human Review queue: the Review Agent flags runs a person must decide on, and reviewers resolve them."""
+"""Human Review queue: the Review Agent flags runs a person must decide on, and reviewers fix and resolve them."""
+import json
+import os
+import tempfile
+import unittest
+
+import pandas as pd
+
 from agents.review_agent.review_agent import ReviewAgent
 from tests.test_platform_regressions import PlatformTestCase
 
@@ -93,3 +100,17 @@ class TestReviewChecks(PlatformTestCase):
         issue = review["issues"][0]
         self.assertEqual(issue["code"], "pipeline_crash")
         self.assertIn("delimiter", issue["problem"])
+
+
+# Only an extreme value: a note in the log, not a reason to involve a person
+OUTLIER_ONLY = ("order_ref,amount\n" + "".join(f"O{i},{100 + i % 9}\n" for i in range(39)) + "O39,99999\n").encode()
+
+
+class TestReviewQueueThreshold(PlatformTestCase):
+    def test_minor_problems_stay_out_of_the_queue(self):
+        batch = self.run_pipeline(self.alice, "review_minor.csv", OUTLIER_ONLY)["batch_id"]
+        self.assertEqual(self.client.get(f"/api/v1/review/{batch}", headers=self.alice).status_code, 404)
+        log = self.client.get(f"/api/v1/history/{batch}/log", headers=self.alice).text
+        self.assertIn("REVIEW NOTES", log)
+        self.assertIn("extreme values in 'amount'", log)
+        self.assertNotIn("HUMAN REVIEW REQUIRED", log)
