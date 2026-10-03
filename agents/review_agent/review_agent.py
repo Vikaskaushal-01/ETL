@@ -168,6 +168,10 @@ class ReviewAgent:
                         found = None
                     if found:
                         issues.append(found)
+            try:
+                issues.extend(self._missing_not_at_random(raw, columns))
+            except Exception as e:
+                logger.warning(f"Missing-not-at-random check failed: {e}")
 
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
@@ -321,3 +325,40 @@ class ReviewAgent:
             f"mark them as unknown and exclude them from averages, or drop the column. Then re-run.",
             column=col, evidence=evidence,
         )
+
+    def _missing_not_at_random(self, raw, columns) -> list:
+        """Missing values concentrated in one group: any single fill value biases the data against that group."""
+        candidates = [c for c in columns if int(raw[c].isna().sum()) >= MNAR_MIN_NULLS]
+        group_cols = [c for c in columns if 2 <= raw[c].nunique(dropna=True) <= MNAR_MAX_GROUPS]
+        issues = []
+        for col in candidates:
+            best = None
+            for g in group_cols:
+                if g == col:
+                    continue
+                frame = pd.DataFrame({"g": raw[g], "missing": raw[col].isna()}).dropna(subset=["g"])
+                stats = frame.groupby("g")["missing"].agg(["mean", "size"])
+                stats = stats[stats["size"] >= MNAR_MIN_GROUP_ROWS]
+                if len(stats) < 2:
+                    continue
+                hi, lo = stats["mean"].idxmax(), stats["mean"].idxmin()
+                gap = float(stats.loc[hi, "mean"] - stats.loc[lo, "mean"])
+                if gap >= MNAR_GAP and (best is None or gap > best[0]):
+                    rest = frame[frame["g"] != hi]["missing"].mean()
+                    best = (gap, g, hi, float(stats.loc[hi, "mean"]), float(rest), int(stats.loc[hi, "size"]))
+            if best:
+                gap, g, group, rate, rest_rate, size = best
+                issues.append(_issue(
+                    "missing_not_at_random", "high", "Bias risk",
+                    f"Missing '{col}' values are concentrated in {g} = '{group}'",
+                    f"{_pct(rate)} of the {size:,} rows with {g} = '{group}' have no '{col}', against {_pct(rest_rate)} of the other rows. "
+                    "The values are not missing at random, so the agent cannot tell whether one fill value is fair for every group.",
+                    f"A single fill value (median, 0 or 'Unknown') makes '{group}' look like the overall average and hides how it really "
+                    f"differs, so results by {g} are biased toward the groups with complete data. Dropping those rows instead would "
+                    f"under-represent '{group}'.",
+                    f"Find out why '{group}' rows lack '{col}' (a different source system or form?). Fill '{col}' within each {g} group, "
+                    f"collect the values, or exclude '{col}' from comparisons across {g}.",
+                    column=col, evidence={"group_column": g, "group": str(group), "group_missing_share": round(rate, 4),
+                                          "other_missing_share": round(rest_rate, 4), "group_rows": size},
+                ))
+        return issues
