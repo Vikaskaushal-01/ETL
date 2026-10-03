@@ -160,7 +160,7 @@ class ReviewAgent:
             history = transformation_history or []
             columns = list(raw.columns)[:MAX_COLUMNS_CHECKED]
             for col in columns:
-                for check in (self._missing_values, self._mixed_types):
+                for check in (self._missing_values, self._mixed_types, self._dates):
                     try:
                         found = check(raw, clean, col, history)
                     except Exception as e:  # one odd column must not stop the other checks
@@ -387,4 +387,29 @@ class ReviewAgent:
              "Because the column is stored as text, sums, averages and sorting on it do not work as numbers."),
             f"Correct the listed values in the source (or decide what they mean, e.g. 'N/A' = missing) and re-run.",
             column=col, evidence={"non_numeric": len(bad), "numeric_share": round(share, 4), "examples": examples},
+        )
+
+    def _dates(self, raw, clean, col, history) -> Optional[dict]:
+        if not is_date_column_name(col) or pd.api.types.is_numeric_dtype(raw[col]):
+            return None
+        values = raw[col].dropna()
+        if len(values) < 3:
+            return None
+        parsed = parse_dates(values)
+        share = float(parsed.notna().mean())
+        if share >= 1.0:
+            return None
+        bad = values[parsed.isna()].astype(str)
+        examples = list(dict.fromkeys(bad.tolist()))[:5]
+        standardized = any(s.get("column_name") == col and "date" in str(s.get("reason", "")).lower() for s in history)
+        return _issue(
+            "unparseable_dates", "medium" if standardized else "high", "Data types",
+            f"{len(bad):,} values in '{col}' are not readable dates",
+            f"{_pct(1 - share)} of '{col}' could not be read as a date, e.g. {', '.join(repr(e) for e in examples)}."
+            + (" The rest were converted to YYYY-MM-DD HH:MM:SS and these were left as they were." if standardized else
+               " Too many failed to parse, so the agent left the whole column unconverted."),
+            "Rows with unreadable dates drop out of anything filtered or grouped by date (monthly trends, period totals)"
+            + ("" if standardized else ", and the column cannot be sorted or compared as dates at all") + ".",
+            f"Confirm the date format used in '{col}' (e.g. day-first vs month-first) and fix the listed values, then re-run.",
+            column=col, evidence={"unparseable": len(bad), "examples": examples},
         )
