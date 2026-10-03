@@ -233,3 +233,23 @@ class Schedule(Base):
     last_status = Column(String(50), nullable=True)
     last_error = Column(Text, nullable=True)
     run_count = Column(Integer, default=0)
+
+
+class ReviewItem(Base):
+    """A run the Review Agent handed to a human: the problems it found and what the reviewer decided."""
+    __tablename__ = 'review_items'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    batch_id = Column(String(100), nullable=False, unique=True, index=True)
+    user_email = Column(String(255), index=True)
+    filename = Column(String(255))
+    status = Column(String(20), nullable=False, default='open', index=True)  # open, resolved, dismissed
+    kind = Column(String(30))  # not_processed (a critical problem) or needs_decision
+    severity = Column(String(20))  # highest issue severity: critical, high, medium
+    issue_count = Column(Integer, default=0)
+    issues_json = Column(Text)
+    note = Column(Text, nullable=True)
+    resolved_by = Column(String(255), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
