@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from agents.transformation_agent.transformation_agent import is_date_column_name, parse_dates, standardize_column_name
+from backend.utils.data_editor import describe_filter, reason_filter
 from backend.utils.file_utils import read_dataset
 
 logger = logging.getLogger("etl_review_agent")
@@ -71,7 +72,8 @@ CRASH_EXPLANATIONS = [
 ]
 
 
-def _issue(code, severity, category, title, problem, impact, action, column=None, evidence=None) -> dict:
+def _issue(code, severity, category, title, problem, impact, action, column=None, evidence=None, rows=None, fixes=None) -> dict:
+    """`rows` is a row filter for the data editor; `fixes` are edits a reviewer can apply in one click."""
     return {
         "code": code,
         "severity": severity,
@@ -82,7 +84,26 @@ def _issue(code, severity, category, title, problem, impact, action, column=None
         "impact": impact,
         "action": action,
         "evidence": evidence or {},
+        "rows": rows,
+        "fixes": fixes or [],
     }
+
+
+def _fix(label: str, op: dict, needs: Optional[str] = None) -> dict:
+    """A suggested edit; `needs` names a value the reviewer has to type first (e.g. "replace")."""
+    return {"label": label, "op": op, "needs": needs}
+
+
+def _fill_fixes(col: str, numeric: bool) -> list:
+    if numeric:
+        fixes = [_fix(f"Fill empty '{col}' with the median", {"op": "fill_missing", "column": col, "strategy": "median"}),
+                 _fix("Fill with the average", {"op": "fill_missing", "column": col, "strategy": "mean"})]
+    else:
+        fixes = [_fix(f"Fill empty '{col}' with the most common value", {"op": "fill_missing", "column": col, "strategy": "mode"})]
+    return fixes + [
+        _fix("Fill with a value I choose", {"op": "fill_missing", "column": col, "strategy": "value", "value": None}, needs="value"),
+        _fix(f"Remove column '{col}'", {"op": "drop_column", "column": col}),
+    ]
 
 
 def _pct(share: float) -> str:
@@ -224,6 +245,8 @@ class ReviewAgent:
         top = sorted(reasons.items(), key=lambda kv: -kv[1])[:4]
         reason_text = "; ".join(f"{reason} ({count} row{'s' if count != 1 else ''})" for reason, count in top)
         evidence = {"rows_rejected": n_rejected, "rows_loaded": n_loaded, "reasons": dict(top)}
+        rows = reason_filter(top[0][0]) if top else None
+        fixes = [_fix(f"Delete the rows {describe_filter(rows)}", {"op": "delete_matching", "filter": rows})] if rows else []
         if n_loaded == 0 or pipeline_status == "Failed":
             return [_issue(
                 "nothing_loaded", "critical", "Validation",
@@ -232,7 +255,7 @@ class ReviewAgent:
                 "The file was not loaded into the database, so dashboards, Power BI and the reports have no data from it.",
                 "Fix the listed fields in the source file (often a missing or renamed key column) and re-run. "
                 "Download the rejected rows to see each row's reason.",
-                evidence=evidence,
+                evidence=evidence, rows=rows, fixes=fixes,
             )]
         share = n_rejected / total
         return [_issue(
@@ -242,7 +265,7 @@ class ReviewAgent:
             "Rejected rows are missing from the database. Totals and counts are understated, and if the rejected rows "
             "share something (one region, one source system, one date range) that group is under-represented in every result.",
             "Download the rejected rows, correct them in the source (or confirm they should be excluded) and re-run.",
-            evidence=evidence,
+            evidence=evidence, rows=rows, fixes=fixes,
         )]
 
     # ---------- column-level problems ----------
