@@ -77,6 +77,7 @@ function reviewCardHtml(item, category) {
                     </div>
                 </div>
                 <div class="review-card-actions">
+                    ${item.editable ? `<button class="btn-refresh review-fix-btn" onclick="openDataEditor('${id}')" title="Open the file, apply the AI's suggested fixes or edit it yourself, then re-run"><i class="fa-solid fa-pen-to-square"></i> Fix data</button>` : ''}
                     <button class="btn-refresh" onclick="openRunLog('${id}')" title="Process log: every problem is written there too"><i class="fa-solid fa-terminal"></i> Log</button>
                     ${item.raw_file ? `<button class="btn-refresh" onclick="previewRun('${id}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i> Data</button>` : ''}
                     ${canRerun ? `<button class="btn-refresh" onclick="rerunReviewItem('${id}')" title="Run the pipeline again on this file (after fixing the source)"><i class="fa-solid fa-rotate-right"></i> Re-run</button>` : ''}
@@ -85,7 +86,7 @@ function reviewCardHtml(item, category) {
                         : `<button class="btn-refresh review-resolve-btn" onclick="openReviewDecision('${id}')"><i class="fa-solid fa-check"></i> Resolve</button>`}
                 </div>
             </header>
-            ${item.issue_count ? `<div class="review-cats">${categories.map(([cat, n]) => `<span class="review-cat-chip"><i class="fa-solid ${REVIEW_CATEGORY_ICONS[cat] || 'fa-circle-exclamation'}"></i> ${escapeHtml(cat)} <strong>${n}</strong></span>`).join('')}</div>` : ''}
+            ${item.issue_count || item.edits.length ? `<div class="review-cats">${categories.map(([cat, n]) => `<span class="review-cat-chip"><i class="fa-solid ${REVIEW_CATEGORY_ICONS[cat] || 'fa-circle-exclamation'}"></i> ${escapeHtml(cat)} <strong>${n}</strong></span>`).join('')}${item.edits.length ? `<span class="review-cat-chip edited"><i class="fa-solid fa-pen-to-square"></i> Edited ${item.edits.length} time(s)</span>` : ''}</div>` : ''}
             ${issues.length ? `<ol class="review-issues">${issues.map((issue, n) => reviewIssueHtml(issue, !decided && n === 0)).join('')}</ol>` : ''}
             ${note}
         </article>`;
@@ -122,7 +123,7 @@ function renderReviewList() {
     );
     if (!items.length) {
         const empty = reviewState.items.length ? 'No files match the filter.'
-            : reviewState.status === 'open' ? 'Nothing needs a human right now. Every processed file passed the Review Agent\'s checks.'
+            : reviewState.status === 'open' ? 'Nothing needs a human right now. Minor notes about processed files are in their process logs.'
             : 'No files here yet.';
         list.innerHTML = `<div class="dash-panel sheet-empty"><i class="fa-solid ${reviewState.items.length ? 'fa-filter' : 'fa-circle-check'}"></i><p>${empty}</p></div>`;
         return;
@@ -172,7 +173,7 @@ window.loadDashboardReview = async function() {
     const list = document.getElementById('dash-review-list');
     if (!list) return;
     if (!data.items.length) {
-        list.innerHTML = '<div class="review-mini-empty"><i class="fa-solid fa-circle-check"></i> All clear: every processed file passed the checks.</div>';
+        list.innerHTML = '<div class="review-mini-empty"><i class="fa-solid fa-circle-check"></i> All clear: no file needs a human decision.</div>';
         return;
     }
     const rank = { critical: 0, high: 1, medium: 2 };
