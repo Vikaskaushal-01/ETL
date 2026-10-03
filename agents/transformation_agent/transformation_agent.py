@@ -20,6 +20,11 @@ def is_date_column_name(col: str) -> bool:
     return bool(_DATE_NAME_RE.search(str(col).lower()))
 
 
+def standardize_column_name(col) -> str:
+    """Header naming used for cleaned datasets: trimmed, lower-case snake_case."""
+    return str(col).strip().lower().replace(" ", "_").replace("-", "_").replace(".", "_")
+
+
 def parse_dates(series: pd.Series) -> pd.Series:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -87,10 +92,7 @@ class TransformationAgent:
         
         # 1. Clean column names (standardize to snake_case)
         old_cols = list(df.columns)
-        new_cols = []
-        for col in old_cols:
-            clean_col = str(col).strip().lower().replace(" ", "_").replace("-", "_").replace(".", "_")
-            new_cols.append(clean_col)
+        new_cols = [standardize_column_name(col) for col in old_cols]
         df.columns = new_cols
         
         for old_c, new_c in zip(old_cols, new_cols):
