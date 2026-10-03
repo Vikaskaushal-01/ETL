@@ -355,6 +355,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         update_pipeline_overall_status(pipeline_id, status, execution_time)
 
         logger.info(f"Pipeline run finished in {execution_time:.2f}s with status {status}")
+        _run_review(batch_id, file_path, final_state)
 
         # Save pipeline execution logs to disk
         logs_list = final_state.get("execution_logs", [])
@@ -387,6 +388,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         except Exception as inner_err:
             logger.error(f"Failed to log crash to DB: {inner_err}")
         update_pipeline_overall_status(pipeline_id, "Failed", execution_time, error=str(e))
+        _run_review(batch_id, file_path, error=str(e))
 
         # Save crash log (same file names as a successful run, so failures are just as easy to find)
         save_pipeline_logs_to_file(batch_id, [
