@@ -477,6 +477,10 @@ class ReviewAgent:
                 "Negative entries reduce totals and averages; if they are errors, every revenue or quantity figure is understated.",
                 f"Confirm whether negative '{col}' values are valid (returns/refunds) or errors, and correct or exclude them.",
                 column=col, evidence={"negative": len(negatives), "examples": examples},
+                rows={"kind": "negative", "column": col},
+                fixes=[_fix("Delete these rows", {"op": "delete_matching", "filter": {"kind": "negative", "column": col}}),
+                       _fix(f"Empty the negative '{col}' values",
+                            {"op": "clear_matching", "column": col, "filter": {"kind": "negative", "column": col}})],
             )
         q1, q3 = values.quantile(0.25), values.quantile(0.75)
         iqr = q3 - q1
@@ -487,6 +491,7 @@ class ReviewAgent:
         share = len(extreme) / len(values)
         if not len(extreme) or share > OUTLIER_MAX_SHARE:
             return None
+        extreme_rows = {"kind": "outlier", "column": col, "low": float(low), "high": float(high)}
         largest_first = extreme.iloc[extreme.abs().argsort()[::-1]]
         examples = list(dict.fromkeys(_num(v) for v in largest_first))[:5]
         return _issue(
@@ -498,6 +503,9 @@ class ReviewAgent:
             f"A few extreme values dominate sums and averages of '{col}' and can skew charts and models.",
             f"Check the listed values in the source. Correct errors, or confirm they are genuine.",
             column=col, evidence={"extreme": len(extreme), "q1": float(q1), "q3": float(q3), "examples": examples},
+            rows=extreme_rows,
+            fixes=[_fix("Delete these rows", {"op": "delete_matching", "filter": extreme_rows}),
+                   _fix(f"Empty the extreme '{col}' values", {"op": "clear_matching", "column": col, "filter": extreme_rows})],
         )
 
     def _duplicates(self, raw) -> Optional[dict]:
@@ -515,4 +523,6 @@ class ReviewAgent:
             "Check with the data owner whether identical rows can be legitimate. If so, add a distinguishing column (e.g. a "
             "transaction id) to the export; if not, fix the export.",
             evidence={"duplicates": dups, "rows": len(raw)},
+            rows={"kind": "duplicate"},
+            fixes=[_fix("Remove the duplicate rows from the file", {"op": "drop_duplicates"})],
         )
