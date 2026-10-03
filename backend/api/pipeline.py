@@ -410,6 +410,7 @@ def recover_stale_runs(db: Session) -> int:
         PipelineLog.status == "Running",
         PipelineLog.start_time < now - timedelta(seconds=STALE_PIPELINE_SECONDS)
     ).all()
+    interrupted = []
     for run in stale_runs:
         run.status = "Failed"
         run.end_time = now
@@ -418,9 +419,15 @@ def recover_stale_runs(db: Session) -> int:
         if pipeline_state_exists(run.pipeline_id):
             update_pipeline_overall_status(run.pipeline_id, "Failed", None,
                                            error="The run was interrupted (the server stopped while it was running). Run it again.")
+            interrupted.append(run.pipeline_id[5:])
     if stale_runs:
         db.commit()
         logger.warning(f"Marked {len(stale_runs)} interrupted run(s) as failed")
+    # Reviewed after the commit: the Review Agent writes through its own session
+    from backend.database.models import RawUpload
+    for batch_id in interrupted:
+        upload = db.query(RawUpload).filter(RawUpload.batch_id == batch_id).first()
+        _run_review(batch_id, _existing_raw_path(upload.uploaded_by, upload.filename) if upload else None)
     return len(stale_runs)
 
 
