@@ -200,15 +200,22 @@ def _review_log_lines(review: Optional[dict]) -> list:
     if not review:
         return []
     issues = review.get("issues") or []
+    lines = []
+    edits = review.get("human_edits") or []
+    if edits:
+        lines.append("--- CHANGES MADE IN HUMAN REVIEW BEFORE THIS RUN ---")
+        for edit in edits:
+            for change in edit.get("changes") or []:
+                lines.append(f"  * [{edit.get('at', '')[:16].replace('T', ' ')} UTC] {edit.get('by') or '-'}: {change}")
+        lines.append("")
     if not issues:
-        return ["--- HUMAN REVIEW ---", "  No problems that need a human decision.", ""]
-    headline = ("THIS FILE WAS NOT PROCESSED" if review.get("kind") == "not_processed"
-                else "PROCESSED, BUT A HUMAN DECISION IS NEEDED")
-    lines = [
-        "!" * 78,
-        f"HUMAN REVIEW REQUIRED: {headline} ({len(issues)} issue{'s' if len(issues) != 1 else ''})",
-        "!" * 78,
-    ]
+        return lines + ["--- HUMAN REVIEW ---", "  No problems found.", ""]
+    if review.get("required"):
+        headline = ("THIS FILE WAS NOT PROCESSED" if review.get("kind") == "not_processed"
+                    else "PROCESSED, BUT A HUMAN DECISION IS NEEDED")
+        lines += ["!" * 78, f"HUMAN REVIEW REQUIRED: {headline} ({len(issues)} issue{'s' if len(issues) != 1 else ''})", "!" * 78]
+    else:
+        lines += ["--- REVIEW NOTES (no human decision needed; the file was not sent to Human Review) ---"]
     for n, issue in enumerate(issues, 1):
         column = f" | column: {issue['column']}" if issue.get("column") else ""
         lines += [
