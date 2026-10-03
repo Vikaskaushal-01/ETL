@@ -421,6 +421,38 @@
                         </div>
                     </div>
 
+                    <!-- Human Review View: runs the Review Agent handed to a person -->
+                    <div id="review-view" class="app-view page-view">
+                        <div class="page-toolbar">
+                            <div class="search-bar">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="review-search" placeholder="Search by file, batch, column or problem...">
+                            </div>
+                            <div class="segmented" role="tablist" aria-label="Review status">
+                                <button class="segmented-btn active" data-review-status="open" role="tab" aria-selected="true">Open</button>
+                                <button class="segmented-btn" data-review-status="resolved" role="tab" aria-selected="false">Resolved</button>
+                                <button class="segmented-btn" data-review-status="dismissed" role="tab" aria-selected="false">Dismissed</button>
+                                <button class="segmented-btn" data-review-status="all" role="tab" aria-selected="false">All</button>
+                            </div>
+                            <select id="review-category-filter" class="page-select" aria-label="Problem type">
+                                <option value="all">All problem types</option>
+                                <option value="Pipeline failure">Pipeline failure</option>
+                                <option value="File">File</option>
+                                <option value="Validation">Validation (rejected rows)</option>
+                                <option value="Missing values">Missing values</option>
+                                <option value="Bias risk">Bias risk</option>
+                                <option value="Data types">Data types</option>
+                                <option value="Outliers">Outliers</option>
+                                <option value="Duplicates">Duplicates</option>
+                            </select>
+                            <button class="btn-refresh-table" id="btn-refresh-review"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                        </div>
+                        <div class="kpi-grid" id="review-kpis"></div>
+                        <div class="review-list" id="review-list">
+                            <p class="text-secondary">Loading the review queue...</p>
+                        </div>
+                    </div>
+
                     <!-- History View: every batch with its real run results -->
                     <div id="history-view" class="app-view page-view">
                         <div class="page-toolbar">
