@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### 🚀 Added
+- **Human Review**: a new **Review Agent** checks every finished, failed or interrupted run and hands it to a person when the AI should not decide alone. Each problem says what happened, why it matters for the data (for example how filling missing values shifts averages or biases results toward some groups) and what to do. Checks: crashed or empty files, nothing loaded, rejected rows, heavily filled columns, missing values concentrated in one group (bias risk), filling that moves a column's average or shrinks its spread, a placeholder like "Unknown" taking over a column, text in numeric columns, unreadable dates, extreme or negative values, and a high share of duplicates.
+- A **Human Review** page (sidebar, `G` then `R`) lists flagged files as "Not processed" or "Needs decision", with filters by status and problem type, re-run, and resolve / accept-as-is with a note. The dashboard shows the most urgent items, the sidebar shows the open count, and History and Run details link to them.
+- The process log of a flagged run ends with a **HUMAN REVIEW REQUIRED** section listing every problem; run notifications mention open reviews.
+- API: `GET /review`, `GET /review/{batch_id}`, `POST /review/{batch_id}` (`resolve`, `dismiss`, `reopen`).
+
+---
+
 ## [2.6.0] - 2026-09-27
 
 ### 🚀 Added

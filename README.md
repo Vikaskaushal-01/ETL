@@ -83,6 +83,8 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | **Schedules** | `/api/v1/schedules` | `GET`/`POST` | List / create schedules: a public dataset URL ingested and run every N minutes by the server |
 | | `/api/v1/schedules/{id}` | `PATCH`/`DELETE` | Rename, change interval, pause / resume, or delete a schedule |
 | | `/api/v1/schedules/{id}/run` | `POST` | Run a schedule now |
+| **Human Review** | `/api/v1/review?status=open\|resolved\|dismissed\|all` | `GET` | Runs the Review Agent flagged for a person, with every problem and counts per status, kind and severity |
+| | `/api/v1/review/{batch_id}` | `GET`/`POST` | One flagged run / resolve, dismiss (accept as it is) or reopen it with a note |
 | **Dashboard Analytics**| `/api/v1/dashboard/summary` | `GET` | KPIs: rows processed, success rate, quality, recent runs |
 | | `/api/v1/dashboard/metrics` | `GET` | Run telemetry: totals, availability, latency |
 | | `/api/v1/dashboard/trends?days=14` | `GET` | Runs per day (succeeded / failed), average runtime and quality |
@@ -96,6 +98,21 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | **Power BI Integration**| `/api/v1/powerbi/status` · `/schema` · `/measures` | `GET` | Connector status, per-table row counts, star schema and DAX measures |
 | | `/api/v1/powerbi/refresh` | `POST` | Export the star schema (FactSales, FactOrders, DimCustomer, ...) as CSV files for Power BI Desktop |
 | **System Diagnostics**| `/api/v1/health` | `GET` | Health check (database connectivity) |
+
+### 🧑‍💻 Human Review
+After every run (including crashed and interrupted ones) the **Review Agent** re-reads the raw and cleaned data and flags what a person should decide, instead of trusting the automatic cleaning silently:
+
+| Problem type | Flagged when |
+| :--- | :--- |
+| Pipeline failure / File | The run crashed (with a plain-language reading of the error) or the file has no rows |
+| Validation | No row could be loaded, or some rows were rejected (high from 10%) |
+| Missing values | 10%+ of a column was filled (high from 40%), a column is entirely empty, filling moved the average 10%+ or shrank the spread 20%+, or a placeholder such as "Unknown" became 20%+ / the most common value |
+| Bias risk | Missing values are concentrated in one group of another column (e.g. 74% of `region = South` rows lack `income` vs 6% elsewhere), so any single fill value biases the data |
+| Data types | Text in a mostly numeric column, or values in a date column that do not parse |
+| Outliers | Values beyond 3 IQR of the quartiles, or negative prices / quantities / amounts |
+| Duplicates | 10%+ of the rows were exact duplicates |
+
+A run with a critical problem is **Not processed**; any other problem makes it **Needs decision**. The problems appear on the Human Review page and at the end of the run's process log; re-running a file re-checks it and closes its review when it passes. The checks are computed from the data, so they work without an LLM.
 
 ### ✅ Validation Rules Applied During Load
 - Rows missing a primary key, duplicating a primary key within the batch, missing `customer_name` (customers), or holding non-numeric quantities/prices or unparseable dates are **rejected individually** with a reason; the rest of the batch still loads. Rejections feed the Root Cause Analysis reports.
@@ -122,7 +139,7 @@ ETL-A/
 │   ├── database/         # SQLAlchemy MySQL & SQLite models, repositories, and connections
 │   ├── schemas/          # Pydantic data structures & API schemas
 │   └── utils/            # File readers, report writers, data insights/RCA, flowchart, account paths
-├── agents/               # 4 agents: Intake, Transformation, Storage (validation + load), Report
+├── agents/               # 5 agents: Intake, Transformation, Storage (validation + load), Report, Review (human hand-off)
 ├── agents_graph/         # LangGraph state machine, execution graph nodes, and edges
 ├── snaplogic/            # SnapLogic pipeline definition (`snaplogic_pipeline.json`)
 ├── docker/               # `docker-compose.yml`, `Dockerfile.backend`, `entrypoint.sh`
