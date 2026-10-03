@@ -326,6 +326,17 @@
                             </div>
                         </div>
 
+                        <div class="dash-panel review-dash-panel" id="dash-review-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-user-shield"></i> Needs Human Review <span class="nav-count" id="dash-review-count" hidden></span></h3>
+                                <button class="btn-refresh-table" data-quick="review"><i class="fa-solid fa-arrow-right"></i> Open review queue</button>
+                            </div>
+                            <p class="text-secondary panel-hint review-panel-hint">Files the AI could not process, or processed using choices a person should confirm: heavy filling of missing values, bias risk, rejected rows, unreadable values.</p>
+                            <div class="review-mini-list" id="dash-review-list">
+                                <div class="skeleton-line"></div><div class="skeleton-line"></div>
+                            </div>
+                        </div>
+
                         <div class="dash-grid-2">
                             <div class="dash-panel">
                                 <div class="dash-panel-head">
