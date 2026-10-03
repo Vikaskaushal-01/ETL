@@ -500,6 +500,7 @@ window.openShortcuts = function() {
         ['G', 'P', 'Go to Pipeline'],
         ['G', 'H', 'Go to History'],
         ['G', 'S', 'Go to Schedules'],
+        ['G', 'R', 'Go to Human Review'],
         ['N', null, 'New pipeline run (pick files)'],
         ['T', null, 'Toggle light / dark theme'],
         ['Esc', null, 'Close dialogs and panels']
