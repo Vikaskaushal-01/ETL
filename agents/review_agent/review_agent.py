@@ -47,6 +47,8 @@ MIXED_TYPE_MIN_NUMERIC = 0.5
 MAX_COLUMNS_CHECKED = 60
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2}
+# Only these send a run to Human Review; medium problems are written to the process log as notes
+REVIEW_SEVERITIES = ("critical", "high")
 # Within a severity, problems that affect the whole run or bias the data come first
 CATEGORY_ORDER = ["Pipeline failure", "File", "Validation", "Bias risk", "Missing values", "Data types", "Outliers", "Duplicates"]
 NULL_TOKENS = {"", "nan", "none", "null", "n/a", "na", "-"}
@@ -178,9 +180,10 @@ class ReviewAgent:
 
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
+        required = any(i["severity"] in REVIEW_SEVERITIES for i in issues)
         return {
-            "required": bool(issues),
-            "kind": "not_processed" if any(i["severity"] == "critical" for i in issues) else ("needs_decision" if issues else "clear"),
+            "required": required,
+            "kind": "not_processed" if any(i["severity"] == "critical" for i in issues) else ("needs_decision" if required else "clear"),
             "severity": issues[0]["severity"] if issues else None,
             "issues": issues,
             "execution_time": time.time() - start,
@@ -315,7 +318,7 @@ class ReviewAgent:
 
         if share < MISSING_MEDIUM and not distorted:
             return None
-        severity = "high" if share >= MISSING_HIGH or distorted else "medium"
+        severity = "high" if share >= MISSING_HIGH or (distorted and share >= MISSING_MEDIUM) else "medium"
         problem = (f"{nulls:,} of {len(raw):,} values ({_pct(share)}) were missing. The agent filled them with '{fill}' "
                    f"({step.get('reason', 'default fill')}).")
         if effects:

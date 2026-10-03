@@ -25,9 +25,9 @@ STAGE_NAMES = {"intake": "intake", "transformation": "cleaning", "storage": "sto
 
 def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dict] = None, error: Optional[str] = None) -> Optional[dict]:
     """
-    Runs the Review Agent on a finished (or crashed) run, records the result in the run state (so the
-    process log lists every problem) and in the review queue. A re-run that passes every check closes
-    the open review item of its batch.
+    Runs the Review Agent on a finished (or crashed) run and records the result in the run state, so
+    the process log lists every problem. Only runs with a critical or high problem go to the review
+    queue; a re-run without one closes the open review item of its batch.
     """
     from agents.review_agent.review_agent import ReviewAgent
     from backend.database.repository import log_agent_decision
@@ -59,7 +59,7 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
         item = db.query(ReviewItem).filter(ReviewItem.batch_id == batch_id).first()
         issues = review["issues"]
         now = datetime.utcnow()
-        if issues:
+        if review["required"]:
             if not item:
                 item = ReviewItem(batch_id=batch_id)
                 db.add(item)
@@ -82,11 +82,17 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
             item.resolved_by = agent.name
             item.resolved_at = now
             item.updated_at = now
-            item.note = f"Re-run on {now:%Y-%m-%d %H:%M} UTC passed every check."
+            item.note = (f"Re-run on {now:%Y-%m-%d %H:%M} UTC no longer needs a human decision"
+                         + (f" ({len(issues)} minor note(s) are in the process log)." if issues else "."))
         db.commit()
 
-        reasoning = (f"Flagged {len(issues)} issue(s) for human review ({review['kind'].replace('_', ' ')}): "
-                     + "; ".join(i["title"] for i in issues[:5])) if issues else "No problems that need a human decision."
+        if review["required"]:
+            reasoning = (f"Sent to Human Review ({review['kind'].replace('_', ' ')}), {len(issues)} issue(s): "
+                         + "; ".join(i["title"] for i in issues[:5]))
+        elif issues:
+            reasoning = f"No human decision needed; {len(issues)} minor note(s) written to the process log."
+        else:
+            reasoning = "No problems found."
         log_agent_decision(db, batch_id=batch_id, agent_name=agent.name, task="Decide whether the run needs a human",
                            reasoning=reasoning, confidence=100.0, execution_time=review["execution_time"])
     finally:
