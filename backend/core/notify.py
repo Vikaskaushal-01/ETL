@@ -43,6 +43,9 @@ def build_message(run: dict) -> str:
     message = " · ".join(parts)
     if run.get("error"):
         message += f"\nError: {run['error']}"
+    review = run.get("review") or {}
+    if review.get("status") == "open":
+        message += f"\nNeeds human review: {review.get('issues')} issue(s), highest severity {review.get('severity')}"
     if APP_BASE_URL:
         message += f"\n{APP_BASE_URL}/"
     return message
@@ -69,7 +72,7 @@ def notify_run_finished(batch_id: str) -> None:
         if not runs:
             return
         run = {k: runs[0].get(k) for k in ("batch_id", "filename", "status", "rows", "rows_loaded", "rows_rejected",
-                                            "quality_before", "quality_after", "execution_time", "error")}
+                                            "quality_before", "quality_after", "execution_time", "error", "review")}
         if (user.notify_on or "all") == "failures" and run["status"] != "Failed":
             return
         url = user.webhook_url
