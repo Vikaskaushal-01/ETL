@@ -112,7 +112,7 @@ function renderHistoryTable() {
                 <td><button class="link-btn run-name" onclick="openRunDetails('${r.batch_id}')" title="Run details">${escapeHtml(r.filename || '-')}</button><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
                 <td><code>${r.batch_id}</code></td>
                 <td>${fmtDateTime(r.uploaded_at)}</td>
-                <td>${statusBadge(r.status)}${r.error ? `<div class="text-red cell-sub" title="${escapeHtml(r.error)}">${escapeHtml(r.error.slice(0, 60))}</div>` : ''}</td>
+                <td>${statusBadge(r.status)}${r.review && r.review.status === 'open' ? ` <button class="review-flag ${r.review.kind === 'not_processed' ? 'critical' : ''}" onclick="openReviewFor('${r.batch_id}')" title="Open in Human Review"><i class="fa-solid fa-user-shield"></i> Review ${r.review.issues}</button>` : ''}${r.error ? `<div class="text-red cell-sub" title="${escapeHtml(r.error)}">${escapeHtml(r.error.slice(0, 60))}</div>` : ''}</td>
                 <td>${rows}</td>
                 <td>${quality}</td>
                 <td>${r.execution_time != null ? r.execution_time.toFixed(1) + 's' : '-'}</td>
