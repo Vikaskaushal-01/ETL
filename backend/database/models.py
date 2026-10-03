@@ -249,6 +249,7 @@ class ReviewItem(Base):
     issue_count = Column(Integer, default=0)
     issues_json = Column(Text)
     note = Column(Text, nullable=True)
+    edits_json = Column(Text, nullable=True)  # changes reviewers made to the file in the data editor
     resolved_by = Column(String(255), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

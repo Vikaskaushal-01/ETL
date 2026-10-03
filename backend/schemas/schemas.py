@@ -48,3 +48,7 @@ class DashboardSummary(BaseModel):
 class ReviewDecisionRequest(BaseModel):
     action: str = Field(..., pattern="^(resolve|dismiss|reopen)$")
     note: Optional[str] = Field(None, max_length=4000)
+
+class DataEditRequest(BaseModel):
+    version: str
+    ops: List[Dict[str, Any]] = Field(..., min_length=1, max_length=200)

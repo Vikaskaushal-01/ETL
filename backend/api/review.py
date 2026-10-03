@@ -1,9 +1,12 @@
 """
-Human Review queue: runs the Review Agent flagged because a person has to decide something
-(the file was not processed, or the automatic cleaning changed what the data says).
+Human Review queue: runs the Review Agent sends to a person because the file was not processed or a
+problem needs a human decision, plus a data editor where the reviewer corrects the uploaded file
+(by hand or with the agent's suggested fixes) before running it through the pipeline again.
 """
 import json
 import logging
+import os
+import shutil
 from datetime import datetime
 from typing import Optional
 
@@ -15,12 +18,22 @@ from backend.api.pipeline import (
 )
 from backend.database.models import PipelineLog, RawUpload, ReviewItem
 from backend.database.mysql import SessionLocal, get_db
-from backend.schemas.schemas import ReviewDecisionRequest
+from backend.schemas.schemas import DataEditRequest, ReviewDecisionRequest
+from backend.utils import data_editor
+from backend.utils.account_utils import get_user_path
 
 router = APIRouter(prefix="/review", tags=["Human Review"])
 logger = logging.getLogger("etl_review_api")
 
 STAGE_NAMES = {"intake": "intake", "transformation": "cleaning", "storage": "storage and load", "report": "reporting", "pbi": "Power BI export"}
+MAX_PAGE_ROWS = 500
+
+
+def _load_json(text: Optional[str]) -> list:
+    try:
+        return json.loads(text or "[]")
+    except json.JSONDecodeError:
+        return []
 
 
 def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dict] = None, error: Optional[str] = None) -> Optional[dict]:
@@ -101,10 +114,6 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
 
 
 def _serialize(item: ReviewItem, run_status: Optional[str], uploaded_at, raw_file: Optional[str]) -> dict:
-    try:
-        issues = json.loads(item.issues_json or "[]")
-    except json.JSONDecodeError:
-        issues = []
     flagged_at = item.updated_at or item.created_at
     return {
         "batch_id": item.batch_id,
@@ -114,7 +123,8 @@ def _serialize(item: ReviewItem, run_status: Optional[str], uploaded_at, raw_fil
         "kind": item.kind,
         "severity": item.severity,
         "issue_count": item.issue_count,
-        "issues": issues,
+        "issues": _load_json(item.issues_json),
+        "edits": _load_json(item.edits_json),
         "note": item.note,
         "resolved_by": item.resolved_by,
         "resolved_at": item.resolved_at.isoformat() if item.resolved_at else None,
@@ -122,6 +132,7 @@ def _serialize(item: ReviewItem, run_status: Optional[str], uploaded_at, raw_fil
         "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
         "run_status": run_status,
         "raw_file": raw_file,
+        "editable": data_editor.is_editable(raw_file),
     }
 
 
@@ -196,3 +207,110 @@ def decide_review_item(batch_id: str, req: ReviewDecisionRequest, db: Session = 
     db.commit()
     logger.info(f"Review item {batch_id} set to {item.status} by {x_user_email}")
     return _items(db, x_user_email, [batch_id])[0]
+
+
+# ---------- Data editor ----------
+
+def _original_path(owner: Optional[str], batch_id: str, filename: str) -> str:
+    """Copy of the uploaded file taken before its first edit, so the reviewer can go back to it."""
+    return get_user_path(owner, f"data/originals/{batch_id}_{filename}")
+
+
+def _editable(db: Session, batch_id: str, email: Optional[str]) -> tuple:
+    _require_batch_access(db, batch_id, email)
+    item = db.query(ReviewItem).filter(ReviewItem.batch_id == batch_id).first()
+    upload = db.query(RawUpload).filter(RawUpload.batch_id == batch_id).first()
+    if not item or not upload:
+        raise HTTPException(status_code=404, detail="Only files in Human Review can be edited here.")
+    path = _existing_raw_path(upload.uploaded_by, upload.filename)
+    if not path:
+        raise HTTPException(status_code=404, detail="The uploaded file is no longer on disk. Upload it again.")
+    return item, upload, path
+
+
+def _refuse_while_running(db: Session, batch_id: str):
+    if db.query(PipelineLog.status).filter(PipelineLog.pipeline_id == f"pipe_{batch_id}").scalar() == "Running":
+        raise HTTPException(status_code=409, detail="The file is being processed right now. Edit it when the run has finished.")
+
+
+def _load(path: str):
+    try:
+        return data_editor.load(path)
+    except data_editor.EditError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/{batch_id}/data")
+def get_review_data(batch_id: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=MAX_PAGE_ROWS),
+                    filter: Optional[str] = None, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """A page of the uploaded file's rows (optionally only those a problem refers to) with per-column counts."""
+    item, upload, path = _editable(db, batch_id, x_user_email)
+    df = _load(path)
+    try:
+        flt = json.loads(filter) if filter else None
+        mask = data_editor.match_rows(df, flt)
+    except (json.JSONDecodeError, KeyError, TypeError, data_editor.EditError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid row filter: {e}")
+    matched = df[mask]
+    page = matched.iloc[offset:offset + limit]
+    return {
+        "batch_id": batch_id,
+        "filename": upload.filename,
+        "format": data_editor.file_kind(path),
+        "version": data_editor.file_version(path),
+        "columns": list(df.columns),
+        "column_stats": data_editor.column_stats(df),
+        "total": len(df),
+        "matched": int(mask.sum()),
+        "offset": offset,
+        "limit": limit,
+        "filter": flt,
+        "filter_label": data_editor.describe_filter(flt),
+        "rows": [{"row": int(i), "values": [str(v) for v in values]} for i, values in zip(page.index, page.values.tolist())],
+        "has_original": os.path.isfile(_original_path(upload.uploaded_by, batch_id, upload.filename)),
+        "edits": _load_json(item.edits_json),
+    }
+
+
+@router.post("/{batch_id}/data")
+def edit_review_data(batch_id: str, req: DataEditRequest, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Applies the reviewer's edits to the uploaded file (a copy of the original is kept) and records them."""
+    item, upload, path = _editable(db, batch_id, x_user_email)
+    _refuse_while_running(db, batch_id)
+    if req.version != data_editor.file_version(path):
+        raise HTTPException(status_code=409, detail="The file changed since you opened it. Reload the data and make your change again.")
+    df = _load(path)
+    try:
+        df, summaries = data_editor.apply_ops(df, req.ops)
+    except (data_editor.EditError, KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not summaries:
+        raise HTTPException(status_code=400, detail="There was nothing to change.")
+    original = _original_path(upload.uploaded_by, batch_id, upload.filename)
+    if not os.path.isfile(original):
+        shutil.copy2(path, original)
+    data_editor.save(df, path)
+
+    edits = _load_json(item.edits_json)
+    edits.append({"at": datetime.utcnow().isoformat(), "by": x_user_email, "changes": summaries})
+    item.edits_json = json.dumps(edits)
+    db.commit()
+    logger.info(f"{x_user_email} edited {upload.filename} ({batch_id}): {'; '.join(summaries)}")
+    return {"version": data_editor.file_version(path), "total": len(df), "changes": summaries, "edits": edits}
+
+
+@router.post("/{batch_id}/data/revert")
+def revert_review_data(batch_id: str, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Puts the file back as it was uploaded, before any edit."""
+    item, upload, path = _editable(db, batch_id, x_user_email)
+    _refuse_while_running(db, batch_id)
+    original = _original_path(upload.uploaded_by, batch_id, upload.filename)
+    if not os.path.isfile(original):
+        raise HTTPException(status_code=404, detail="The file has not been edited, so there is nothing to undo.")
+    shutil.copy2(original, path)
+    os.remove(original)
+    edits = _load_json(item.edits_json)
+    edits.append({"at": datetime.utcnow().isoformat(), "by": x_user_email, "changes": ["Restored the file as it was uploaded"]})
+    item.edits_json = json.dumps(edits)
+    db.commit()
+    return {"version": data_editor.file_version(path), "edits": edits}
