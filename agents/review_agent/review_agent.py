@@ -160,7 +160,7 @@ class ReviewAgent:
             history = transformation_history or []
             columns = list(raw.columns)[:MAX_COLUMNS_CHECKED]
             for col in columns:
-                for check in (self._missing_values,):
+                for check in (self._missing_values, self._mixed_types):
                     try:
                         found = check(raw, clean, col, history)
                     except Exception as e:  # one odd column must not stop the other checks
@@ -362,3 +362,29 @@ class ReviewAgent:
                                           "other_missing_share": round(rest_rate, 4), "group_rows": size},
                 ))
         return issues
+
+    def _mixed_types(self, raw, clean, col, history) -> Optional[dict]:
+        if not _is_text(raw[col]):
+            return None
+        values = raw[col].dropna().astype(str).str.strip()
+        if len(values) < 5:
+            return None
+        numeric = pd.to_numeric(values.str.replace(",", "", regex=False), errors="coerce")
+        share = float(numeric.notna().mean())
+        if not (MIXED_TYPE_MIN_NUMERIC <= share < 1.0):
+            return None
+        bad = values[numeric.isna()]
+        examples = list(dict.fromkeys(bad.tolist()))[:5]
+        coerced = clean is not None and col in clean.columns and pd.api.types.is_numeric_dtype(clean[col])
+        return _issue(
+            "mixed_types", "high" if coerced else "medium", "Data types",
+            f"{len(bad):,} values in '{col}' are not numbers",
+            f"'{col}' is {_pct(share)} numeric, but {len(bad):,} value(s) are text, e.g. {', '.join(repr(e) for e in examples)}."
+            + (" The agent converted them to numbers and filled them as if they were missing." if coerced else
+               " The agent kept the column as text so nothing was lost."),
+            ("The original entries were replaced by a default, so real information (a typo of a real amount, a unit like '12kg') "
+             "was thrown away." if coerced else
+             "Because the column is stored as text, sums, averages and sorting on it do not work as numbers."),
+            f"Correct the listed values in the source (or decide what they mean, e.g. 'N/A' = missing) and re-run.",
+            column=col, evidence={"non_numeric": len(bad), "numeric_share": round(share, 4), "examples": examples},
+        )
