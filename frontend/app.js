@@ -112,7 +112,8 @@ function initAppShell() {
         'storage-view': { title: 'Storage', crumb: 'Raw uploads, cleaned data, reports, logs & exports' },
         'powerbi-view': { title: 'Power BI', crumb: 'Star-schema dataset exports & DAX measures' },
         'schedules-view': { title: 'Schedules', crumb: 'Ingest a URL automatically on an interval' },
-        'review-view': { title: 'Human Review', crumb: 'Files the AI could not process or that need a human decision' }
+        'review-view': { title: 'Human Review', crumb: 'Files the AI could not process or that need a human decision' },
+        'review-editor-view': { title: 'Fix data', crumb: 'Correct the file, then run it through the pipeline again' }
     };
     const viewLoaders = {
         'history-view': () => window.loadHistoryView && window.loadHistoryView(),
