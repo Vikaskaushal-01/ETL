@@ -172,6 +172,9 @@ class ReviewAgent:
                 issues.extend(self._missing_not_at_random(raw, columns))
             except Exception as e:
                 logger.warning(f"Missing-not-at-random check failed: {e}")
+            dup = self._duplicates(raw)
+            if dup:
+                issues.append(dup)
 
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
@@ -450,4 +453,21 @@ class ReviewAgent:
             f"A few extreme values dominate sums and averages of '{col}' and can skew charts and models.",
             f"Check the listed values in the source. Correct errors, or confirm they are genuine.",
             column=col, evidence={"extreme": len(extreme), "q1": float(q1), "q3": float(q3), "examples": examples},
+        )
+
+    def _duplicates(self, raw) -> Optional[dict]:
+        dups = int(raw.duplicated().sum())
+        share = dups / len(raw) if len(raw) else 0
+        if share < DUPLICATE_RATE:
+            return None
+        return _issue(
+            "many_duplicates", "medium", "Duplicates",
+            f"{dups:,} duplicate rows ({_pct(share)}) were removed",
+            f"{_pct(share)} of the rows were exact copies of another row, and the agent removed them. A share this high often means "
+            "the file was exported or appended twice, but it can also be real repeated records (two identical purchases).",
+            "If the duplicates were genuine, removing them understates counts and totals; if they were not, the source system "
+            "is producing duplicate exports that will recur.",
+            "Check with the data owner whether identical rows can be legitimate. If so, add a distinguishing column (e.g. a "
+            "transaction id) to the export; if not, fix the export.",
+            evidence={"duplicates": dups, "rows": len(raw)},
         )
