@@ -64,12 +64,15 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
         failed_stage=failed_stage,
     )
     review["checked_at"] = datetime.utcnow().isoformat()
-    set_pipeline_review(pipeline_id, review)
 
     db = SessionLocal()
     try:
         upload = db.query(RawUpload).filter(RawUpload.batch_id == batch_id).first()
         item = db.query(ReviewItem).filter(ReviewItem.batch_id == batch_id).first()
+        # Edits made in the data editor before this run are written to its process log
+        review["human_edits"] = _load_json(item.edits_json) if item else []
+        set_pipeline_review(pipeline_id, review)
+
         issues = review["issues"]
         now = datetime.utcnow()
         if review["required"]:
