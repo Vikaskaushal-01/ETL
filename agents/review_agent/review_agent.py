@@ -379,6 +379,8 @@ class ReviewAgent:
                     best = (gap, g, hi, float(stats.loc[hi, "mean"]), float(rest), int(stats.loc[hi, "size"]))
             if best:
                 gap, g, group, rate, rest_rate, size = best
+                numeric = pd.to_numeric(raw[col], errors="coerce").notna().sum() >= 0.8 * raw[col].notna().sum()
+                group_rows = {"kind": "missing", "column": col, "group_column": g, "group": str(group)}
                 issues.append(_issue(
                     "missing_not_at_random", "high", "Bias risk",
                     f"Missing '{col}' values are concentrated in {g} = '{group}'",
@@ -391,6 +393,12 @@ class ReviewAgent:
                     f"collect the values, or exclude '{col}' from comparisons across {g}.",
                     column=col, evidence={"group_column": g, "group": str(group), "group_missing_share": round(rate, 4),
                                           "other_missing_share": round(rest_rate, 4), "group_rows": size},
+                    rows=group_rows,
+                    fixes=[_fix(f"Fill empty '{col}' per {g} ({'median' if numeric else 'most common value'} of each group)",
+                                {"op": "fill_missing", "column": col, "strategy": "group_median" if numeric else "group_mode", "group_by": g}),
+                           _fix(f"Fill the '{group}' rows with a value I choose",
+                                {"op": "fill_missing", "column": col, "strategy": "value", "value": None, "filter": group_rows}, needs="value"),
+                           _fix(f"Remove column '{col}'", {"op": "drop_column", "column": col})],
                 ))
         return issues
 
