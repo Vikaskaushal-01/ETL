@@ -151,6 +151,24 @@ class ReviewAgent:
                 "Check that the export or download produced data, then upload the file again.",
             ))
 
+        if raw_df is not None and len(raw_df):
+            raw = _normalize_raw(raw_df)
+            clean = _read(clean_path)
+            if clean is not None:
+                clean = clean.copy()
+                clean.columns = [standardize_column_name(c) for c in clean.columns]
+            history = transformation_history or []
+            columns = list(raw.columns)[:MAX_COLUMNS_CHECKED]
+            for col in columns:
+                for check in (self._missing_values,):
+                    try:
+                        found = check(raw, clean, col, history)
+                    except Exception as e:  # one odd column must not stop the other checks
+                        logger.warning(f"Review check {check.__name__} failed on '{col}': {e}")
+                        found = None
+                    if found:
+                        issues.append(found)
+
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
         return {
@@ -216,3 +234,90 @@ class ReviewAgent:
             "Download the rejected rows, correct them in the source (or confirm they should be excluded) and re-run.",
             evidence=evidence,
         )]
+
+    # ---------- column-level problems ----------
+
+    def _missing_values(self, raw, clean, col, history) -> Optional[dict]:
+        nulls = int(raw[col].isna().sum())
+        if not nulls:
+            return None
+        share = nulls / len(raw)
+        step = _fill_applied(history, col)
+        fill = step.get("new_value") if step else None
+        evidence = {"missing": nulls, "rows": len(raw), "missing_share": round(share, 4), "filled_with": fill}
+
+        if share >= 0.999:
+            return _issue(
+                "column_empty", "high", "Missing values",
+                f"Column '{col}' is completely empty",
+                f"All {len(raw):,} values of '{col}' are missing."
+                + (f" The agent filled every one with '{fill}', so the column now holds no real information." if fill is not None else ""),
+                "Any analysis that uses this column is working with made-up values; the column looks valid but is not.",
+                f"Find out why the source does not send '{col}'. Drop the column, or get the values and re-run.",
+                column=col, evidence=evidence,
+            )
+
+        if fill is None:
+            # Keys and names are never guessed; leaving them empty usually makes the row fail validation
+            if share < MISSING_MEDIUM:
+                return None
+            return _issue(
+                "missing_unfilled", "high" if share >= MISSING_HIGH else "medium", "Missing values",
+                f"{nulls:,} rows ({_pct(share)}) have no '{col}'",
+                f"'{col}' looks like an identifier or name, so the agent cannot invent a value and left it empty.",
+                "Rows without it cannot be matched to other tables and may have been rejected; joins and per-entity counts will miss them.",
+                f"Supply the missing '{col}' values in the source, or confirm those rows should be dropped, then re-run.",
+                column=col, evidence=evidence,
+            )
+
+        effects, distorted = [], False
+        observed = pd.to_numeric(raw[col], errors="coerce").dropna()
+        is_numeric = len(observed) >= max(3, 0.8 * (len(raw) - nulls))
+        if is_numeric and clean is not None and col in clean.columns:
+            after = pd.to_numeric(clean[col], errors="coerce").dropna()
+            mean_b, mean_a = float(observed.mean()), float(after.mean()) if len(after) else float("nan")
+            std_b, std_a = float(observed.std()), float(after.std()) if len(after) > 1 else float("nan")
+            evidence.update(mean_before=mean_b, mean_after=mean_a, std_before=std_b, std_after=std_a)
+            if mean_b and np.isfinite(mean_a):
+                shift = (mean_a - mean_b) / abs(mean_b)
+                if abs(shift) >= MEAN_SHIFT:
+                    distorted = True
+                    effects.append(f"the average moved from {_num(mean_b)} to {_num(mean_a)} ({shift:+.0%})")
+            if std_b and np.isfinite(std_a):
+                shrink = 1 - std_a / std_b
+                if shrink >= STD_SHRINK:
+                    distorted = True
+                    effects.append(f"the spread (standard deviation) shrank by {shrink:.0%}, from {_num(std_b)} to {_num(std_a)}")
+            impact = ("Every missing value now has the same number, so the column looks more uniform than it really is: "
+                      "variance and correlations are understated and rows with real values carry less weight in comparisons.")
+            if str(fill) in ("0", "0.0"):
+                impact = ("Filling with 0 makes missing readings look like real zeros: sums, averages and minimums are pulled down "
+                          "and a model would learn that zero is common.")
+        elif clean is not None and col in clean.columns:
+            filled_share = float((clean[col].astype(str) == str(fill)).mean())
+            top_value = clean[col].astype(str).value_counts().index[0] if len(clean) else None
+            evidence.update(placeholder_share=round(filled_share, 4))
+            if filled_share >= PLACEHOLDER_SHARE or top_value == str(fill):
+                distorted = True
+                effects.append(f"'{fill}' is now {_pct(filled_share)} of the column"
+                               + (" and its most common value" if top_value == str(fill) else ""))
+            impact = (f"'{fill}' becomes a category of its own: group counts and shares are distorted and charts by '{col}' "
+                      f"show a large '{fill}' bar instead of the real breakdown.")
+        else:
+            impact = "The filled values are estimates, not observations; results that use this column are partly invented."
+
+        if share < MISSING_MEDIUM and not distorted:
+            return None
+        severity = "high" if share >= MISSING_HIGH or distorted else "medium"
+        problem = (f"{nulls:,} of {len(raw):,} values ({_pct(share)}) were missing. The agent filled them with '{fill}' "
+                   f"({step.get('reason', 'default fill')}).")
+        if effects:
+            problem += " As a result " + "; ".join(effects) + "."
+        return _issue(
+            "missing_imputed", severity, "Missing values",
+            f"{_pct(share)} of '{col}' was missing and filled with '{fill}'",
+            problem, impact,
+            f"Decide how '{col}' should be handled: collect the missing values, fill them per group instead of one value for all, "
+            f"mark them as unknown and exclude them from averages, or drop the column. Then re-run.",
+            column=col, evidence=evidence,
+        )
