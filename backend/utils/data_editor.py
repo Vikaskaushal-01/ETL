@@ -163,6 +163,120 @@ def column_stats(df: pd.DataFrame) -> list:
     return stats
 
 
+# ---------- applying edits ----------
+
+def _fill_value(df: pd.DataFrame, col: str, strategy: str, missing: pd.Series, value=None, group_by: Optional[str] = None) -> pd.Series:
+    observed = df.loc[~missing, col]
+    if strategy == "value":
+        if value is None or str(value).strip() == "":
+            raise EditError("Enter the value to fill the empty cells with.")
+        return pd.Series(str(value), index=df.index)
+    if strategy in ("mean", "median"):
+        nums = _numbers(observed).dropna()
+        if nums.empty:
+            raise EditError(f"'{col}' has no numbers to take the {strategy} of.")
+        return pd.Series(_cell_text(round(float(getattr(nums, strategy)()), 4)), index=df.index)
+    if strategy == "mode":
+        if observed.empty:
+            raise EditError(f"'{col}' has no values to take the most common one of.")
+        return pd.Series(observed.astype(str).value_counts().index[0], index=df.index)
+    # Per group: each group's own median / most common value, the overall one where a group has none
+    group = df[resolve_column(df, group_by)].astype(str)
+    overall = _fill_value(df, col, "median" if strategy == "group_median" else "mode", missing)
+    fill = overall.copy()
+    for key, rows in df[~missing].groupby(group[~missing]):
+        if strategy == "group_median":
+            nums = _numbers(rows[col]).dropna()
+            if not nums.empty:
+                fill[group == key] = _cell_text(round(float(nums.median()), 4))
+        else:
+            fill[group == key] = rows[col].astype(str).value_counts().index[0]
+    return fill
+
+
+def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
+    """Applies edits in order; returns the new frame and one plain sentence per edit."""
+    summaries = []
+    for op in ops:
+        name = op.get("op")
+        if name == "set_cells":
+            changes = op.get("changes") or []
+            for change in changes:
+                row = int(change["row"])
+                if not 0 <= row < len(df):
+                    raise EditError(f"Row {row + 1} no longer exists. Reload the data and try again.")
+                df.at[row, resolve_column(df, change["column"])] = "" if change.get("value") is None else str(change["value"])
+            if changes:
+                cols = sorted({resolve_column(df, c["column"]) for c in changes})
+                summaries.append(f"Edited {len(changes)} cell(s) in {', '.join(repr(c) for c in cols[:4])}{' and more' if len(cols) > 4 else ''}")
+        elif name == "delete_rows":
+            rows = sorted({int(r) for r in op.get("rows") or [] if 0 <= int(r) < len(df)})
+            if rows:
+                df = df.drop(index=rows).reset_index(drop=True)
+                summaries.append(f"Deleted {len(rows)} row(s)")
+        elif name == "delete_matching":
+            mask = match_rows(df, op.get("filter"))
+            n = int(mask.sum())
+            df = df[~mask].reset_index(drop=True)
+            summaries.append(f"Deleted {n} row(s) {describe_filter(op.get('filter'))}")
+        elif name == "clear_matching":
+            col = resolve_column(df, op.get("column") or (op.get("filter") or {}).get("column"))
+            mask = match_rows(df, op.get("filter"))
+            df.loc[mask, col] = ""
+            summaries.append(f"Emptied {int(mask.sum())} cell(s) of '{col}' {describe_filter(op.get('filter'))}")
+        elif name == "fill_missing":
+            col = resolve_column(df, op.get("column"))
+            strategy = op.get("strategy")
+            if strategy not in FILL_STRATEGIES:
+                raise EditError(f"Unknown fill method '{strategy}'.")
+            missing = _missing(df[col])
+            if op.get("filter"):
+                missing = missing & match_rows(df, op["filter"])
+            fill = _fill_value(df, col, strategy, _missing(df[col]), op.get("value"), op.get("group_by"))
+            df.loc[missing, col] = fill[missing]
+            how = {"value": f"'{op.get('value')}'", "mean": "the average", "median": "the median", "mode": "the most common value",
+                   "group_median": f"the median of each '{op.get('group_by')}' group", "group_mode": f"the most common value of each '{op.get('group_by')}' group"}[strategy]
+            summaries.append(f"Filled {int(missing.sum())} empty cell(s) of '{col}' with {how}")
+        elif name == "replace_values":
+            col = resolve_column(df, op.get("column"))
+            find = str(op.get("find", "")).strip()
+            if op.get("replace") is None:
+                raise EditError(f"Enter what '{find}' should become.")
+            mask = df[col].astype(str).str.strip() == find
+            df.loc[mask, col] = str(op["replace"])
+            summaries.append(f"Replaced '{find}' with '{op['replace']}' in {int(mask.sum())} cell(s) of '{col}'")
+        elif name == "standardize_dates":
+            col = resolve_column(df, op.get("column"))
+            text = df[col].astype(str).str.strip().where(~_missing(df[col]))
+            # Year-first dates (2024-02-03) are unambiguous; only the others are read day- or month-first
+            year_first = text.str.match(r"^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}").fillna(False).astype(bool)
+            parsed = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+            for rows, dayfirst in ((year_first, False), (~year_first, bool(op.get("dayfirst")))):
+                if rows.any():
+                    parsed[rows] = pd.to_datetime(text[rows], errors="coerce", dayfirst=dayfirst, format="mixed")
+            ok = parsed.notna()
+            df.loc[ok, col] = parsed[ok].dt.strftime("%Y-%m-%d")
+            summaries.append(f"Rewrote {int(ok.sum())} date(s) in '{col}' as YYYY-MM-DD, reading them {'day' if op.get('dayfirst') else 'month'}-first")
+        elif name == "rename_column":
+            col = resolve_column(df, op.get("column"))
+            new = str(op.get("new_name") or "").strip()
+            if not new or new in df.columns:
+                raise EditError("Pick a new column name that is not already used.")
+            df = df.rename(columns={col: new})
+            summaries.append(f"Renamed column '{col}' to '{new}'")
+        elif name == "drop_column":
+            col = resolve_column(df, op.get("column"))
+            df = df.drop(columns=[col])
+            summaries.append(f"Removed column '{col}'")
+        elif name == "drop_duplicates":
+            before = len(df)
+            df = df.drop_duplicates().reset_index(drop=True)
+            summaries.append(f"Removed {before - len(df)} duplicate row(s)")
+        else:
+            raise EditError(f"Unknown edit '{name}'.")
+    return df, summaries
+
+
 def describe_filter(flt: Optional[dict]) -> str:
     if not flt:
         return ""
