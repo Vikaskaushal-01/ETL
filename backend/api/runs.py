@@ -267,7 +267,7 @@ def delete_run(batch_id: str, db: Session = Depends(get_db), x_user_email: Optio
         if owner:
             files.append(get_user_path(owner, f"logs/{filename}.log"))
 
-    for table in ["agent_logs", "quality_reports", "root_cause_reports", "generated_reports", *STAGING_TABLES, "raw_uploads"]:
+    for table in ["agent_logs", "quality_reports", "root_cause_reports", "generated_reports", "review_items", *STAGING_TABLES, "raw_uploads"]:
         db.execute(text(f"DELETE FROM {table} WHERE batch_id = :b"), {"b": batch_id})
     db.execute(text("DELETE FROM pipeline_logs WHERE pipeline_id = :p"), {"p": pipeline_id})
     db.commit()
