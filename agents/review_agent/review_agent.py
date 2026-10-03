@@ -160,7 +160,7 @@ class ReviewAgent:
             history = transformation_history or []
             columns = list(raw.columns)[:MAX_COLUMNS_CHECKED]
             for col in columns:
-                for check in (self._missing_values, self._mixed_types, self._dates):
+                for check in (self._missing_values, self._mixed_types, self._dates, self._outliers):
                     try:
                         found = check(raw, clean, col, history)
                     except Exception as e:  # one odd column must not stop the other checks
@@ -412,4 +412,42 @@ class ReviewAgent:
             + ("" if standardized else ", and the column cannot be sorted or compared as dates at all") + ".",
             f"Confirm the date format used in '{col}' (e.g. day-first vs month-first) and fix the listed values, then re-run.",
             column=col, evidence={"unparseable": len(bad), "examples": examples},
+        )
+
+    def _outliers(self, raw, clean, col, history) -> Optional[dict]:
+        values = pd.to_numeric(raw[col], errors="coerce").dropna()
+        if len(values) < OUTLIER_MIN_ROWS or len(values) < 0.8 * raw[col].notna().sum():
+            return None
+        negatives = values[values < 0]
+        if len(negatives) and any(tok in col for tok in POSITIVE_NAME_TOKENS) and len(negatives) < 0.5 * len(values):
+            examples = [_num(v) for v in negatives.head(5)]
+            return _issue(
+                "negative_values", "medium", "Outliers",
+                f"{len(negatives):,} negative values in '{col}'",
+                f"'{col}' should not be negative, but {len(negatives):,} value(s) are, e.g. {', '.join(examples)}. "
+                "They may be refunds or returns, or data entry errors; the agent cannot tell which.",
+                "Negative entries reduce totals and averages; if they are errors, every revenue or quantity figure is understated.",
+                f"Confirm whether negative '{col}' values are valid (returns/refunds) or errors, and correct or exclude them.",
+                column=col, evidence={"negative": len(negatives), "examples": examples},
+            )
+        q1, q3 = values.quantile(0.25), values.quantile(0.75)
+        iqr = q3 - q1
+        if iqr <= 0:
+            return None
+        low, high = q1 - OUTLIER_FENCE * iqr, q3 + OUTLIER_FENCE * iqr
+        extreme = values[(values < low) | (values > high)]
+        share = len(extreme) / len(values)
+        if not len(extreme) or share > OUTLIER_MAX_SHARE:
+            return None
+        largest_first = extreme.iloc[extreme.abs().argsort()[::-1]]
+        examples = list(dict.fromkeys(_num(v) for v in largest_first))[:5]
+        return _issue(
+            "outliers", "medium", "Outliers",
+            f"{len(extreme):,} extreme values in '{col}'",
+            f"{len(extreme):,} value(s) ({_pct(share)}) lie far outside the usual range of '{col}' "
+            f"({_num(q1)} to {_num(q3)} for the middle half), e.g. {', '.join(examples)}. "
+            "They could be real (a very large order) or errors (an extra zero, wrong unit); the agent kept them.",
+            f"A few extreme values dominate sums and averages of '{col}' and can skew charts and models.",
+            f"Check the listed values in the source. Correct errors, or confirm they are genuine.",
+            column=col, evidence={"extreme": len(extreme), "q1": float(q1), "q3": float(q3), "examples": examples},
         )
