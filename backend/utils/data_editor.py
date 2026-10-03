@@ -98,3 +98,102 @@ def save(df: pd.DataFrame, path: str) -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_typed(df).to_dict(orient="records"), f, indent=2, default=str)
     os.replace(tmp, path)
+
+
+# ---------- finding rows ----------
+
+def resolve_column(df: pd.DataFrame, name: Optional[str]) -> str:
+    """Review problems name columns as the cleaned data does (snake_case); match them to the file's headers."""
+    if name in df.columns:
+        return name
+    for col in df.columns:
+        if standardize_column_name(col) == standardize_column_name(name):
+            return col
+    raise EditError(f"Column '{name}' is not in the file.")
+
+
+def _missing(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip().str.lower().isin(NULL_TOKENS)
+
+
+def _numbers(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series.astype(str).str.strip().str.replace(",", "", regex=False), errors="coerce")
+
+
+def match_rows(df: pd.DataFrame, flt: Optional[dict]) -> pd.Series:
+    """Rows matching a review problem's filter, e.g. {"kind": "missing", "column": "income", "group_column": "region", "group": "South"}."""
+    if not flt:
+        return pd.Series(True, index=df.index)
+    kind = flt.get("kind")
+    if kind == "duplicate":
+        mask = df.duplicated(keep=False)
+    else:
+        col = df[resolve_column(df, flt.get("column"))]
+        missing = _missing(col)
+        if kind == "missing":
+            mask = missing
+        elif kind == "non_numeric":
+            mask = ~missing & _numbers(col).isna()
+        elif kind == "bad_date":
+            mask = ~missing & parse_dates(col.where(~missing)).isna()
+        elif kind == "outlier":
+            num = _numbers(col)
+            mask = (num < float(flt["low"])) | (num > float(flt["high"]))
+        elif kind == "negative":
+            mask = _numbers(col) < 0
+        elif kind == "duplicate_key":
+            mask = ~missing & col.duplicated(keep=False)
+        elif kind == "value":
+            mask = col.astype(str).str.strip() == str(flt.get("value", "")).strip()
+        else:
+            raise EditError(f"Unknown row filter '{kind}'.")
+    if flt.get("group_column"):
+        mask = mask & (df[resolve_column(df, flt["group_column"])].astype(str).str.strip() == str(flt.get("group")))
+    return mask.fillna(False).astype(bool)
+
+
+def column_stats(df: pd.DataFrame) -> list:
+    stats = []
+    for col in df.columns:
+        missing = _missing(df[col])
+        filled = int((~missing).sum())
+        numeric = int(_numbers(df[col][~missing]).notna().sum()) if filled else 0
+        stats.append({"name": col, "missing": int(missing.sum()), "numeric": filled > 0 and numeric == filled,
+                      "non_numeric": filled - numeric if numeric >= 0.5 * filled else 0})
+    return stats
+
+
+def describe_filter(flt: Optional[dict]) -> str:
+    if not flt:
+        return ""
+    col = flt.get("column")
+    text = {
+        "missing": f"where '{col}' is empty",
+        "non_numeric": f"where '{col}' is not a number",
+        "bad_date": f"where '{col}' is not a readable date",
+        "outlier": f"with extreme '{col}' values",
+        "negative": f"with negative '{col}'",
+        "duplicate": "that are duplicates",
+        "duplicate_key": f"with a repeated '{col}'",
+        "value": f"where '{col}' is '{flt.get('value')}'",
+    }.get(flt.get("kind"), "")
+    if flt.get("group_column"):
+        text += f" in {flt['group_column']} = '{flt.get('group')}'"
+    return text
+
+
+def reason_filter(reason: str) -> Optional[dict]:
+    """Row filter for a storage rejection reason such as "Missing primary key 'customer_id'"."""
+    found = re.search(r"'([^']+)'", reason or "")
+    if not found:
+        return None
+    lowered = reason.lower()
+    if "missing" in lowered:
+        kind = "missing"
+    elif "duplicate" in lowered:
+        kind = "duplicate_key"
+    elif "date" in lowered:
+        kind = "bad_date"
+    else:
+        kind = "non_numeric"
+    return {"kind": kind, "column": found.group(1)}
