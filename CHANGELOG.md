@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🔧 Changed
 - Only runs with a critical or high problem go to Human Review; medium problems are written to the process log as notes.
+- The **Human Review** page shows only the crucial files, each with its critical and high problems and two actions: **Fix data** and **Process file**. Status tabs, counters, filters, the resolve / accept dialog and the log and data buttons are gone.
+- **Fix data** offers only the Review Agent's recommended fixes on a read-only view of the rows; hand edits, row deletion and the column tools were removed from the page.
+- **Process file** runs the fixed file as the reviewer's approval: the file leaves Human Review when the run finishes unless it cannot be processed (`reviewed` flag on `POST /pipeline/start`, `approved_by` on review items).
 
 ---
 
