@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam
 from typing import Optional
 from backend.database.mysql import get_db
-from backend.database.models import PipelineLog, QualityReport, RootCauseReport
+from backend.database.models import PipelineLog, QualityReport, ReviewItem, RootCauseReport
 from backend.database.repository import log_pipeline_start, log_pipeline_end, update_raw_upload_status_by_batch
 from backend.schemas.schemas import PipelineStartRequest, PipelineStartResponse
 from backend.core.security import is_valid_batch_id
@@ -486,6 +486,12 @@ def start_pipeline(req: PipelineStartRequest, background_tasks: BackgroundTasks,
     existing = db.query(PipelineLog).filter(PipelineLog.pipeline_id == pipeline_id).first()
     if existing and existing.status == "Running":
         raise HTTPException(status_code=409, detail=f"Pipeline {pipeline_id} is already running.")
+
+    if req.reviewed:
+        item = db.query(ReviewItem).filter(ReviewItem.batch_id == batch_id).first()
+        if item:
+            item.approved_by = x_user_email or "reviewer"
+            db.commit()
 
     # Initialize a fresh stage state file for this pipeline run
     with _state_lock:
