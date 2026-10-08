@@ -117,7 +117,9 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
                          + (f" ({len(issues)} minor note(s) are in the process log)." if issues else "."))
         db.commit()
 
-        if review["required"]:
+        if approved_by and review["kind"] != "not_processed":
+            reasoning = f"Processed after Human Review, approved by {approved_by}; {len(issues)} note(s) written to the process log."
+        elif review["required"]:
             reasoning = (f"Sent to Human Review ({review['kind'].replace('_', ' ')}), {len(issues)} issue(s): "
                          + "; ".join(i["title"] for i in issues[:5]))
         elif issues:
