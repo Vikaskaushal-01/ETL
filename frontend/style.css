@@ -2729,3 +2729,9 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
     .editor-grid-wrap { max-height: 60vh; }
 }
 .editor-head [hidden] { display: none !important; }
+
+/* Human Review list: a file, its crucial problems, Fix data and Process file */
+.review-intro { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 13px; }
+.review-crucial { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.review-crucial li { display: flex; align-items: center; gap: 8px; }
+.review-card-actions .btn-primary-glow { padding: 7px 14px; font-size: 12.5px; }
