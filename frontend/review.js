@@ -29,66 +29,38 @@ function reviewKindPill(item) {
         : '<span class="review-pill high"><i class="fa-solid fa-user-pen"></i> Needs decision</span>';
 }
 
-function reviewIssueHtml(issue, open) {
-    const icon = REVIEW_CATEGORY_ICONS[issue.category] || 'fa-circle-exclamation';
-    return `
-        <li class="review-issue sev-${escapeHtml(issue.severity)}">
-            <details ${open ? 'open' : ''}>
-                <summary>
-                    <span class="sev-tag ${escapeHtml(issue.severity)}">${REVIEW_SEVERITY_LABELS[issue.severity] || escapeHtml(issue.severity)}</span>
-                    <span class="review-issue-cat"><i class="fa-solid ${icon}"></i> ${escapeHtml(issue.category)}${issue.column ? ` &middot; <code>${escapeHtml(issue.column)}</code>` : ''}</span>
-                    <span class="review-issue-title">${escapeHtml(issue.title)}</span>
-                    <i class="fa-solid fa-chevron-down review-issue-caret"></i>
-                </summary>
-                <dl>
-                    <dt><i class="fa-solid fa-magnifying-glass"></i> What happened</dt><dd>${escapeHtml(issue.problem)}</dd>
-                    <dt><i class="fa-solid fa-scale-unbalanced"></i> Why it matters</dt><dd>${escapeHtml(issue.impact)}</dd>
-                    <dt><i class="fa-solid fa-hand-point-right"></i> What to do</dt><dd>${escapeHtml(issue.action)}</dd>
-                </dl>
-            </details>
-        </li>`;
+// The problems that made the file crucial, or every problem when none is critical or high
+function crucialIssues(item) {
+    const crucial = item.issues.filter(i => i.severity === 'critical' || i.severity === 'high');
+    return crucial.length ? crucial : item.issues;
 }
 
-function reviewCardHtml(item, category) {
-    const me = (localStorage.getItem('controlai_email') || '').toLowerCase();
-    const issues = category === 'all' ? item.issues : item.issues.filter(i => i.category === category);
-    const categories = Object.entries(item.issues.reduce((acc, i) => ({ ...acc, [i.category]: (acc[i.category] || 0) + 1 }), {}));
+function reviewCardHtml(item) {
     const id = escapeHtml(item.batch_id);
-    const canRerun = item.raw_file && item.run_status !== 'Running';
-    const decided = item.status !== 'open';
-    const note = item.note ? `
-        <div class="review-note">
-            <i class="fa-solid fa-comment-dots"></i>
-            <div><strong>${escapeHtml(item.resolved_by || 'Reviewer')}</strong>${item.resolved_at ? ` <span class="text-secondary">&middot; ${fmtDateTime(item.resolved_at)}</span>` : ''}<p>${escapeHtml(item.note)}</p></div>
-        </div>` : '';
+    const running = item.run_status === 'Running';
+    const issues = crucialIssues(item);
+    const fixable = item.issues.filter(i => (i.fixes || []).length).length;
     return `
-        <article class="review-card ${item.status === 'open' ? `kind-${escapeHtml(item.kind)}` : 'is-closed'} ${reviewState.highlight === item.batch_id ? 'is-highlighted' : ''}" data-review-card="${id}">
+        <article class="review-card kind-${escapeHtml(item.kind)} ${reviewState.highlight === item.batch_id ? 'is-highlighted' : ''}" data-review-card="${id}">
             <header class="review-card-head">
                 <div class="review-card-title">
                     <div class="review-card-name">
                         ${reviewKindPill(item)}
-                        <button class="link-btn run-name" onclick="openRunDetails('${id}')" title="Run details">${escapeHtml(item.filename || item.batch_id)}</button>
+                        <strong class="run-name">${escapeHtml(item.filename || item.batch_id)}</strong>
                     </div>
                     <div class="review-card-meta text-secondary">
-                        <code>${id}</code>
-                        <span>Run ${statusBadge(item.run_status || '-')}</span>
+                        <span>${issues.length} crucial problem(s)${fixable ? ` &middot; ${fixable} with AI fixes` : ''}</span>
                         <span>Flagged ${fmtDateTime(item.flagged_at)}</span>
-                        ${item.owner && item.owner.toLowerCase() !== me ? `<span><i class="fa-solid fa-user"></i> ${escapeHtml(item.owner)}</span>` : ''}
+                        ${item.edits.length ? `<span><i class="fa-solid fa-pen-to-square"></i> Fixed ${item.edits.length} time(s)</span>` : ''}
                     </div>
                 </div>
                 <div class="review-card-actions">
-                    ${item.editable ? `<button class="btn-refresh review-fix-btn" onclick="openDataEditor('${id}')" title="Open the file, apply the AI's suggested fixes or edit it yourself, then re-run"><i class="fa-solid fa-pen-to-square"></i> Fix data</button>` : ''}
-                    <button class="btn-refresh" onclick="openRunLog('${id}')" title="Process log: every problem is written there too"><i class="fa-solid fa-terminal"></i> Log</button>
-                    ${item.raw_file ? `<button class="btn-refresh" onclick="previewRun('${id}')" title="Preview data & column profile"><i class="fa-solid fa-table"></i> Data</button>` : ''}
-                    ${canRerun ? `<button class="btn-refresh" onclick="rerunReviewItem('${id}')" title="Run the pipeline again on this file (after fixing the source)"><i class="fa-solid fa-rotate-right"></i> Re-run</button>` : ''}
-                    ${decided
-                        ? `<button class="btn-refresh" onclick="decideReview('${id}', 'reopen')"><i class="fa-solid fa-rotate-left"></i> Reopen</button>`
-                        : `<button class="btn-refresh review-resolve-btn" onclick="openReviewDecision('${id}')"><i class="fa-solid fa-check"></i> Resolve</button>`}
+                    ${running ? '<span class="review-pill high"><i class="fa-solid fa-spinner fa-spin"></i> Processing</span>' : `
+                        ${item.editable ? `<button class="btn-refresh review-fix-btn" onclick="openDataEditor('${id}')" title="Apply the fixes the AI recommends"><i class="fa-solid fa-wand-magic-sparkles"></i> Fix data</button>` : ''}
+                        ${item.raw_file ? `<button class="btn-primary-glow review-process-btn" onclick="processReviewItem('${id}')" title="Run the pipeline on this file and close its review"><i class="fa-solid fa-play"></i> Process file</button>` : ''}`}
                 </div>
             </header>
-            ${item.issue_count || item.edits.length ? `<div class="review-cats">${categories.map(([cat, n]) => `<span class="review-cat-chip"><i class="fa-solid ${REVIEW_CATEGORY_ICONS[cat] || 'fa-circle-exclamation'}"></i> ${escapeHtml(cat)} <strong>${n}</strong></span>`).join('')}${item.edits.length ? `<span class="review-cat-chip edited"><i class="fa-solid fa-pen-to-square"></i> Edited ${item.edits.length} time(s)</span>` : ''}</div>` : ''}
-            ${issues.length ? `<ol class="review-issues">${issues.map((issue, n) => reviewIssueHtml(issue, !decided && n === 0)).join('')}</ol>` : ''}
-            ${note}
+            <ul class="review-crucial">${issues.map(i => `<li><span class="sev-tag ${escapeHtml(i.severity)}">${REVIEW_SEVERITY_LABELS[i.severity] || escapeHtml(i.severity)}</span> ${escapeHtml(i.title)}</li>`).join('')}</ul>
         </article>`;
 }
 
@@ -114,21 +86,11 @@ function renderReviewKpis() {
 function renderReviewList() {
     const list = document.getElementById('review-list');
     if (!list) return;
-    const query = (document.getElementById('review-search')?.value || '').toLowerCase().trim();
-    const category = document.getElementById('review-category-filter')?.value || 'all';
-    const items = reviewState.items.filter(item =>
-        (category === 'all' || item.issues.some(i => i.category === category)) &&
-        (!query || [item.filename, item.batch_id, item.owner, item.note, ...item.issues.flatMap(i => [i.title, i.column, i.category])]
-            .some(v => (v || '').toLowerCase().includes(query)))
-    );
-    if (!items.length) {
-        const empty = reviewState.items.length ? 'No files match the filter.'
-            : reviewState.status === 'open' ? 'Nothing needs a human right now. Minor notes about processed files are in their process logs.'
-            : 'No files here yet.';
-        list.innerHTML = `<div class="dash-panel sheet-empty"><i class="fa-solid ${reviewState.items.length ? 'fa-filter' : 'fa-circle-check'}"></i><p>${empty}</p></div>`;
+    if (!reviewState.items.length) {
+        list.innerHTML = '<div class="dash-panel sheet-empty"><i class="fa-solid fa-circle-check"></i><p>No crucial files right now. Every processed file is fine as it is.</p></div>';
         return;
     }
-    list.innerHTML = items.map(item => reviewCardHtml(item, category)).join('');
+    list.innerHTML = reviewState.items.map(reviewCardHtml).join('');
     if (reviewState.highlight) {
         list.querySelector(`[data-review-card="${CSS.escape(reviewState.highlight)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         reviewState.highlight = null;
