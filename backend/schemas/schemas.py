@@ -19,6 +19,8 @@ class ChatResponse(BaseModel):
 class PipelineStartRequest(BaseModel):
     file_path: str
     batch_id: Optional[str] = None
+    # Started from Human Review: the reviewer approves the file, so its run closes the review item
+    reviewed: bool = False
 
 class PipelineStartResponse(BaseModel):
     pipeline_id: str
