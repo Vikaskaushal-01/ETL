@@ -1,11 +1,9 @@
-// Human Review: runs the Review Agent handed to a person, either because the file was not processed
-// or because the automatic cleaning made choices (filled values, dropped rows) that change the data.
-// Every problem shows what happened, why it matters and what to do; reviewers resolve or dismiss it.
+// Human Review: only the files whose problems change what the data says (the Review Agent sends a
+// file here when it finds a critical or high problem). The page lists those files and offers two
+// things: fix the data with the AI's suggested fixes, and process the file once it is fixed.
 
 const reviewState = {
-    status: 'open',
     items: [],
-    counts: null,
     highlight: null // batch id to scroll to after loading
 };
 
@@ -64,25 +62,6 @@ function reviewCardHtml(item) {
         </article>`;
 }
 
-function renderReviewKpis() {
-    const el = document.getElementById('review-kpis');
-    const c = reviewState.counts;
-    if (!el || !c) return;
-    const cards = [
-        ['Waiting for review', c.open, 'fa-user-shield', c.open ? 'orange' : 'green', 'Files with open problems'],
-        ['Not processed', c.not_processed, 'fa-circle-xmark', c.not_processed ? 'red' : '', 'Failed, empty or nothing loaded'],
-        ['Needs a decision', c.needs_decision, 'fa-user-pen', c.needs_decision ? 'orange' : '', 'Processed, but changes need sign-off'],
-        ['Open problems', c.issues, 'fa-list-check', '', `${c.by_severity.critical} critical files, ${c.by_severity.high} high`],
-        ['Resolved', c.resolved + c.dismissed, 'fa-circle-check', 'green', `${c.dismissed} accepted as they are`]
-    ];
-    el.innerHTML = cards.map(([label, value, icon, color, sub]) => `
-        <div class="kpi-card">
-            <div class="kpi-card-head"><span>${label}</span><div class="kpi-card-icon ${color}"><i class="fa-solid ${icon}"></i></div></div>
-            <div class="kpi-card-value">${value}</div>
-            <div class="kpi-card-sub">${sub}</div>
-        </div>`).join('');
-}
-
 function renderReviewList() {
     const list = document.getElementById('review-list');
     if (!list) return;
@@ -111,11 +90,9 @@ function updateReviewBadges(counts) {
 window.loadReviewView = async function() {
     const list = document.getElementById('review-list');
     try {
-        const data = await fetchJson(`/api/v1/review?status=${reviewState.status}`);
+        const data = await fetchJson('/api/v1/review?status=open');
         reviewState.items = data.items;
-        reviewState.counts = data.counts;
         updateReviewBadges(data.counts);
-        renderReviewKpis();
         renderReviewList();
     } catch (e) {
         if (list) list.innerHTML = `<p class="text-red">Failed to load the review queue: ${escapeHtml(e.message)}</p>`;
@@ -154,19 +131,17 @@ window.loadDashboardReview = async function() {
 window.openReviewFor = function(batchId) {
     window.closeSheet && window.closeSheet();
     reviewState.highlight = batchId;
-    setReviewStatus('open', false);
     window.activateView('review-view');
 };
 
-function setReviewStatus(status, reload = true) {
-    reviewState.status = status;
-    document.querySelectorAll('[data-review-status]').forEach(b => {
-        const active = b.getAttribute('data-review-status') === status;
-        b.classList.toggle('active', active);
-        b.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-    if (reload) window.loadReviewView();
-}
+// Runs the pipeline on the file as the reviewer approved it; the run closes its review unless it fails
+window.processReviewItem = function(batchId) {
+    const item = reviewState.items.find(i => i.batch_id === batchId) || (editorState.item?.batch_id === batchId ? editorState.item : null);
+    if (!item || !item.raw_file) return;
+    enqueueJob({ kind: 'rerun', rawFile: item.raw_file, batchId: item.batch_id, label: item.filename, reviewed: true, focusOnStart: true });
+    showToast('info', `Processing ${item.filename}. It leaves Human Review when the run finishes.`);
+    window.activateView('pipeline-monitor-page');
+};
 
 window.rerunReviewItem = function(batchId) {
     const item = reviewState.items.find(i => i.batch_id === batchId);
@@ -223,22 +198,7 @@ window.decideReview = async function(batchId, action, note) {
     window.loadDashboardReview();
 };
 
-// Runs the pipeline on the file as the reviewer approved it; the run closes its review unless it fails
-window.processReviewItem = function(batchId) {
-    const item = reviewState.items.find(i => i.batch_id === batchId) || (editorState.item?.batch_id === batchId ? editorState.item : null);
-    if (!item || !item.raw_file) return;
-    enqueueJob({ kind: 'rerun', rawFile: item.raw_file, batchId: item.batch_id, label: item.filename, reviewed: true, focusOnStart: true });
-    showToast('info', `Processing ${item.filename}. It leaves Human Review when the run finishes.`);
-    window.activateView('pipeline-monitor-page');
-};
-
 document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('[data-review-status]').forEach(btn => {
-        btn.addEventListener('click', () => setReviewStatus(btn.getAttribute('data-review-status')));
-    });
-    document.getElementById('review-search')?.addEventListener('input', renderReviewList);
-    document.getElementById('review-category-filter')?.addEventListener('change', renderReviewList);
-    document.getElementById('btn-refresh-review')?.addEventListener('click', () => window.loadReviewView());
     window.addEventListener('controlai_login_success', () => window.loadDashboardReview());
     window.loadDashboardReview();
     setInterval(() => window.loadDashboardReview(), 60000);
