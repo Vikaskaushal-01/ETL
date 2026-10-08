@@ -7,16 +7,6 @@ const reviewState = {
     highlight: null // batch id to scroll to after loading
 };
 
-const REVIEW_CATEGORY_ICONS = {
-    'Pipeline failure': 'fa-bug',
-    'File': 'fa-file-circle-xmark',
-    'Validation': 'fa-ban',
-    'Missing values': 'fa-droplet-slash',
-    'Bias risk': 'fa-scale-unbalanced',
-    'Data types': 'fa-font',
-    'Outliers': 'fa-arrow-trend-up',
-    'Duplicates': 'fa-clone'
-};
 const REVIEW_SEVERITY_LABELS = { critical: 'Critical', high: 'High', medium: 'Medium' };
 
 function reviewKindPill(item) {
@@ -141,61 +131,6 @@ window.processReviewItem = function(batchId) {
     enqueueJob({ kind: 'rerun', rawFile: item.raw_file, batchId: item.batch_id, label: item.filename, reviewed: true, focusOnStart: true });
     showToast('info', `Processing ${item.filename}. It leaves Human Review when the run finishes.`);
     window.activateView('pipeline-monitor-page');
-};
-
-window.rerunReviewItem = function(batchId) {
-    const item = reviewState.items.find(i => i.batch_id === batchId);
-    if (!item || !item.raw_file) return;
-    enqueueJob({ kind: 'rerun', rawFile: item.raw_file, batchId: item.batch_id, label: item.filename, focusOnStart: true });
-    showToast('info', `Re-running ${item.filename}. The Review Agent checks it again when the run finishes.`);
-    window.activateView('pipeline-monitor-page');
-};
-
-window.openReviewDecision = function(batchId) {
-    const item = reviewState.items.find(i => i.batch_id === batchId);
-    if (!item) return;
-    window.openSheet('Close this review', item.filename || batchId, `
-        <p class="text-secondary sheet-note">${item.issue_count} problem(s) were found in this file. Record what you decided so the next person knows.</p>
-        <label class="review-note-field">
-            <span>Note (optional)</span>
-            <textarea id="review-note-input" class="page-input" rows="4" maxlength="4000" placeholder="e.g. Filled income per region in the source export and re-ran it.">${escapeHtml(item.note || '')}</textarea>
-        </label>
-        <div class="review-decision-options">
-            <button class="review-decision" onclick="submitReviewDecision('${escapeHtml(batchId)}', 'resolve')">
-                <i class="fa-solid fa-circle-check text-green"></i>
-                <span><strong>Mark resolved</strong><small>The problem was fixed (source corrected, file re-run, or handled elsewhere).</small></span>
-            </button>
-            <button class="review-decision" onclick="submitReviewDecision('${escapeHtml(batchId)}', 'dismiss')">
-                <i class="fa-solid fa-eye-slash"></i>
-                <span><strong>Accept as it is</strong><small>The automatic handling is acceptable for this data; keep the processed result.</small></span>
-            </button>
-        </div>`);
-    setTimeout(() => document.getElementById('review-note-input')?.focus(), 50);
-};
-
-window.submitReviewDecision = async function(batchId, action) {
-    const note = document.getElementById('review-note-input')?.value;
-    await window.decideReview(batchId, action, note);
-    window.closeSheet();
-};
-
-window.decideReview = async function(batchId, action, note) {
-    try {
-        const body = { action };
-        if (note !== undefined) body.note = note;
-        await fetchJson(`/api/v1/review/${encodeURIComponent(batchId)}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        const done = { resolve: 'marked resolved', dismiss: 'accepted as it is', reopen: 'reopened' }[action];
-        showToast('success', `Review ${done}.`);
-    } catch (e) {
-        showToast('error', e.message);
-        return;
-    }
-    if (document.getElementById('review-view')?.classList.contains('active')) window.loadReviewView();
-    window.loadDashboardReview();
 };
 
 document.addEventListener('DOMContentLoaded', () => {
