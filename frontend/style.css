@@ -2711,18 +2711,12 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 .editor-grid tr:hover td { background: var(--surface); }
 .editor-grid td.is-flagged { background: var(--color-orange-soft); }
 .editor-grid td.is-empty { background: var(--color-red-soft); }
-.editor-grid td.is-changed { background: var(--color-blue-soft); box-shadow: inset 2px 0 0 var(--color-blue); }
-.editor-grid tr.row-selected td { background: var(--color-red-soft); opacity: 0.7; }
 .editor-cell {
-    width: 100%; min-width: 110px; box-sizing: border-box; padding: 7px 10px; border: 0; outline: none;
-    background: transparent; color: var(--text-primary); font-family: var(--font-mono); font-size: 11.5px;
+    display: block; min-width: 110px; max-width: 320px; box-sizing: border-box; padding: 7px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary); font-family: var(--font-mono); font-size: 11.5px;
 }
-.editor-cell:focus { box-shadow: inset 0 0 0 2px var(--color-blue); background: var(--surface); }
-.editor-check, .editor-rownum { position: sticky; left: 0; z-index: 1; }
-.editor-grid th.editor-check, .editor-grid th.editor-rownum { z-index: 3; }
-.editor-check { width: 34px; min-width: 34px; text-align: center; padding: 0 8px !important; }
-.editor-rownum { left: 34px; min-width: 44px; padding: 0 8px !important; text-align: right; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; background: var(--surface-2) !important; }
-.editor-grid td.editor-check { background: var(--surface-2); }
+.editor-rownum { position: sticky; left: 0; z-index: 1; }
+.editor-grid th.editor-rownum { z-index: 3; }
+.editor-rownum { min-width: 44px; padding: 0 8px !important; text-align: right; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; background: var(--surface-2) !important; }
 .editor-pager { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; }
 .editor-pager-btns { display: flex; gap: 6px; }
 
