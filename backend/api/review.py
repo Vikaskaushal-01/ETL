@@ -75,7 +75,22 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
 
         issues = review["issues"]
         now = datetime.utcnow()
-        if review["required"]:
+        approved_by = item.approved_by if item else None
+        if item:
+            item.approved_by = None
+        if approved_by and review["kind"] != "not_processed":
+            # The reviewer fixed what they wanted and sent the file to be processed: the run closes the item
+            item.status = "resolved"
+            item.kind = review["kind"]
+            item.severity = review["severity"]
+            item.issue_count = len(issues)
+            item.issues_json = json.dumps(issues, default=str)
+            item.resolved_by = approved_by
+            item.resolved_at = now
+            item.updated_at = now
+            item.note = (f"Processed from Human Review on {now:%Y-%m-%d %H:%M} UTC"
+                         + (f"; {len(issues)} remaining note(s) are in the process log." if issues else "."))
+        elif review["required"]:
             if not item:
                 item = ReviewItem(batch_id=batch_id)
                 db.add(item)
