@@ -1045,12 +1045,12 @@ async function uploadFile(file) {
     }
 }
 
-async function startPipeline(filePath, batchId) {
+async function startPipeline(filePath, batchId, reviewed = false) {
     try {
         const response = await fetch('/api/v1/pipeline/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ file_path: filePath, batch_id: batchId })
+            body: JSON.stringify({ file_path: filePath, batch_id: batchId, reviewed })
         });
         if (!response.ok) {
             const errData = await response.json().catch(() => ({}));
