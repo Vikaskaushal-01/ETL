@@ -97,7 +97,7 @@ async function runJob(job) {
     job.status = 'starting';
     renderJobs();
 
-    const started = await startPipeline(upload.file_path, upload.batch_id);
+    const started = await startPipeline(upload.file_path, upload.batch_id, !!job.reviewed);
     if (!started) return finishJob(job, 'failed', 'The pipeline could not be started.');
 
     job.status = 'running';
@@ -286,7 +286,7 @@ window.markFocusedBatch = function(batchId) {
 function retryableSpec(job) {
     if (job.kind === 'file' && job.file) return { kind: 'file', file: job.file, label: job.file.name, size: job.file.size };
     if (job.kind === 'url') return { kind: 'url', url: job.url, label: job.label };
-    if (job.rawFile && job.batchId) return { kind: 'rerun', rawFile: job.rawFile, batchId: job.batchId, label: job.label };
+    if (job.rawFile && job.batchId) return { kind: 'rerun', rawFile: job.rawFile, batchId: job.batchId, label: job.label, reviewed: job.reviewed };
     return null;
 }
 
