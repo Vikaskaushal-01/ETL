@@ -155,6 +155,22 @@ class TestDataEditor(PlatformTestCase):
         self.assertIn("CHANGES MADE IN HUMAN REVIEW BEFORE THIS RUN", log)
         self.assertIn("median of each 'region' group", log)
 
+    def test_process_from_review_closes_the_item(self):
+        batch = self.run_pipeline(self.alice, "review_process.csv", BIASED)["batch_id"]
+        raw_file = self.client.get(f"/api/v1/review/{batch}", headers=self.alice).json()["raw_file"]
+        # A plain re-run of the unchanged file keeps it in the queue
+        self.client.post("/api/v1/pipeline/start", json={"file_path": raw_file, "batch_id": batch}, headers=self.alice)
+        self.assertEqual(self.client.get(f"/api/v1/review/{batch}", headers=self.alice).json()["status"], "open")
+
+        # Processing it from Human Review is the reviewer's approval, even with problems left
+        start = self.client.post("/api/v1/pipeline/start", json={"file_path": raw_file, "batch_id": batch, "reviewed": True}, headers=self.alice)
+        self.assertEqual(start.status_code, 200, start.text)
+        after = self.client.get(f"/api/v1/review/{batch}", headers=self.alice).json()
+        self.assertEqual(after["status"], "resolved")
+        self.assertTrue(after["resolved_by"].startswith("alice_"))
+        self.assertIn("Processed from Human Review", after["note"])
+        self.assertNotIn(batch, [i["batch_id"] for i in self.client.get("/api/v1/review", headers=self.alice).json()["items"]])
+
     def test_cell_edits_row_deletes_and_revert(self):
         batch = self.run_pipeline(self.alice, "review_cells.csv", MISSING_NAMES)["batch_id"]
         self.assertEqual(self.client.get(f"/api/v1/review/{batch}/data", headers=self.bob).status_code, 404)
