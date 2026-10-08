@@ -261,6 +261,15 @@ window.decideReview = async function(batchId, action, note) {
     window.loadDashboardReview();
 };
 
+// Runs the pipeline on the file as the reviewer approved it; the run closes its review unless it fails
+window.processReviewItem = function(batchId) {
+    const item = reviewState.items.find(i => i.batch_id === batchId) || (editorState.item?.batch_id === batchId ? editorState.item : null);
+    if (!item || !item.raw_file) return;
+    enqueueJob({ kind: 'rerun', rawFile: item.raw_file, batchId: item.batch_id, label: item.filename, reviewed: true, focusOnStart: true });
+    showToast('info', `Processing ${item.filename}. It leaves Human Review when the run finishes.`);
+    window.activateView('pipeline-monitor-page');
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-review-status]').forEach(btn => {
         btn.addEventListener('click', () => setReviewStatus(btn.getAttribute('data-review-status')));
