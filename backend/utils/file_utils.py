@@ -2,8 +2,18 @@ import os
 import pandas as pd
 import json
 import logging
+import threading
+import time
+from collections import OrderedDict
 
 logger = logging.getLogger("etl_file_utils")
+
+# Every agent of a run reads the same raw and cleaned files; parsed copies are kept for a few minutes
+# so each file is parsed once. Keyed by size and modification time, so a changed file is read again.
+READ_CACHE_ENTRIES = int(os.getenv("READ_CACHE_ENTRIES", "4"))
+READ_CACHE_SECONDS = 300
+_read_cache = OrderedDict()
+_read_cache_lock = threading.Lock()
 
 def detect_file_info(file_path: str) -> dict:
     """
@@ -46,8 +56,33 @@ def detect_file_info(file_path: str) -> dict:
     return info
 
 def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
-    """Reads a dataset (see _read_dataset)."""
-    return _read_dataset(file_path, nrows)
+    """Reads a dataset (see _read_dataset), reusing a recent parse of the unchanged file. Returns a copy."""
+    if READ_CACHE_ENTRIES <= 0:
+        return _read_dataset(file_path, nrows)
+    try:
+        st = os.stat(file_path)
+    except OSError:
+        return _read_dataset(file_path, nrows)
+    key = (os.path.abspath(file_path), st.st_mtime_ns, st.st_size, nrows)
+    now = time.time()
+    with _read_cache_lock:
+        for k in [k for k, (_, at) in _read_cache.items() if now - at > READ_CACHE_SECONDS]:
+            del _read_cache[k]
+        hit = _read_cache.get(key)
+        if hit is not None:
+            _read_cache.move_to_end(key)
+            return hit[0].copy()
+    df = _read_dataset(file_path, nrows)
+    with _read_cache_lock:
+        _read_cache[key] = (df, now)
+        while len(_read_cache) > READ_CACHE_ENTRIES:
+            _read_cache.popitem(last=False)
+    return df.copy()
+
+
+def clear_read_cache():
+    with _read_cache_lock:
+        _read_cache.clear()
 
 
 def _read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
