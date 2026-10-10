@@ -344,7 +344,18 @@ def storage_node(state: PipelineState) -> dict:
         time.sleep(PIPELINE_STEP_DELAY)
     
     try:
-        res = agent.run(dataset_path, batch_id, metadata)
+        def ask_report_model_early(rows_loaded, rows_rejected, rejected_records):
+            # The report's executive summary only needs the load results, so the model starts on it
+            # while the storage format is still being decided
+            from agents.report_agent.report_agent import SUMMARY_SYSTEM_INSTRUCTION, build_summary_inputs
+            from backend.core.llm import is_offline, prefetch_llm
+            if is_offline():
+                return
+            loaded = {"rows_loaded": rows_loaded, "rows_rejected": rows_rejected, "rejected_records": rejected_records}
+            prompt = build_summary_inputs({**state, "validation_results": loaded})[3]
+            prefetch_llm(prompt, SUMMARY_SYSTEM_INSTRUCTION, json_mode=True)
+
+        res = agent.run(dataset_path, batch_id, metadata, on_loaded=ask_report_model_early)
         val_res = res.get("validation_results", {})
         
         # Load SQL preview if format is SQL
