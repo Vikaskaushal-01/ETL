@@ -22,7 +22,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="style.css?v=3.3">
 </head>
 <body>
 
@@ -33,13 +33,10 @@
         <div class="login-left-panel">
             <div class="login-form-container" id="signin-container">
                 
-                <!-- ETL Branding Logo -->
+                <!-- Brand -->
                 <div class="login-brand">
-                    <div class="brand-triangle-logo">
-                        <div class="tri-outer"></div>
-                        <div class="tri-inner"></div>
-                    </div>
-                    <h2>ETL</h2>
+                    <div class="brand-mark"><i class="fa-solid fa-diagram-project"></i></div>
+                    <h2>Control AI</h2>
                 </div>
 
                 <div class="login-form-header">
@@ -59,7 +56,7 @@
                         <label for="login-password">Password</label>
                         <div class="input-with-icon">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="login-password" placeholder="••••••" autocomplete="current-password" required>
+                            <input type="password" id="login-password" placeholder="Enter your password" autocomplete="current-password" required>
                         </div>
                     </div>
                     
@@ -68,7 +65,7 @@
                         <label for="signup-confirm-password">Confirm Password</label>
                         <div class="input-with-icon">
                             <i class="fa-solid fa-lock input-icon"></i>
-                            <input type="password" id="signup-confirm-password" placeholder="••••••">
+                            <input type="password" id="signup-confirm-password" placeholder="Re-enter your password" autocomplete="new-password">
                         </div>
                     </div>
                     
@@ -87,18 +84,15 @@
 
                 <div class="login-form-footer">
                     <p id="toggle-signup-wrapper">Don't have an account? <a href="#" id="link-toggle-signup">Sign up</a></p>
-                    <a href="#" class="forgot-password-link" id="link-forgot-password">Forgot Password</a>
+                    <a href="#" class="forgot-password-link" id="link-forgot-password">Forgot password?</a>
                 </div>
             </div>
 
             <!-- Forgot Password Flow Container -->
             <div class="login-form-container" id="forgot-container" style="display: none;">
                 <div class="login-brand">
-                    <div class="brand-triangle-logo">
-                        <div class="tri-outer"></div>
-                        <div class="tri-inner"></div>
-                    </div>
-                    <h2>ETL</h2>
+                    <div class="brand-mark"><i class="fa-solid fa-diagram-project"></i></div>
+                    <h2>Control AI</h2>
                 </div>
 
                 <div class="login-form-header">
@@ -169,14 +163,7 @@
             
             <div class="presentation-card">
                 <!-- Stylized Triangle Branding Visual -->
-                <div class="large-triangle-branding">
-                    <div class="triangle-a-icon">
-                        <div class="tri-left-arm"></div>
-                        <div class="tri-right-arm"></div>
-                        <div class="tri-bar"></div>
-                    </div>
-                    <div class="glowing-stripe-overlay"></div>
-                </div>
+                <div class="showcase-mark"><i class="fa-solid fa-diagram-project"></i></div>
 
                 <h3 class="presentation-brand-text">Control AI &middot; Agentic ETL</h3>
                 <h1 class="presentation-title">Raw files in.<br>Clean, validated data out.</h1>
@@ -241,7 +228,7 @@
                 <header class="app-topbar">
                     <div class="app-topbar-left">
                         <span class="app-topbar-title" id="app-topbar-title">Pipeline</span>
-                        <span class="app-topbar-crumb" id="app-topbar-crumb">Real-Time Ingestion Data Flow</span>
+                        <span class="app-topbar-crumb" id="app-topbar-crumb">Run files through the agents and follow every stage</span>
                     </div>
                     <div class="app-topbar-right">
                         <button class="app-topbar-search" id="btn-open-palette" title="Search pages, actions and runs (Ctrl+K)">
@@ -269,7 +256,7 @@
                                 <a href="#" class="dropdown-item" id="btn-dropdown-security"><i class="fa-solid fa-key"></i> API Keys</a>
                                 <a href="#" class="dropdown-item" id="btn-dropdown-preferences"><i class="fa-solid fa-sliders"></i> Preferences</a>
                                 <div class="dropdown-divider"></div>
-                                <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout Account</a>
+                                <a href="#" class="dropdown-item logout-item" id="btn-dropdown-logout"><i class="fa-solid fa-right-from-bracket"></i> Sign out</a>
                             </div>
                         </div>
                     </div>
@@ -331,7 +318,7 @@
                                 <h3><i class="fa-solid fa-user-shield"></i> Needs Human Review <span class="nav-count" id="dash-review-count" hidden></span></h3>
                                 <button class="btn-refresh-table" data-quick="review"><i class="fa-solid fa-arrow-right"></i> Open review queue</button>
                             </div>
-                            <p class="text-secondary panel-hint review-panel-hint">Only files that need a person: the AI could not process them, or fixing them changes what the data says (bias risk, heavy filling of missing values, rejected rows). Open one to fix the data and run it again.</p>
+                            <p class="text-secondary panel-hint review-panel-hint">Files with problems that change what the data says: not processed, bias risk, heavy filling, sensitive data or a changed layout. Open one to apply the AI's fixes and process it.</p>
                             <div class="review-mini-list" id="dash-review-list">
                                 <div class="skeleton-line"></div><div class="skeleton-line"></div>
                             </div>
@@ -351,7 +338,10 @@
                                 <div class="dash-chart-foot" id="dash-chart-foot"></div>
                             </div>
                             <div class="dash-panel">
-                                <h3><i class="fa-solid fa-list-check"></i> Recent Pipeline Runs</h3>
+                                <div class="dash-panel-head">
+                                    <h3><i class="fa-solid fa-list-check"></i> Recent Pipeline Runs</h3>
+                                    <button class="btn-refresh-table" data-quick="history"><i class="fa-solid fa-arrow-right"></i> View all in History</button>
+                                </div>
                                 <div class="table-scroll">
                                     <table class="data-table" id="recent-runs-table">
                                         <thead><tr><th>File</th><th>Started</th><th>Runtime</th><th>Status</th><th>Actions</th></tr></thead>
@@ -491,7 +481,7 @@
                                             <th>Batch</th>
                                             <th>Uploaded</th>
                                             <th>Status</th>
-                                            <th>Rows (loaded / rejected)</th>
+                                            <th>Loaded / Rejected</th>
                                             <th>Quality</th>
                                             <th>Runtime</th>
                                             <th>Actions</th>
@@ -646,8 +636,8 @@
                     <div class="monitor-title-area">
                         <div class="monitor-icon pulse-blue"><i class="fa-solid fa-network-wired"></i></div>
                         <div>
-                            <h2>Real-Time Ingestion Data Flow</h2>
-                            <p>Batch ID: <span id="monitor-batch-id" class="neon-text-blue">-</span> | Source File: <span id="monitor-file-name" class="neon-text-teal">-</span></p>
+                            <h2>Pipeline Run</h2>
+                            <p>Batch <span id="monitor-batch-id" class="neon-text-blue">-</span> <span class="meta-sep">·</span> Source file <span id="monitor-file-name" class="neon-text-teal">-</span></p>
                         </div>
                     </div>
                     <div class="monitor-header-actions" style="display:flex; align-items:center; gap:12px;">
@@ -876,12 +866,6 @@
                                 <div class="node-desc">Waiting</div>
                             </div>
                         </div>
-                        
-                        <!-- Canvas Branding Title matching the reference image -->
-                        <div class="monitor-canvas-branding">
-                            <h1>All-in-one ETL platform</h1>
-                            <p>Control AI is a modern, all-in-one data automation platform designed to perfectly fit your business needs.</p>
-                        </div>
                     </div>
 
                     <!-- Right panel: Detailed Inspection -->
@@ -940,7 +924,7 @@
                     <i class="fa-solid fa-robot"></i>
                 </div>
                 <div>
-                    <h4 class="chatbot-header-title">Control AI Chatbot</h4>
+                    <h4 class="chatbot-header-title">AI Assistant</h4>
                     <span class="chatbot-header-status">
                         <span class="status-dot"></span> Active
                     </span>
@@ -950,9 +934,9 @@
         </div>
         <div class="chat-container">
             <div class="chat-context-bar">
-                <span>Batch Context:</span>
+                <span>Context</span>
                 <select id="chat-batch-select" class="context-select">
-                    <option value="">No Batch Context</option>
+                    <option value="">No run selected</option>
                 </select>
             </div>
             <!-- Chat Message logs display -->
@@ -1031,7 +1015,7 @@
                 </div>
                 <div class="settings-header-actions">
                     <button class="btn-back-dashboard" id="btn-back-dashboard">
-                        <i class="fa-solid fa-arrow-left"></i> Back to Dashboard
+                        <i class="fa-solid fa-xmark"></i> Close
                     </button>
                 </div>
             </div>
@@ -1092,22 +1076,22 @@
                         <div class="settings-grid">
                             <div class="form-group">
                                 <label for="settings-current-pass"><i class="fa-solid fa-key"></i> Current Password</label>
-                                <input type="password" id="settings-current-pass" class="settings-input" placeholder="••••••••">
+                                <input type="password" id="settings-current-pass" class="settings-input" placeholder="Enter current password" autocomplete="current-password">
                             </div>
                             <div class="form-group">
                                 <label for="settings-new-pass"><i class="fa-solid fa-shield-halved"></i> New Password</label>
-                                <input type="password" id="settings-new-pass" class="settings-input" placeholder="Enter new password">
+                                <input type="password" autocomplete="new-password" id="settings-new-pass" class="settings-input" placeholder="Enter new password">
                             </div>
                             <div class="form-group">
                                 <label for="settings-confirm-pass"><i class="fa-solid fa-check-double"></i> Confirm New Password</label>
-                                <input type="password" id="settings-confirm-pass" class="settings-input" placeholder="Re-enter new password">
+                                <input type="password" autocomplete="new-password" id="settings-confirm-pass" class="settings-input" placeholder="Re-enter new password">
                             </div>
                         </div>
                     </div>
 
                     <div class="settings-footer">
                         <button class="btn-save-settings" id="btn-save-profile-settings">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Profile & Return to Dashboard
+                            <i class="fa-solid fa-floppy-disk"></i> Save profile
                         </button>
                     </div>
                 </div>
@@ -1171,7 +1155,7 @@
 
                     <div class="settings-footer">
                         <button class="btn-save-settings" id="btn-save-apikeys">
-                            <i class="fa-solid fa-floppy-disk"></i> Save & Return to Dashboard
+                            <i class="fa-solid fa-floppy-disk"></i> Save
                         </button>
                     </div>
                 </div>
@@ -1271,7 +1255,7 @@
 
                     <div class="settings-footer">
                         <button class="btn-save-settings" id="btn-save-preferences">
-                            <i class="fa-solid fa-floppy-disk"></i> Save Preferences & Return to Dashboard
+                            <i class="fa-solid fa-floppy-disk"></i> Save preferences
                         </button>
                     </div>
                 </div>
@@ -1340,13 +1324,13 @@
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js?v=2.9"></script>
-    <script src="views.js?v=2.7"></script>
-    <script src="jobs.js?v=2.9"></script>
-    <script src="ui.js?v=2.7"></script>
-    <script src="insights.js?v=3.0"></script>
-    <script src="automation.js?v=2.6"></script>
-    <script src="review.js?v=2.9"></script>
-    <script src="review-editor.js?v=2.9"></script>
+    <script src="app.js?v=3.2"></script>
+    <script src="views.js?v=3.3"></script>
+    <script src="jobs.js?v=3.2"></script>
+    <script src="ui.js?v=3.2"></script>
+    <script src="insights.js?v=3.2"></script>
+    <script src="automation.js?v=3.2"></script>
+    <script src="review.js?v=3.2"></script>
+    <script src="review-editor.js?v=3.2"></script>
 </body>
 </html>
