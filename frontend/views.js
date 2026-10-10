@@ -16,7 +16,22 @@ const viewState = {
 function fmtDateTime(value) {
     if (!value) return '-';
     const d = parseUTCDate(value);
-    return isNaN(d) ? '-' : d.toLocaleString();
+    return isNaN(d) ? '-' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+// Compact form for tables: "Today, 12:22 AM", "Yesterday, 6:52 PM", "Oct 9, 3:10 PM", "Oct 9, 2025"
+function fmtShortDateTime(value) {
+    if (!value) return '-';
+    const d = parseUTCDate(value);
+    if (isNaN(d)) return '-';
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const days = Math.round((today - day) / 86400000);
+    if (days === 0) return `Today, ${time}`;
+    if (days === 1) return `Yesterday, ${time}`;
+    if (d.getFullYear() === today.getFullYear()) return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${time}`;
+    return d.toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
 function fmtBytes(bytes) {
@@ -109,15 +124,15 @@ function renderHistoryTable() {
         return `
             <tr class="${viewState.historySelected.has(r.batch_id) ? 'row-selected' : ''}">
                 <td class="check-cell">${checkbox}</td>
-                <td><button class="link-btn run-name" onclick="openRunDetails('${r.batch_id}')" title="Run details">${escapeHtml(r.filename || '-')}</button><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
+                <td><button class="link-btn run-name" onclick="openRunDetails('${r.batch_id}')" title="${escapeHtml(r.filename || '-')}: run details">${escapeHtml(r.filename || '-')}</button><div class="text-secondary cell-sub">${escapeHtml(r.source || '')}</div></td>
                 <td><code>${r.batch_id}</code></td>
-                <td>${fmtDateTime(r.uploaded_at)}</td>
-                <td>${statusBadge(r.status)}${r.review && r.review.status === 'open' ? ` <button class="review-flag ${r.review.kind === 'not_processed' ? 'critical' : ''}" onclick="openReviewFor('${r.batch_id}')" title="Open in Human Review"><i class="fa-solid fa-user-shield"></i> Review ${r.review.issues}</button>` : ''}${r.error ? `<div class="text-red cell-sub" title="${escapeHtml(r.error)}">${escapeHtml(r.error.slice(0, 60))}</div>` : ''}</td>
+                <td class="nowrap" title="${fmtDateTime(r.uploaded_at)}">${fmtShortDateTime(r.uploaded_at)}</td>
+                <td>${statusBadge(r.status)}${r.review && r.review.status === 'open' ? ` <button class="review-flag ${r.review.kind === 'not_processed' ? 'critical' : ''}" onclick="openReviewFor('${r.batch_id}')" title="Open in Human Review"><i class="fa-solid fa-user-shield"></i> Review ${r.review.issues}</button>` : ''}${r.error ? `<div class="cell-error" title="${escapeHtml(r.error)}">${escapeHtml(r.error)}</div>` : ''}</td>
                 <td>${rows}</td>
                 <td>${quality}</td>
                 <td>${r.execution_time != null ? r.execution_time.toFixed(1) + 's' : '-'}</td>
                 <td class="actions-cell">
-                    <button class="btn-refresh" onclick="openRunDetails('${r.batch_id}')" title="Run details: changes, rejected rows, root causes"><i class="fa-solid fa-circle-info"></i> Details</button>
+                    <button class="btn-refresh" onclick="openRunDetails('${r.batch_id}')" title="Run details: changes, rejected rows, root causes"><i class="fa-solid fa-circle-info"></i></button>
                     <button class="btn-refresh" onclick="openRunLog('${r.batch_id}')" title="View process log"><i class="fa-solid fa-terminal"></i></button>
                     <button class="btn-refresh" onclick="selectBatchDetail('${r.batch_id}')" title="Open in the pipeline view"><i class="fa-solid fa-diagram-project"></i></button>
                     ${rerunBtn}
@@ -169,7 +184,7 @@ window.rerunSelectedBatches = function() {
     runs.forEach(run => queueRerun(run, false));
     viewState.historySelected.clear();
     renderHistoryTable();
-    showToast('info', `${runs.length} re-run(s) queued. Up to ${maxParallelJobs()} run at the same time; follow them in the Task Center.`);
+    showToast('info', `${plural(runs.length, 're-run')} queued. Up to ${maxParallelJobs()} run at the same time; follow them in the Task Center.`);
 };
 
 // ---------- Reports ----------
@@ -205,7 +220,7 @@ function renderReportsGrid() {
             <div class="dash-panel report-card">
                 <div class="report-card-head">
                     <div>
-                        <h3><i class="fa-solid fa-folder-open text-yellow"></i> ${escapeHtml(r.dataset_name || r.folder_name)}</h3>
+                        <h3 title="${escapeHtml(r.dataset_name || r.folder_name)}"><i class="fa-solid fa-folder-open text-yellow"></i><span class="report-card-name">${escapeHtml(r.dataset_name || r.folder_name)}</span></h3>
                         <span class="text-secondary">Batch <code>${escapeHtml(r.batch_id || '-')}</code> &middot; ${fmtDateTime(r.created_at)}</span>
                     </div>
                     ${statusBadge(run.status)}
@@ -327,11 +342,11 @@ function renderExplorerFiles() {
     const icons = { raw: 'fa-file-import text-purple', cleaned: 'fa-broom text-green', report: 'fa-file-pdf text-red', log: 'fa-file-lines text-yellow', powerbi: 'fa-chart-column text-orange' };
     tbody.innerHTML = files.map(f => `
         <tr>
-            <td><i class="fa-solid ${icons[f.category] || 'fa-file'}"></i> <strong>${escapeHtml(f.name)}</strong></td>
+            <td><span class="file-cell"><i class="fa-solid fa-fw ${icons[f.category] || 'fa-file'}"></i><strong>${escapeHtml(f.name)}</strong></span></td>
             <td><code>${escapeHtml(f.directory)}</code></td>
             <td><span class="badge">${escapeHtml(f.format)}</span></td>
             <td>${fmtBytes(f.size)}</td>
-            <td>${new Date(f.modified_time).toLocaleString()}</td>
+            <td class="nowrap">${new Date(f.modified_time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</td>
             <td><button class="btn-download-file" onclick="downloadDataFile(${jsArg(f.path)})"><i class="fa-solid fa-download"></i> Download</button></td>
         </tr>`).join('');
 };
@@ -350,7 +365,7 @@ window.loadPowerBIView = async function() {
         document.getElementById('pbi-conn-status').textContent =
             `${conn.driver}: ${conn.status} (${conn.server}${conn.latency_ms != null ? `, ${conn.latency_ms} ms` : ''})`;
         document.getElementById('pbi-sync-meta').innerHTML = status.dataset.last_refresh
-            ? `Last export ${fmtDateTime(status.dataset.last_refresh)} &middot; ${status.dataset.total_refreshes} export(s) &middot; Folder: <code>${escapeHtml(status.dataset.export_folder)}</code>`
+            ? `Last export ${fmtDateTime(status.dataset.last_refresh)} &middot; ${plural(status.dataset.total_refreshes, 'export')} &middot; Folder: <code>${escapeHtml(status.dataset.export_folder)}</code>`
             : `Not exported yet &middot; exports are written to <code>${escapeHtml(status.dataset.export_folder)}</code>`;
 
         const schemaByName = {};
@@ -361,9 +376,9 @@ window.loadPowerBIView = async function() {
                 <tr>
                     <td><strong>${t.name}</strong><div class="text-secondary cell-sub">${t.name.startsWith('Dim') ? 'Dimension' : 'Fact'}</div></td>
                     <td><code>${escapeHtml(def.source || '-')}</code></td>
-                    <td class="cell-sub">${(def.columns || []).map(c => `<code>${c}</code>`).join(' ')}</td>
+                    <td><div class="col-chips">${(def.columns || []).map(c => `<span class="col-chip">${escapeHtml(c)}</span>`).join('')}</div></td>
                     <td>${t.rows.toLocaleString()}</td>
-                    <td>${t.file ? `<button class="btn-download-file" onclick="downloadDataFile(${jsArg(t.file)})"><i class="fa-solid fa-download"></i> CSV</button>` : '<span class="text-secondary">Export first</span>'}</td>
+                    <td>${t.file ? `<button class="btn-refresh-table nowrap" onclick="downloadDataFile(${jsArg(t.file)})" title="Download ${escapeHtml(t.name)}.csv"><i class="fa-solid fa-download"></i> CSV</button>` : '<span class="text-secondary">Export first</span>'}</td>
                 </tr>`;
         }).join('');
 
@@ -417,8 +432,8 @@ window.toggleNotifications = function() {
         <div class="notifications-head"><strong>Recent pipeline runs</strong><button class="btn-icon-subtle" onclick="openHistoryFromNotifications()">View all</button></div>
         ${finished.length ? finished.map(r => `
             <button class="notification-item" onclick="openRunLog('${r.batch_id}'); document.getElementById('notifications-panel')?.remove();">
-                <div>${statusBadge(r.status)} <strong>${escapeHtml(r.filename || r.batch_id)}</strong></div>
-                <span class="text-secondary">${fmtDateTime(r.ended_at)} &middot; ${r.rows_loaded ?? 0} loaded, ${r.rows_rejected ?? 0} rejected</span>
+                <div class="notification-title">${statusBadge(r.status)}<strong title="${escapeHtml(r.filename || r.batch_id)}">${escapeHtml(r.filename || r.batch_id)}</strong></div>
+                <span class="text-secondary">${fmtShortDateTime(r.ended_at)} &middot; ${(r.rows_loaded ?? 0).toLocaleString()} loaded, ${(r.rows_rejected ?? 0).toLocaleString()} rejected</span>
             </button>`).join('') : '<p class="text-secondary" style="padding:12px;">No finished runs yet.</p>'}`;
     btn.parentElement.appendChild(panel);
     localStorage.setItem('notifications_seen_at', new Date().toISOString());
