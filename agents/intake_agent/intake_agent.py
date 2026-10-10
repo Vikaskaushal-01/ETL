@@ -7,6 +7,32 @@ from backend.core.llm import query_llm
 
 logger = logging.getLogger("etl_intake_agent")
 
+DEFAULT_RECOMMENDATIONS = [
+    "Trim spaces in column headers",
+    "Handle missing values in incomplete fields",
+    "Deduplicate records"
+]
+SYSTEM_INSTRUCTION = "You are the Data Intake Agent. Analyze dataset parameters and return structured JSON metadata. Never edit the raw file."
+
+
+def recommendations_from_llm(prompt: str) -> list:
+    """The model's recommended cleaning steps for the profile in the prompt, or the default steps."""
+    try:
+        llm_response = query_llm(prompt, SYSTEM_INSTRUCTION, json_mode=True)
+        # Clean response text from markdown block quotes if present
+        if "```json" in llm_response:
+            llm_response = llm_response.split("```json")[1].split("```")[0].strip()
+        elif "```" in llm_response:
+            llm_response = llm_response.split("```")[1].split("```")[0].strip()
+
+        llm_analysis = json.loads(llm_response.strip())
+        llm_recs = llm_analysis.get("recommended_transformations") if isinstance(llm_analysis, dict) else None
+        if isinstance(llm_recs, list) and llm_recs:
+            return [str(r) for r in llm_recs]
+    except Exception as e:
+        logger.error(f"Error parsing LLM response in IntakeAgent: {e}")
+    return list(DEFAULT_RECOMMENDATIONS)
+
 class IntakeAgent:
     def __init__(self):
         self.role = "Senior Data Engineer"
@@ -84,27 +110,7 @@ class IntakeAgent:
         Return ONLY valid JSON.
         """
         
-        system_instruction = "You are the Data Intake Agent. Analyze dataset parameters and return structured JSON metadata. Never edit the raw file."
-        
-        recommended_transformations = [
-            "Trim spaces in column headers",
-            "Handle missing values in incomplete fields",
-            "Deduplicate records"
-        ]
-        try:
-            llm_response = query_llm(prompt, system_instruction, json_mode=True)
-            # Clean response text from markdown block quotes if present
-            if "```json" in llm_response:
-                llm_response = llm_response.split("```json")[1].split("```")[0].strip()
-            elif "```" in llm_response:
-                llm_response = llm_response.split("```")[1].split("```")[0].strip()
-
-            llm_analysis = json.loads(llm_response.strip())
-            llm_recs = llm_analysis.get("recommended_transformations") if isinstance(llm_analysis, dict) else None
-            if isinstance(llm_recs, list) and llm_recs:
-                recommended_transformations = [str(r) for r in llm_recs]
-        except Exception as e:
-            logger.error(f"Error parsing LLM response in IntakeAgent: {e}")
+        recommended_transformations = recommendations_from_llm(prompt)
 
         # Measured profile values always come from the data itself; the LLM only contributes recommendations
         analysis = {
