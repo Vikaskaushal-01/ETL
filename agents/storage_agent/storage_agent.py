@@ -9,7 +9,7 @@ from sqlalchemy import text
 from docx import Document
 from backend.database.mysql import SessionLocal
 from backend.database.repository import log_agent_decision
-from backend.core.llm import query_llm
+from backend.core.llm import prefetch_llm, query_llm
 from backend.utils.file_utils import read_dataset
 
 logger = logging.getLogger("etl_storage_agent")
@@ -125,6 +125,7 @@ class StorageAgent:
         self.name = "Intelligent Storage Agent"
 
     def run(self, clean_file_path: str, batch_id: str, metadata: dict = None) -> dict:
+        """Loads the cleaned file into the database while the model picks the storage format, then saves the formatted copy."""
         start_time = time.time()
         logger.info(f"Running Intelligent Storage Agent on {clean_file_path} for batch {batch_id}")
         
@@ -178,25 +179,8 @@ class StorageAgent:
             default_format = "CSV"
             default_reason = "Tabular data containing statistics and tabular attributes suited for spreadsheet-based CSV exports."
             
-        try:
-            llm_response = query_llm(prompt, system_instruction, json_mode=True)
-            if "```json" in llm_response:
-                llm_response = llm_response.split("```json")[1].split("```")[0].strip()
-            elif "```" in llm_response:
-                llm_response = llm_response.split("```")[1].split("```")[0].strip()
-            decision = json.loads(llm_response.strip())
-            format_selected = decision.get("format_selected", default_format).upper()
-            storage_reason = decision.get("reason", default_reason)
-        except Exception as e:
-            logger.error(f"Error calling LLM in StorageAgent: {e}")
-            format_selected = default_format.upper()
-            storage_reason = default_reason
-
-        # Standardize format naming
-        if format_selected not in ["CSV", "WORD", "SQL"]:
-            format_selected = default_format.upper()
-
-        logger.info(f"Selected format: {format_selected}. Reason: {storage_reason}")
+        # The model answers while the rows are validated and loaded below
+        prefetch_llm(prompt, system_instruction, json_mode=True)
         
         # 3. Detect the target relational table from the dataset's key columns
         dataset_type = detect_dataset_type(cols)
@@ -210,9 +194,6 @@ class StorageAgent:
             ).scalar()
         except Exception as e:
             logger.warning(f"Failed to query uploaded_by in StorageAgent: {e}")
-
-        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df, batch_id, user_email=user_email)
-        logger.info(f"Storage agent saved formatted dataset ({format_selected}) to clean folder: {formatted_file_path}")
 
         sql_logs = []
         rejected_records = []
@@ -387,6 +368,29 @@ class StorageAgent:
             ]
         finally:
             db.close()
+
+        try:
+            llm_response = query_llm(prompt, system_instruction, json_mode=True)
+            if "```json" in llm_response:
+                llm_response = llm_response.split("```json")[1].split("```")[0].strip()
+            elif "```" in llm_response:
+                llm_response = llm_response.split("```")[1].split("```")[0].strip()
+            decision = json.loads(llm_response.strip())
+            format_selected = decision.get("format_selected", default_format).upper()
+            storage_reason = decision.get("reason", default_reason)
+        except Exception as e:
+            logger.error(f"Error calling LLM in StorageAgent: {e}")
+            format_selected = default_format.upper()
+            storage_reason = default_reason
+
+        # Standardize format naming
+        if format_selected not in ["CSV", "WORD", "SQL"]:
+            format_selected = default_format.upper()
+
+        logger.info(f"Selected format: {format_selected}. Reason: {storage_reason}")
+
+        formatted_file_path = self._save_formatted_file_to_clean_folder(clean_file_path, format_selected, dataset_type, df, batch_id, user_email=user_email)
+        logger.info(f"Storage agent saved formatted dataset ({format_selected}) to clean folder: {formatted_file_path}")
 
         validation_status = "Success" if rows_rejected == 0 else "Passed with Warnings"
         if rows_loaded == 0:
