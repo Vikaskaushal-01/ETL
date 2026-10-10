@@ -25,6 +25,8 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 LLM_CACHE = os.getenv("LLM_CACHE", "on").lower() != "off"
 LLM_CACHE_ENTRIES = 512
 LLM_CACHE_SECONDS = 86400
+# How long a prefetched answer waits for the query it was started for
+PREFETCH_SECONDS = 600
 # A model that answered "overloaded" (503) or "rate limited" (429) is skipped this long
 OVERLOAD_COOLDOWN = 90
 
@@ -421,8 +423,11 @@ def _cached_answer(key: str):
     return None
 
 
-def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[str], json_mode: bool):
-    """Asks the engines, completes the shared future and keeps a real model's answer for reuse."""
+def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[str], json_mode: bool, keep: bool = False):
+    """
+    Asks the engines, completes the shared future and keeps a real model's answer for reuse.
+    keep leaves a prefetched answer waiting for the query_llm call it was started for.
+    """
     try:
         text = _query_engines(prompt, system_instruction, json_mode)
         source = getattr(_response_source, "value", "offline")
@@ -435,9 +440,10 @@ def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[
     except BaseException as e:
         future.set_exception(e)
     finally:
-        with _answer_lock:
-            if _inflight.get(key) is future:
-                del _inflight[key]
+        if not keep:
+            with _answer_lock:
+                if _inflight.get(key) is future:
+                    del _inflight[key]
 
 
 def prefetch_llm(prompt: str, system_instruction: str = None, json_mode: bool = False):
@@ -450,11 +456,16 @@ def prefetch_llm(prompt: str, system_instruction: str = None, json_mode: bool = 
     key = _answer_key(prompt, system_instruction, json_mode)
     if _cached_answer(key):
         return
+    now = time.time()
     with _answer_lock:
+        # Prefetched answers nobody asked for within the cache window are dropped
+        for k in [k for k, f in _inflight.items() if getattr(f, "prefetched_at", now) < now - PREFETCH_SECONDS]:
+            del _inflight[k]
         if key in _inflight:
             return
         future = _inflight[key] = Future()
-    _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode)
+        future.prefetched_at = now
+    _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode, True)
 
 
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
@@ -479,6 +490,8 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
             owner = future is None
             if owner:
                 future = _inflight[key] = Future()
+            elif hasattr(future, "prefetched_at"):
+                del _inflight[key]  # the query a prefetch was started for takes its answer
         if owner:
             _answer(key, future, prompt, system_instruction, json_mode)
         hit = future.result()
