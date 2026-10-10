@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from backend.utils.file_utils import read_dataset, detect_file_info
-from backend.core.llm import query_llm
+from backend.core.llm import is_offline, prefetch_llm, query_llm
 
 logger = logging.getLogger("etl_intake_agent")
 
@@ -38,7 +38,12 @@ class IntakeAgent:
         self.role = "Senior Data Engineer"
         self.name = "Data Intake Agent"
 
-    def run(self, file_path: str) -> dict:
+    def run(self, file_path: str, defer_llm: bool = False) -> dict:
+        """
+        Profiles the file. With defer_llm, a remote model's recommendations are only requested here:
+        the result carries "recommendations_prompt" and the caller collects them later with
+        recommendations_from_llm, so the pipeline does not wait for the model.
+        """
         start_time = time.time()
         logger.info(f"Running Data Intake Agent on {file_path}")
         
@@ -110,7 +115,12 @@ class IntakeAgent:
         Return ONLY valid JSON.
         """
         
-        recommended_transformations = recommendations_from_llm(prompt)
+        defer = defer_llm and not is_offline()
+        if defer:
+            prefetch_llm(prompt, SYSTEM_INSTRUCTION, json_mode=True)
+            recommended_transformations = list(DEFAULT_RECOMMENDATIONS)
+        else:
+            recommended_transformations = recommendations_from_llm(prompt)
 
         # Measured profile values always come from the data itself; the LLM only contributes recommendations
         analysis = {
@@ -128,6 +138,8 @@ class IntakeAgent:
         execution_time = time.time() - start_time
         analysis["execution_time"] = execution_time
         analysis["file_info"] = file_info
+        if defer:
+            analysis["recommendations_prompt"] = prompt
         
         logger.info(f"Intake completed in {execution_time:.2f}s with quality score {analysis.get('estimated_quality')}%")
         return analysis
