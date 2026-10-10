@@ -36,6 +36,31 @@ def _load_json(text: Optional[str]) -> list:
         return []
 
 
+def _previous_profile(db: Session, upload: Optional[RawUpload]) -> Optional[dict]:
+    """
+    Columns, kinds of values and rows of the last earlier upload of the same file by the same owner, to
+    compare this upload with. Runs from before profiles were kept only give their column names.
+    """
+    if not upload:
+        return None
+    earlier = (db.query(RawUpload)
+               .filter(RawUpload.filename == upload.filename, RawUpload.uploaded_by == upload.uploaded_by,
+                       RawUpload.id < upload.id, RawUpload.batch_id.isnot(None))
+               .order_by(RawUpload.id.desc()).limit(10).all())
+    from agents.transformation_agent.transformation_agent import standardize_column_name
+    for prior in earlier:
+        state = read_pipeline_state(f"pipe_{prior.batch_id}")
+        when = prior.upload_time.strftime("%Y-%m-%d %H:%M") if prior.upload_time else None
+        profile = (state.get("review") or {}).get("profile")
+        if profile and profile.get("schema"):
+            return {**profile, "batch_id": prior.batch_id, "uploaded_at": when}
+        preview = (((state.get("stages") or {}).get("intake") or {}).get("output") or {}).get("preview") or []
+        if preview and isinstance(preview[0], dict):
+            schema = {standardize_column_name(c): None for c in preview[0]}
+            return {"schema": schema, "rows": None, "batch_id": prior.batch_id, "uploaded_at": when}
+    return None
+
+
 def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dict] = None, error: Optional[str] = None) -> Optional[dict]:
     """
     Runs the Review Agent on a finished (or crashed) run and records the result in the run state, so
@@ -54,20 +79,21 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
     history = final_state.get("transformation_history") or \
         ((stages.get("transformation") or {}).get("metadata") or {}).get("transformation_history") or []
 
-    agent = ReviewAgent()
-    review = agent.run(
-        raw_path, clean_path,
-        transformation_history=history,
-        validation_results=final_state.get("validation_results") or {},
-        pipeline_status=final_state.get("pipeline_status"),
-        error=error or state.get("error"),
-        failed_stage=failed_stage,
-    )
-    review["checked_at"] = datetime.utcnow().isoformat()
-
     db = SessionLocal()
     try:
         upload = db.query(RawUpload).filter(RawUpload.batch_id == batch_id).first()
+        agent = ReviewAgent()
+        review = agent.run(
+            raw_path, clean_path,
+            transformation_history=history,
+            validation_results=final_state.get("validation_results") or {},
+            pipeline_status=final_state.get("pipeline_status"),
+            error=error or state.get("error"),
+            failed_stage=failed_stage,
+            previous=_previous_profile(db, upload),
+        )
+        review["checked_at"] = datetime.utcnow().isoformat()
+
         item = db.query(ReviewItem).filter(ReviewItem.batch_id == batch_id).first()
         # Edits made in the data editor before this run are written to its process log
         review["human_edits"] = _load_json(item.edits_json) if item else []
