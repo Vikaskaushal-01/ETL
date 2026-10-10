@@ -46,6 +46,11 @@ def detect_file_info(file_path: str) -> dict:
     return info
 
 def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
+    """Reads a dataset (see _read_dataset)."""
+    return _read_dataset(file_path, nrows)
+
+
+def _read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
     """
     Reads ANY file format into a Pandas DataFrame.
     Supports CSV, TSV, Excel, JSON, XML, IPYNB, PDF, DOCX, DOC, HTML, SQL, MD, TXT, LOG, Parquet, Images, Zip/Archives, and binary fallbacks (never pickle).
