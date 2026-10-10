@@ -1,12 +1,10 @@
 import os
-import json
 import logging
 import re
 import time
 import warnings
 import pandas as pd
 from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder, detect_file_info
-from backend.core.llm import query_llm
 
 logger = logging.getLogger("etl_transformation_agent")
 
@@ -331,7 +329,7 @@ class TransformationAgent:
             "transformation_steps": history,
             "updated_schema": {col: str(dtype) for col, dtype in df.dtypes.items()},
             "clean_dataset_path": clean_file_path,
-            # Quality scores are measured from the data; the LLM only narrates the summary
+            # Quality scores are measured from the data
             "quality_before": quality_before,
             "quality_after": quality_after,
             "summary": summary_text,
