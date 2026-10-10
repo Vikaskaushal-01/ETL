@@ -39,40 +39,35 @@ def _as_text(value) -> str:
 SUMMARY_SYSTEM_INSTRUCTION = "You are the Report Generation Agent. Summarize only the provided facts as valid JSON."
 
 
-class ReportAgent:
-    def __init__(self):
-        self.role = "Chief Data Intelligence Officer"
-        self.name = "Report Generation Agent"
+def build_summary_inputs(state: dict) -> tuple:
+    """
+    Root causes, insights and recommendations measured from the run, and the executive-summary prompt
+    built from them. The storage stage calls this as soon as the rows are loaded to ask the model early.
+    """
+    # 1. Analyze validation rejects: RCA is derived from the actual rejection reasons
+    val_res = state.get("validation_results", {})
+    rejected_count = val_res.get("rows_rejected", 0)
+    rejected_records = val_res.get("rejected_records", [])
+    total_rows = (val_res.get("rows_loaded", 0) or 0) + (rejected_count or 0)
+    rca_list = build_root_cause_analysis(rejected_records, total_rows) if rejected_count else []
 
-    def run(self, state: dict) -> dict:
-        start_time = time.time()
-        batch_id = state.get("batch_id")
-        logger.info(f"Running Report Generation Agent on batch {batch_id}")
-        
-        # 1. Analyze validation rejects: RCA is derived from the actual rejection reasons
-        val_res = state.get("validation_results", {})
-        rejected_count = val_res.get("rows_rejected", 0)
-        rejected_records = val_res.get("rejected_records", [])
-        total_rows = (val_res.get("rows_loaded", 0) or 0) + (rejected_count or 0)
-        rca_list = build_root_cause_analysis(rejected_records, total_rows) if rejected_count else []
+    # 2. Insights and recommendations are computed from the cleaned dataset itself
+    clean_df = None
+    clean_path = state.get("dataset_path")
+    if clean_path and os.path.isfile(clean_path):
+        try:
+            clean_df = read_dataset(clean_path)
+        except Exception as e:
+            logger.warning(f"Could not read cleaned dataset for insights: {e}")
+    business_insights = compute_dataset_insights(clean_df)
+    recommendations = build_recommendations(
+        clean_df, rca_list, state.get("duplicate_rows", 0),
+        (state.get("metadata") or {}).get("estimated_quality"), state.get("quality_score")
+    )
 
-        # 2. Insights and recommendations are computed from the cleaned dataset itself
-        clean_df = None
-        clean_path = state.get("dataset_path")
-        if clean_path and os.path.isfile(clean_path):
-            try:
-                clean_df = read_dataset(clean_path)
-            except Exception as e:
-                logger.warning(f"Could not read cleaned dataset for insights: {e}")
-        business_insights = compute_dataset_insights(clean_df)
-        recommendations = build_recommendations(
-            clean_df, rca_list, state.get("duplicate_rows", 0),
-            (state.get("metadata") or {}).get("estimated_quality"), state.get("quality_score")
-        )
-
-        # The LLM only narrates the measured facts; it is not asked to invent insights
-        facts = "\n".join(f"- {line}" for line in business_insights)
-        prompt_insights = f"""
+    # The LLM only narrates the measured facts; it is not asked to invent insights
+    facts = "\n".join(f"- {line}" for line in business_insights)
+    prompt_insights = f"""
         You are a Chief Data Intelligence Officer writing the executive summary of an ETL run.
         Dataset: {state.get('dataset_name')}
         Rows loaded: {val_res.get('rows_loaded', 0)}; rows rejected: {rejected_count}; final data quality: {state.get('quality_score')}%.
@@ -83,6 +78,22 @@ class ReportAgent:
         Write a 3-4 sentence executive summary using ONLY the facts above. Do not introduce any number,
         trend or category that is not listed. Return JSON: {{"executive_summary": "..."}}
         """
+    return rca_list, business_insights, recommendations, prompt_insights
+
+
+class ReportAgent:
+    def __init__(self):
+        self.role = "Chief Data Intelligence Officer"
+        self.name = "Report Generation Agent"
+
+    def run(self, state: dict) -> dict:
+        start_time = time.time()
+        batch_id = state.get("batch_id")
+        logger.info(f"Running Report Generation Agent on batch {batch_id}")
+        
+        val_res = state.get("validation_results", {})
+        rejected_count = val_res.get("rows_rejected", 0)
+        rca_list, business_insights, recommendations, prompt_insights = build_summary_inputs(state)
         system_instruction = SUMMARY_SYSTEM_INSTRUCTION
         executive_summary = None
         try:
