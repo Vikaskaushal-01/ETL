@@ -60,3 +60,22 @@ class TestParseDates(unittest.TestCase):
                     self.assertTrue(expected.index.equals(got.index), name)
                     self.assertEqual(expected.name, got.name)
                     self.assertTrue(expected.equals(got), name)
+
+
+class TestReadCache(unittest.TestCase):
+    def test_copies_and_edits(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "data.csv")
+            with open(path, "w") as f:
+                f.write("id,name\n1,abc\n2,def\n")
+            first = file_utils.read_dataset(path)
+            first.loc[0, "name"] = "changed"
+            # A caller changing its copy does not change what the next caller reads
+            self.assertEqual(file_utils.read_dataset(path).loc[0, "name"], "abc")
+            # An edit of the same size is seen even when the modification time does not change
+            stat = os.stat(path)
+            with open(path, "w") as f:
+                f.write("id,name\n1,xyz\n2,def\n")
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+            self.assertEqual(file_utils.read_dataset(path).loc[0, "name"], "xyz")
+            self.assertTrue(file_utils.read_dataset(path, nrows=1).equals(pd.read_csv(path, nrows=1)))
