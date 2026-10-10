@@ -21,6 +21,7 @@ from backend.database.mysql import SessionLocal, get_db
 from backend.schemas.schemas import DataEditRequest, ReviewDecisionRequest
 from backend.utils import data_editor
 from backend.utils.account_utils import get_user_path
+from backend.utils.text import plural, verb
 
 router = APIRouter(prefix="/review", tags=["Human Review"])
 logger = logging.getLogger("etl_review_api")
@@ -50,7 +51,7 @@ def _previous_profile(db: Session, upload: Optional[RawUpload]) -> Optional[dict
     from agents.transformation_agent.transformation_agent import standardize_column_name
     for prior in earlier:
         state = read_pipeline_state(f"pipe_{prior.batch_id}")
-        when = prior.upload_time.strftime("%Y-%m-%d %H:%M") if prior.upload_time else None
+        when = prior.upload_time.strftime("%Y-%m-%d %H:%M UTC") if prior.upload_time else None
         profile = (state.get("review") or {}).get("profile")
         if profile and profile.get("schema"):
             return {**profile, "batch_id": prior.batch_id, "uploaded_at": when}
@@ -115,7 +116,7 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
             item.resolved_at = now
             item.updated_at = now
             item.note = (f"Processed from Human Review on {now:%Y-%m-%d %H:%M} UTC"
-                         + (f"; {len(issues)} remaining note(s) are in the process log." if issues else "."))
+                         + (f"; {plural(len(issues), 'remaining note')} {verb(len(issues))} in the process log." if issues else "."))
         elif review["required"]:
             if not item:
                 item = ReviewItem(batch_id=batch_id)
@@ -140,16 +141,16 @@ def review_run(batch_id: str, raw_path: Optional[str], final_state: Optional[dic
             item.resolved_at = now
             item.updated_at = now
             item.note = (f"Re-run on {now:%Y-%m-%d %H:%M} UTC no longer needs a human decision"
-                         + (f" ({len(issues)} minor note(s) are in the process log)." if issues else "."))
+                         + (f" ({plural(len(issues), 'minor note')} {verb(len(issues))} in the process log)." if issues else "."))
         db.commit()
 
         if approved_by and review["kind"] != "not_processed":
-            reasoning = f"Processed after Human Review, approved by {approved_by}; {len(issues)} note(s) written to the process log."
+            reasoning = f"Processed after Human Review, approved by {approved_by}; {plural(len(issues), 'note')} written to the process log."
         elif review["required"]:
-            reasoning = (f"Sent to Human Review ({review['kind'].replace('_', ' ')}), {len(issues)} issue(s): "
+            reasoning = (f"Sent to Human Review ({review['kind'].replace('_', ' ')}), {plural(len(issues), 'issue')}: "
                          + "; ".join(i["title"] for i in issues[:5]))
         elif issues:
-            reasoning = f"No human decision needed; {len(issues)} minor note(s) written to the process log."
+            reasoning = f"No human decision needed; {plural(len(issues), 'minor note')} written to the process log."
         else:
             reasoning = "No problems found."
         log_agent_decision(db, batch_id=batch_id, agent_name=agent.name, task="Decide whether the run needs a human",

@@ -23,6 +23,7 @@ from agents.transformation_agent.transformation_agent import is_date_column_name
 from backend.utils import pii
 from backend.utils.data_editor import describe_filter, reason_filter
 from backend.utils.file_utils import read_dataset
+from backend.utils.text import plural, verb
 
 logger = logging.getLogger("etl_review_agent")
 
@@ -188,7 +189,7 @@ class ReviewAgent:
             issues.append(_issue(
                 "empty_file", "critical", "File",
                 "The file has no data rows",
-                f"The file was read but contains {len(raw_df.columns)} column header(s) and no rows, so there was nothing to clean or load.",
+                f"The file was read but contains {plural(len(raw_df.columns), 'column header')} and no rows, so there was nothing to clean or load.",
                 "Nothing from this file reached the database or the reports.",
                 "Check that the export or download produced data, then upload the file again.",
             ))
@@ -444,7 +445,7 @@ class ReviewAgent:
         return _issue(
             "mixed_types", "high" if coerced else "medium", "Data types",
             f"{len(bad):,} values in '{col}' are not numbers",
-            f"'{col}' is {_pct(share)} numeric, but {len(bad):,} value(s) are text, e.g. {', '.join(repr(e) for e in examples)}."
+            f"'{col}' is {_pct(share)} numeric, but {plural(len(bad), 'value')} {verb(len(bad))} text, e.g. {', '.join(repr(e) for e in examples)}."
             + (" The agent converted them to numbers and filled them as if they were missing." if coerced else
                " The agent kept the column as text so nothing was lost."),
             ("The original entries were replaced by a default, so real information (a typo of a real amount, a unit like '12kg') "
@@ -498,7 +499,7 @@ class ReviewAgent:
             return _issue(
                 "negative_values", "medium", "Outliers",
                 f"{len(negatives):,} negative values in '{col}'",
-                f"'{col}' should not be negative, but {len(negatives):,} value(s) are, e.g. {', '.join(examples)}. "
+                f"'{col}' should not be negative, but {plural(len(negatives), 'value')} {verb(len(negatives))}, e.g. {', '.join(examples)}. "
                 "They may be refunds or returns, or data entry errors; the agent cannot tell which.",
                 "Negative entries reduce totals and averages; if they are errors, every revenue or quantity figure is understated.",
                 f"Confirm whether negative '{col}' values are valid (returns/refunds) or errors, and correct or exclude them.",
@@ -523,7 +524,7 @@ class ReviewAgent:
         return _issue(
             "outliers", "medium", "Outliers",
             f"{len(extreme):,} extreme values in '{col}'",
-            f"{len(extreme):,} value(s) ({_pct(share)}) lie far outside the usual range of '{col}' "
+            f"{plural(len(extreme), 'value')} ({_pct(share)}) {verb(len(extreme), 'lies', 'lie')} far outside the usual range of '{col}' "
             f"({_num(q1)} to {_num(q3)} for the middle half), e.g. {', '.join(examples)}. "
             "They could be real (a very large order) or errors (an extra zero, wrong unit); the agent kept them.",
             f"A few extreme values dominate sums and averages of '{col}' and can skew charts and models.",
@@ -563,9 +564,10 @@ class ReviewAgent:
                 what = pii.label(kind)
                 rows = {"kind": "pii", "column": col, "pii": kind}
                 where = (f"'{col}' holds {what}" if found["whole_values"]
-                         else f"'{col}' contains {what} in {found['count']:,} value(s)")
+                         else f"'{col}' contains {what} in {plural(found['count'], 'value')}")
                 examples = f" (e.g. {', '.join(found['examples'])})" if found["examples"] else ""
-                fixes = [_fix(f"Mask the {what} (keep the last 4 characters)", {"op": "mask_values", "column": col, "pii": kind}),
+                kept = {"email": " (keep the first letter and the domain)", "ip": " (keep the network part)", "secret": ""}.get(kind, " (keep the last 4 characters)")
+                fixes = [_fix(f"Mask the {what}{kept}", {"op": "mask_values", "column": col, "pii": kind}),
                          _fix("Replace them with stable pseudonyms", {"op": "pseudonymize_values", "column": col, "pii": kind})]
                 if found["whole_values"]:
                     fixes.append(_fix(f"Remove column '{col}'", {"op": "drop_column", "column": col}))
@@ -624,7 +626,7 @@ class ReviewAgent:
         if removed:
             names = ", ".join(f"'{c}'" for c in removed[:8]) + (" and more" if len(removed) > 8 else "")
             issues.append(_issue(
-                "columns_removed", "high", "Schema drift", f"{len(removed)} column(s) missing since the last upload: {names}",
+                "columns_removed", "high", "Schema drift", f"{plural(len(removed), 'column')} missing since the last upload: {names}",
                 f"The last upload of this file{when} had {names}; this one does not.",
                 "Rows from this file have no values for these columns, so reports, totals and Power BI measures that use "
                 "them go empty or drop these rows.",
@@ -635,7 +637,7 @@ class ReviewAgent:
         if added:
             names = ", ".join(f"'{c}'" for c in added[:8]) + (" and more" if len(added) > 8 else "")
             issues.append(_issue(
-                "columns_added", "medium", "Schema drift", f"{len(added)} new column(s) since the last upload: {names}",
+                "columns_added", "medium", "Schema drift", f"{plural(len(added), 'new column')} since the last upload: {names}",
                 f"This upload has {names}, which the last upload of this file{when} did not.",
                 "New columns are loaded as they are; reports and dashboards ignore them until someone uses them.",
                 "Check the new columns are expected, and that none of them replaces an existing field under a new name.",
@@ -651,7 +653,7 @@ class ReviewAgent:
                 examples = ", ".join(repr(v) for v in list(dict.fromkeys(bad))[:5])
                 issues.append(_issue(
                     "type_changed", "high", "Schema drift", f"'{col}' changed from numbers to text",
-                    f"'{col}' held numbers in the last upload{when}; now {len(bad):,} value(s) are not numbers"
+                    f"'{col}' held numbers in the last upload{when}; now {plural(len(bad), 'value')} {verb(len(bad))} not numbers"
                     + (f", e.g. {examples}" if examples else "") + ".",
                     f"Sums, averages and comparisons on '{col}' skip or reject these rows, and dashboards built on it "
                     "show lower totals.",
