@@ -172,6 +172,14 @@ def update_pipeline_stage(pipeline_id: str, stage_id: str, status: str, **kwargs
 
         write_pipeline_state(pipeline_id, state)
 
+def set_stage_metadata(pipeline_id: str, stage_id: str, **values):
+    """Adds values to a stage's metadata without touching its status or times."""
+    with _state_lock:
+        state = read_pipeline_state(pipeline_id)
+        stage = state["stages"].setdefault(stage_id, _empty_stage())
+        stage["metadata"] = {**(stage.get("metadata") or {}), **values}
+        write_pipeline_state(pipeline_id, state)
+
 def update_pipeline_overall_status(pipeline_id: str, status: str, execution_time: float = None, error: str = None):
     with _state_lock:
         state = read_pipeline_state(pipeline_id)
