@@ -36,6 +36,9 @@ def _as_text(value) -> str:
     return str(value)
 
 
+SUMMARY_SYSTEM_INSTRUCTION = "You are the Report Generation Agent. Summarize only the provided facts as valid JSON."
+
+
 class ReportAgent:
     def __init__(self):
         self.role = "Chief Data Intelligence Officer"
@@ -80,7 +83,7 @@ class ReportAgent:
         Write a 3-4 sentence executive summary using ONLY the facts above. Do not introduce any number,
         trend or category that is not listed. Return JSON: {{"executive_summary": "..."}}
         """
-        system_instruction = "You are the Report Generation Agent. Summarize only the provided facts as valid JSON."
+        system_instruction = SUMMARY_SYSTEM_INSTRUCTION
         executive_summary = None
         try:
             llm_ins = query_llm(prompt_insights, system_instruction, json_mode=True)
