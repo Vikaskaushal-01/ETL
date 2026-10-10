@@ -7,6 +7,8 @@ import re
 from collections import OrderedDict
 
 import pandas as pd
+from backend.utils import pii
+from backend.utils.text import plural, verb
 
 MAX_CATEGORY_CARDINALITY = 25
 
@@ -55,7 +57,14 @@ def compute_dataset_insights(df: pd.DataFrame, max_items: int = 12) -> list:
     for col in categorical[:4]:
         counts = df[col].value_counts(dropna=True)
         total = int(counts.sum())
-        top = ", ".join(f"{val} ({cnt / total:.0%})" for val, cnt in counts.head(3).items())
+        # Insights go into the reports and the model's prompt: personal data is shown masked
+        kinds = [f["kind"] for f in pii.scan_column(df[col], col)]
+        def shown(val):
+            text = str(val)
+            for kind in kinds:
+                text = pii.mask_text(kind, text, pii.lenient_for(kind, col))
+            return text
+        top = ", ".join(f"{shown(val)} ({cnt / total:.0%})" for val, cnt in counts.head(3).items())
         insights.append(f"'{col}' has {df[col].nunique(dropna=True)} distinct values; most frequent: {top}.")
 
     null_counts = df.isnull().sum()
@@ -142,9 +151,9 @@ def build_root_cause_analysis(rejected_records: list, total_rows: int) -> list:
             "recommendation": "Review the listed examples and correct the source data.",
         })
         share = f" ({group['count'] / total_rows:.1%} of rows)" if total_rows else ""
-        columns = f" in column(s) {', '.join(sorted(group['columns']))}" if group["columns"] else ""
+        columns = f" in {'column' if len(group['columns']) == 1 else 'columns'} {', '.join(sorted(group['columns']))}" if group["columns"] else ""
         rca.append({
-            "issue": f"{category}{columns}: {group['count']} row(s) rejected{share}. Rows {', '.join(str(r) for r in group['rows'])}{'...' if group['count'] > len(group['rows']) else ''}. Example: {group['examples'][0]}",
+            "issue": f"{category}{columns}: {plural(group['count'], 'row')} rejected{share}. Rows {', '.join(str(r) for r in group['rows'])}{'...' if group['count'] > len(group['rows']) else ''}. Example: {group['examples'][0]}",
             "root_cause": template["root_cause"],
             "business_impact": template["business_impact"],
             "technical_impact": template["technical_impact"],
@@ -158,13 +167,13 @@ def build_recommendations(df: pd.DataFrame, rca_list: list, duplicate_rows: int,
     """Actionable recommendations derived from what this run actually found."""
     recs = [r["recommendation"] for r in rca_list]
     if duplicate_rows:
-        recs.append(f"{duplicate_rows} exact duplicate row(s) were removed; check the source export for repeated records.")
+        recs.append(f"{plural(duplicate_rows, 'exact duplicate row')} {verb(duplicate_rows, 'was', 'were')} removed; check the source export for repeated records.")
     if df is not None and not df.empty:
         null_counts = df.isnull().sum()
         worst = null_counts[null_counts > 0].sort_values(ascending=False)
         if not worst.empty:
             col, n = worst.index[0], int(worst.iloc[0])
-            recs.append(f"Column '{col}' still has {n:,} empty value(s) ({n / len(df):.0%}); capture it at the source or define a default.")
+            recs.append(f"Column '{col}' still has {plural(n, 'empty value')} ({n / len(df):.0%}); capture it at the source or define a default.")
     try:
         if quality_before is not None and quality_after is not None and float(quality_after) < 95:
             recs.append(f"Data quality is {float(quality_after):.1f}% after cleaning; add validation rules for the columns listed above.")
