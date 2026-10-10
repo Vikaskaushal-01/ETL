@@ -412,6 +412,8 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         ], file_path, uploaded_by)
     finally:
         db.close()
+        from agents_graph.nodes import run_deferred
+        run_deferred(pipeline_id)
         try:
             from backend.core.notify import notify_run_finished
             notify_run_finished(batch_id)
