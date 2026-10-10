@@ -3,6 +3,7 @@ Data editor for Human Review: loads an uploaded file as text cells, finds the ro
 refers to, applies a reviewer's edits and writes the file back in its own format, so the pipeline
 can process the corrected file on the next run.
 """
+import hashlib
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from typing import Optional
 import pandas as pd
 
 from agents.transformation_agent.transformation_agent import parse_dates, standardize_column_name
+from backend.utils import pii
 from backend.utils.file_utils import detect_file_info, read_dataset
 
 DELIMITED_TYPES = {"csv", "tsv", "txt", "dat"}
@@ -145,6 +147,9 @@ def match_rows(df: pd.DataFrame, flt: Optional[dict]) -> pd.Series:
             mask = ~missing & col.duplicated(keep=False)
         elif kind == "value":
             mask = col.astype(str).str.strip() == str(flt.get("value", "")).strip()
+        elif kind == "pii":
+            kind = _pii_kind(flt)
+            mask = ~missing & pii.row_mask(col, kind, pii.lenient_for(kind, col.name))
         else:
             raise EditError(f"Unknown row filter '{kind}'.")
     if flt.get("group_column"):
@@ -192,6 +197,19 @@ def _fill_value(df: pd.DataFrame, col: str, strategy: str, missing: pd.Series, v
         else:
             fill[group == key] = rows[col].astype(str).value_counts().index[0]
     return fill
+
+
+def _pii_kind(op: dict) -> str:
+    kind = op.get("pii")
+    if not pii.known_kind(kind):
+        raise EditError(f"Unknown kind of sensitive data '{kind}'.")
+    return kind
+
+
+def _pseudonym_key() -> bytes:
+    # Derived from the server's secret, so tokens cannot be reversed by hashing guesses
+    from backend.core.security import SECRET_KEY
+    return hashlib.sha256(SECRET_KEY + b"|pii-pseudonyms").digest()
 
 
 def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
@@ -268,6 +286,18 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
             col = resolve_column(df, op.get("column"))
             df = df.drop(columns=[col])
             summaries.append(f"Removed column '{col}'")
+        elif name in ("mask_values", "pseudonymize_values"):
+            col = resolve_column(df, op.get("column"))
+            kind = _pii_kind(op)
+            lenient = pii.lenient_for(kind, col)
+            rows = ~_missing(df[col]) & pii.row_mask(df[col], kind, lenient)
+            if name == "mask_values":
+                df.loc[rows, col] = df.loc[rows, col].astype(str).map(lambda v: pii.mask_text(kind, v, lenient))
+                summaries.append(f"Masked {pii.label(kind)} in {int(rows.sum())} cell(s) of '{col}'")
+            else:
+                key = _pseudonym_key()
+                df.loc[rows, col] = df.loc[rows, col].astype(str).map(lambda v: pii.pseudonymize_text(kind, v, key, lenient))
+                summaries.append(f"Replaced {pii.label(kind)} in {int(rows.sum())} cell(s) of '{col}' with stable pseudonyms")
         elif name == "drop_duplicates":
             before = len(df)
             df = df.drop_duplicates().reset_index(drop=True)
@@ -290,6 +320,7 @@ def describe_filter(flt: Optional[dict]) -> str:
         "duplicate": "that are duplicates",
         "duplicate_key": f"with a repeated '{col}'",
         "value": f"where '{col}' is '{flt.get('value')}'",
+        "pii": f"where '{col}' contains {pii.label(flt['pii'])}" if pii.known_kind(flt.get("pii")) else "",
     }.get(flt.get("kind"), "")
     if flt.get("group_column"):
         text += f" in {flt['group_column']} = '{flt.get('group')}'"
