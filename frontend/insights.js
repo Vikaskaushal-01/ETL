@@ -189,7 +189,7 @@ async function renderComparison(a, b) {
             <h4>Columns</h4>
             <div><span class="schema-label">Only in A</span>${chips(data.schema.only_in_a, 'a')}</div>
             <div><span class="schema-label">Only in B</span>${chips(data.schema.only_in_b, 'b')}</div>
-            <div><span class="schema-label">Shared</span><span class="text-secondary">${data.schema.shared.length} column(s)</span></div>
+            <div><span class="schema-label">Shared</span><span class="text-secondary">${plural(data.schema.shared.length, 'column')}</span></div>
         </div>`;
 }
 
@@ -366,7 +366,7 @@ window.openRunDetails = async function(batchId) {
     const run = d.run;
     document.getElementById('sheet-title').textContent = run.filename || batchId;
     document.getElementById('sheet-subtitle').textContent =
-        `${batchId}${run.started_at ? ' · started ' + fmtDateTime(run.started_at) : ''}${d.dataset_type ? ' · ' + d.dataset_type + ' dataset' : ''}`;
+        `${batchId}${run.started_at ? ' · started ' + fmtDateTime(run.started_at) : ''}${d.dataset_type && d.dataset_type !== 'dataset' ? ' · ' + d.dataset_type + ' data' : ''}`;
 
     const qBefore = run.quality_before, qAfter = run.quality_after ?? d.quality_score;
     const chips = `
@@ -383,7 +383,7 @@ window.openRunDetails = async function(batchId) {
         <button class="review-banner ${run.review.kind === 'not_processed' ? 'critical' : ''}" onclick="openReviewFor('${batchId}')">
             <i class="fa-solid fa-user-shield"></i>
             <span><strong>${run.review.kind === 'not_processed' ? 'This file was not processed' : 'This run needs a human decision'}</strong>
-            ${run.review.issues} problem(s) found by the Review Agent. Open them in Human Review.</span>
+            ${plural(run.review.issues, 'problem')} found by the Review Agent. Open ${run.review.issues === 1 ? 'it' : 'them'} in Human Review.</span>
             <i class="fa-solid fa-chevron-right"></i>
         </button>` : '';
     const actions = `${review}
@@ -433,7 +433,7 @@ window.openRunDetails = async function(batchId) {
             <section>
                 <h4><i class="fa-solid fa-droplet-slash"></i> Missing values in the source</h4>
                 ${missingHtml}
-                ${d.duplicate_rows ? `<p class="text-secondary sheet-note">${fmtNumber(d.duplicate_rows)} duplicate row(s) found.</p>` : ''}
+                ${d.duplicate_rows ? `<p class="text-secondary sheet-note">${plural(d.duplicate_rows, 'duplicate row')} found.</p>` : ''}
             </section>
             <section>
                 <h4><i class="fa-solid fa-lightbulb"></i> Insights</h4>

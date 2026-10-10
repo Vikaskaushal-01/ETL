@@ -153,9 +153,10 @@ function renderDashboardHero() {
     const dateEl = document.getElementById('dash-hero-date');
     if (!greeting) return;
     const hour = new Date().getHours();
-    const part = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    const name = (localStorage.getItem('controlai_username') || '').trim()
+    const part = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const raw = (localStorage.getItem('controlai_username') || '').trim()
         || (localStorage.getItem('controlai_email') || '').split('@')[0];
+    const name = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : '';
     greeting.textContent = name ? `${part}, ${name}` : part;
     if (dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 }
