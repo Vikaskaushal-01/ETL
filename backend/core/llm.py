@@ -385,6 +385,11 @@ def is_real_llm_available() -> bool:
     """True when the last query_llm call on this thread was answered by Gemini or Ollama, not the offline engine."""
     return getattr(_response_source, "value", "offline") in ("gemini", "ollama")
 
+def is_offline() -> bool:
+    """True when queries are answered by the built-in offline engine (no remote model to wait for)."""
+    return LLM_PROVIDER in ["mock", "offline"]
+
+
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
     """
     Unified LLM query function with circuit breaker protection.
@@ -394,7 +399,7 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
 
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
-    if LLM_PROVIDER in ["mock", "offline"]:
+    if is_offline():
         return run_mock_engine(prompt, system_instruction, json_mode)
 
     now = time.time()
