@@ -18,6 +18,7 @@ from backend.database.repository import (
     save_quality_report, save_root_cause_report, 
     save_generated_reports, log_agent_decision
 )
+from backend.utils.text import plural
 
 logger = logging.getLogger("etl_report_agent")
 
@@ -108,9 +109,9 @@ class ReportAgent:
         except Exception as e:
             logger.info(f"LLM executive summary unavailable, using the measured summary: {e}")
         if not executive_summary:
-            status_text = "all rows loaded" if not rejected_count else f"{rejected_count} row(s) rejected ({', '.join(r['issue'].split(':')[0] for r in rca_list)})"
+            status_text = "all rows loaded" if not rejected_count else f"{plural(rejected_count, 'row')} rejected ({', '.join(r['issue'].split(':')[0] for r in rca_list)})"
             executive_summary = (
-                f"Processed '{state.get('dataset_name')}' (batch {batch_id}): {val_res.get('rows_loaded', 0)} row(s) loaded, "
+                f"Processed '{state.get('dataset_name')}' (batch {batch_id}): {plural(val_res.get('rows_loaded', 0), 'row')} loaded, "
                 f"{status_text}. Final data quality score: {state.get('quality_score')}%. "
                 + (business_insights[0] if business_insights else "")
             )

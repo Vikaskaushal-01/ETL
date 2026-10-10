@@ -9,6 +9,7 @@ import threading
 from typing import Optional
 
 from backend.core.security import validate_public_url
+from backend.utils.text import plural
 
 logger = logging.getLogger("etl_notify")
 
@@ -45,7 +46,7 @@ def build_message(run: dict) -> str:
         message += f"\nError: {run['error']}"
     review = run.get("review") or {}
     if review.get("status") == "open":
-        message += f"\nNeeds human review: {review.get('issues')} issue(s), highest severity {review.get('severity')}"
+        message += f"\nNeeds human review: {plural(review.get('issues'), 'issue')}, highest severity {review.get('severity')}"
     if APP_BASE_URL:
         message += f"\n{APP_BASE_URL}/"
     return message

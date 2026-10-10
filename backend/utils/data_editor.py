@@ -14,6 +14,7 @@ import pandas as pd
 from agents.transformation_agent.transformation_agent import parse_dates, standardize_column_name
 from backend.utils import pii
 from backend.utils.file_utils import detect_file_info, read_dataset
+from backend.utils.text import plural
 
 DELIMITED_TYPES = {"csv", "tsv", "txt", "dat"}
 EXCEL_TYPES = {"xlsx", "xlsm"}
@@ -226,22 +227,22 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
                 df.at[row, resolve_column(df, change["column"])] = "" if change.get("value") is None else str(change["value"])
             if changes:
                 cols = sorted({resolve_column(df, c["column"]) for c in changes})
-                summaries.append(f"Edited {len(changes)} cell(s) in {', '.join(repr(c) for c in cols[:4])}{' and more' if len(cols) > 4 else ''}")
+                summaries.append(f"Edited {plural(len(changes), 'cell')} in {', '.join(repr(c) for c in cols[:4])}{' and more' if len(cols) > 4 else ''}")
         elif name == "delete_rows":
             rows = sorted({int(r) for r in op.get("rows") or [] if 0 <= int(r) < len(df)})
             if rows:
                 df = df.drop(index=rows).reset_index(drop=True)
-                summaries.append(f"Deleted {len(rows)} row(s)")
+                summaries.append(f"Deleted {plural(len(rows), 'row')}")
         elif name == "delete_matching":
             mask = match_rows(df, op.get("filter"))
             n = int(mask.sum())
             df = df[~mask].reset_index(drop=True)
-            summaries.append(f"Deleted {n} row(s) {describe_filter(op.get('filter'))}")
+            summaries.append(f"Deleted {plural(n, 'row')} {describe_filter(op.get('filter'))}")
         elif name == "clear_matching":
             col = resolve_column(df, op.get("column") or (op.get("filter") or {}).get("column"))
             mask = match_rows(df, op.get("filter"))
             df.loc[mask, col] = ""
-            summaries.append(f"Emptied {int(mask.sum())} cell(s) of '{col}' {describe_filter(op.get('filter'))}")
+            summaries.append(f"Emptied {plural(int(mask.sum()), 'cell')} of '{col}' {describe_filter(op.get('filter'))}")
         elif name == "fill_missing":
             col = resolve_column(df, op.get("column"))
             strategy = op.get("strategy")
@@ -254,7 +255,7 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
             df.loc[missing, col] = fill[missing]
             how = {"value": f"'{op.get('value')}'", "mean": "the average", "median": "the median", "mode": "the most common value",
                    "group_median": f"the median of each '{op.get('group_by')}' group", "group_mode": f"the most common value of each '{op.get('group_by')}' group"}[strategy]
-            summaries.append(f"Filled {int(missing.sum())} empty cell(s) of '{col}' with {how}")
+            summaries.append(f"Filled {plural(int(missing.sum()), 'empty cell')} of '{col}' with {how}")
         elif name == "replace_values":
             col = resolve_column(df, op.get("column"))
             find = str(op.get("find", "")).strip()
@@ -262,7 +263,7 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
                 raise EditError(f"Enter what '{find}' should become.")
             mask = df[col].astype(str).str.strip() == find
             df.loc[mask, col] = str(op["replace"])
-            summaries.append(f"Replaced '{find}' with '{op['replace']}' in {int(mask.sum())} cell(s) of '{col}'")
+            summaries.append(f"Replaced '{find}' with '{op['replace']}' in {plural(int(mask.sum()), 'cell')} of '{col}'")
         elif name == "standardize_dates":
             col = resolve_column(df, op.get("column"))
             text = df[col].astype(str).str.strip().where(~_missing(df[col]))
@@ -274,7 +275,7 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
                     parsed[rows] = pd.to_datetime(text[rows], errors="coerce", dayfirst=dayfirst, format="mixed")
             ok = parsed.notna()
             df.loc[ok, col] = parsed[ok].dt.strftime("%Y-%m-%d")
-            summaries.append(f"Rewrote {int(ok.sum())} date(s) in '{col}' as YYYY-MM-DD, reading them {'day' if op.get('dayfirst') else 'month'}-first")
+            summaries.append(f"Rewrote {plural(int(ok.sum()), 'date')} in '{col}' as YYYY-MM-DD, reading them {'day' if op.get('dayfirst') else 'month'}-first")
         elif name == "rename_column":
             col = resolve_column(df, op.get("column"))
             new = str(op.get("new_name") or "").strip()
@@ -293,15 +294,15 @@ def apply_ops(df: pd.DataFrame, ops: list) -> tuple:
             rows = ~_missing(df[col]) & pii.row_mask(df[col], kind, lenient)
             if name == "mask_values":
                 df.loc[rows, col] = df.loc[rows, col].astype(str).map(lambda v: pii.mask_text(kind, v, lenient))
-                summaries.append(f"Masked {pii.label(kind)} in {int(rows.sum())} cell(s) of '{col}'")
+                summaries.append(f"Masked {pii.label(kind)} in {plural(int(rows.sum()), 'cell')} of '{col}'")
             else:
                 key = _pseudonym_key()
                 df.loc[rows, col] = df.loc[rows, col].astype(str).map(lambda v: pii.pseudonymize_text(kind, v, key, lenient))
-                summaries.append(f"Replaced {pii.label(kind)} in {int(rows.sum())} cell(s) of '{col}' with stable pseudonyms")
+                summaries.append(f"Replaced {pii.label(kind)} in {plural(int(rows.sum()), 'cell')} of '{col}' with stable pseudonyms")
         elif name == "drop_duplicates":
             before = len(df)
             df = df.drop_duplicates().reset_index(drop=True)
-            summaries.append(f"Removed {before - len(df)} duplicate row(s)")
+            summaries.append(f"Removed {plural(before - len(df), 'duplicate row')}")
         else:
             raise EditError(f"Unknown edit '{name}'.")
     return df, summaries

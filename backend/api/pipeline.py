@@ -24,6 +24,7 @@ from agents.intake_agent.intake_agent import IntakeAgent
 from agents.transformation_agent.transformation_agent import TransformationAgent
 from agents.storage_agent.storage_agent import StorageAgent
 from agents.report_agent.report_agent import ReportAgent
+from backend.utils.text import plural
 
 router = APIRouter(tags=["Pipeline"])
 logger = logging.getLogger("etl_pipeline_api")
@@ -289,7 +290,7 @@ def _run_review(batch_id: str, file_path: str, final_state: Optional[dict] = Non
         from backend.api.review import review_run
         review = review_run(batch_id, file_path, final_state, error)
         if review and review["issues"]:
-            logger.info(f"Run {batch_id} needs human review: {len(review['issues'])} issue(s), {review['kind']}")
+            logger.info(f"Run {batch_id} needs human review: {plural(len(review['issues']), 'issue')}, {review['kind']}")
     except Exception as e:
         logger.exception(f"Review Agent failed for {batch_id}: {e}")
 
@@ -439,7 +440,7 @@ def recover_stale_runs(db: Session) -> int:
             interrupted.append(run.pipeline_id[5:])
     if stale_runs:
         db.commit()
-        logger.warning(f"Marked {len(stale_runs)} interrupted run(s) as failed")
+        logger.warning(f"Marked {plural(len(stale_runs), 'interrupted run')} as failed")
     # Reviewed after the commit: the Review Agent writes through its own session
     from backend.database.models import RawUpload
     for batch_id in interrupted:

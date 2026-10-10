@@ -5,6 +5,7 @@ import time
 import warnings
 import pandas as pd
 from backend.utils.file_utils import read_dataset, clear_cleaned_data_folder, detect_file_info
+from backend.utils.text import plural
 
 logger = logging.getLogger("etl_transformation_agent")
 
@@ -239,7 +240,7 @@ class TransformationAgent:
                             "new_value": str(val),
                             "reason": f"Applied custom rule: fillna with {val}"
                         })
-            logs.append(f"Applied {len(custom_rules)} custom transformation rule(s).")
+            logs.append(f"Applied {plural(len(custom_rules), 'custom transformation rule')}.")
 
         # 6. Save clean dataset
         base_name = os.path.basename(file_path)

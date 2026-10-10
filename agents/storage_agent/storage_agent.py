@@ -11,6 +11,7 @@ from backend.database.mysql import SessionLocal
 from backend.database.repository import log_agent_decision
 from backend.core.llm import prefetch_llm, query_llm
 from backend.utils.file_utils import read_dataset
+from backend.utils.text import plural
 
 logger = logging.getLogger("etl_storage_agent")
 
@@ -346,7 +347,7 @@ class StorageAgent:
                         "(order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u)",
                         "order_id"
                     )), {"o": mo, "u": user_email})
-                sql_logs.append(f"Auto-provisioned {len(customer_stubs)} parent customer(s) and {len(missing_orders_to_stub)} parent order(s) referenced by foreign keys.")
+                sql_logs.append(f"Auto-provisioned {plural(len(customer_stubs), 'parent customer')} and {plural(len(missing_orders_to_stub), 'parent order')} referenced by foreign keys.")
 
             if production_records:
                 if dataset_type in TABLE_COLUMNS:
