@@ -30,7 +30,9 @@ def _iso(value) -> Optional[str]:
     """Raw SQL returns datetimes on MySQL but ISO strings on SQLite."""
     if value is None:
         return None
-    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value).replace(" ", "T", 1)
 
 
 def _as_datetime(value) -> Optional[datetime]:
