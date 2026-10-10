@@ -1,4 +1,10 @@
 // Session token issued by /api/v1/auth/login; the backend derives the account from it
+// "1 file", "3 files": counts in the interface read as sentences, not "file(s)"
+function plural(count, word, many) {
+    const n = Number(count) || 0;
+    return `${n.toLocaleString()} ${n === 1 ? word : (many || word + 's')}`;
+}
+
 function getAuthToken() {
     // "Remember me" keeps the session in localStorage; otherwise it lives only for this browser session
     return localStorage.getItem('controlai_token') || sessionStorage.getItem('controlai_token');
@@ -68,13 +74,13 @@ document.addEventListener('click', (e) => {
     if (href && isApiUrl(href)) link.setAttribute('href', withAuthToken(href));
 }, true);
 
+// The API stores times in UTC; timestamps without a zone ("2026-10-10 18:52:32" or "...T18:52:32") are UTC
 function parseUTCDate(dateStr) {
     if (!dateStr) return null;
     if (dateStr instanceof Date) return dateStr;
-    if (typeof dateStr === 'string' && dateStr.includes('T') && !dateStr.endsWith('Z') && !dateStr.includes('+')) {
-        if (!/[-+]\d{2}:\d{2}$/.test(dateStr)) {
-            return new Date(dateStr + 'Z');
-        }
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(dateStr)
+        && !/(Z|[-+]\d{2}:?\d{2})$/i.test(dateStr)) {
+        return new Date(dateStr.replace(' ', 'T') + 'Z');
     }
     return new Date(dateStr);
 }
@@ -105,7 +111,7 @@ function initAppShell() {
     const topbarCrumb = document.getElementById('app-topbar-crumb');
     const viewMeta = {
         'dashboard-view': { title: 'Dashboard', crumb: 'Overview & recent activity' },
-        'pipeline-monitor-page': { title: 'Pipeline', crumb: 'Real-Time Ingestion Data Flow' },
+        'pipeline-monitor-page': { title: 'Pipeline', crumb: 'Run files through the agents and follow every stage' },
         'history-view': { title: 'History', crumb: 'Every pipeline run and its results' },
         'reports-view': { title: 'Reports', crumb: 'Generated PDF, Word, Markdown & JSON reports' },
         'logs-view': { title: 'Logs', crumb: 'Full process log of each run' },
@@ -174,10 +180,14 @@ function initAppShell() {
 
     const navIngestion = document.getElementById('nav-ingestion');
     if (navIngestion) {
+        // A shortcut to the Pipeline page's intake panel, highlighted as its own menu item
         navIngestion.addEventListener('click', () => {
             activateView('pipeline-monitor-page');
+            document.querySelectorAll('.app-nav-item').forEach(item => item.classList.toggle('active', item === navIngestion));
             const batchTab = document.getElementById('tab-mode-batch');
             if (batchTab) batchTab.click();
+            const intake = document.querySelector('.monitor-sidebar') || document.getElementById('tab-mode-batch');
+            if (intake) intake.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }
 
@@ -189,6 +199,9 @@ function initAppShell() {
         });
     }
 }
+
+// The dashboard lists the latest runs; History has all of them
+const RECENT_RUNS_SHOWN = 6;
 
 // Global Application State
 const state = {
@@ -928,7 +941,7 @@ function runIngestionCycle() {
     if (window.closeAllMenus) window.closeAllMenus();
     document.getElementById('console-drawer')?.classList.add('active');
     document.getElementById('btn-toggle-logs')?.classList.add('active');
-    writeConsoleLog(`[System] ${queued} task(s) queued. Up to ${maxParallelJobs()} pipelines run in parallel.`);
+    writeConsoleLog(`[System] ${plural(queued, 'task')} queued. Up to ${maxParallelJobs()} pipelines run in parallel.`);
     if (queued > 1) showToast('info', `${queued} tasks queued. Up to ${maxParallelJobs()} run at the same time.`);
 }
 
@@ -1024,7 +1037,7 @@ window.stopRealtimeStreamRunner = function() {
     if (pulseDot) pulseDot.classList.remove('streaming');
     if (statusText) statusText.textContent = 'Stream Ingest: Standby';
     updateRunButtonLabel();
-    if (wasStreaming) showToast('info', `Streaming stopped after ${state.streamCycle} cycle(s).`);
+    if (wasStreaming) showToast('info', `Streaming stopped after ${plural(state.streamCycle, 'cycle')}.`);
 };
 
 
@@ -1161,9 +1174,8 @@ async function fetchSelectedBatchInsights(batchId) {
     } catch (e) {
         loggerError('fetchSelectedBatchInsights', e);
     }
-    const chatSelect = document.getElementById('chat-batch-select');
-    if (chatSelect) chatSelect.value = batchId;
     state.chatContextBatchId = batchId;
+    selectChatContext(batchId);
 }
 
 // Load Global Dashboard statistics
@@ -1192,20 +1204,20 @@ async function loadDashboardStats() {
             if (!stats.recent_runs || stats.recent_runs.length === 0) {
                 tableBody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary">No runs yet. Start one with <strong>New pipeline run</strong>.</td></tr>';
             } else {
-                stats.recent_runs.forEach(run => {
+                stats.recent_runs.slice(0, RECENT_RUNS_SHOWN).forEach(run => {
                     const tr = document.createElement('tr');
                     let badgeClass = 'success';
                     if (run.status === 'Failed') badgeClass = 'failed';
                     else if (run.status === 'Passed with Warnings') badgeClass = 'warning';
                     else if (run.status === 'Running') badgeClass = 'running';
                     
-                    const startStr = run.start_time ? parseUTCDate(run.start_time).toLocaleString() : 'N/A';
+                    const startStr = run.start_time ? `<span title="${fmtDateTime(run.start_time)}">${fmtShortDateTime(run.start_time)}</span>` : '-';
                     const runtimeStr = run.execution_time ? `${run.execution_time.toFixed(1)}s` : '--';
                     
                     const runBatch = run.pipeline_id.replace('pipe_', '');
                     tr.innerHTML = `
                         <td><button class="link-btn run-name" onclick="openRunDetails('${runBatch}')" title="${escapeHtml(run.filename || runBatch)} - run details">${escapeHtml(run.filename || runBatch)}</button><div class="text-secondary" style="font-size:10px;">${runBatch}</div></td>
-                        <td>${startStr}</td>
+                        <td class="nowrap">${startStr}</td>
                         <td>${runtimeStr}</td>
                         <td><span class="badge ${badgeClass}">${run.status}</span></td>
                         <td class="actions-cell">
@@ -1366,6 +1378,19 @@ window.downloadReport = function(batchId, format) {
     window.open(`/api/v1/reports/download/${encodeURIComponent(id)}?format=${format}`, '_blank');
 };
 
+// Selects a run as the assistant's context, adding it when it has no report folder (e.g. a failed run)
+function selectChatContext(batchId) {
+    const selectEl = document.getElementById('chat-batch-select');
+    if (!selectEl) return;
+    if (batchId && ![...selectEl.options].some(o => o.value === batchId)) {
+        const opt = document.createElement('option');
+        opt.value = batchId;
+        opt.textContent = batchId;
+        selectEl.appendChild(opt);
+    }
+    selectEl.value = batchId || '';
+}
+
 // AI Assistant Chat operations
 async function loadChatBatchContexts() {
     if (!getAuthToken()) return;
@@ -1375,17 +1400,15 @@ async function loadChatBatchContexts() {
         const folders = await response.json();
         
         const selectEl = document.getElementById('chat-batch-select');
-        selectEl.innerHTML = '<option value="">No Batch Context</option>';
+        selectEl.innerHTML = '<option value="">No run selected</option>';
         
         folders.forEach(item => {
             const opt = document.createElement('option');
             opt.value = item.batch_id;
-            opt.textContent = `📁 ${item.folder_name || item.dataset_name} (${item.batch_id})`;
-            if (state.chatContextBatchId === item.batch_id) {
-                opt.selected = true;
-            }
+            opt.textContent = `${item.folder_name || item.dataset_name} (${item.batch_id})`;
             selectEl.appendChild(opt);
         });
+        selectChatContext(state.chatContextBatchId);
         
         renderChatSuggestions();
     } catch (e) {
@@ -1667,6 +1690,8 @@ function initChatbotToggle() {
         triggerBtn.addEventListener('click', () => {
             triggerBtn.classList.toggle('active');
             popupContainer.classList.toggle('active');
+            // Runs finished since the page loaded become selectable as context
+            if (popupContainer.classList.contains('active')) loadChatBatchContexts();
         });
     }
     
@@ -1805,6 +1830,11 @@ function initSettingsPage() {
 
     const btnBack = document.getElementById('btn-back-dashboard');
     if (btnBack) btnBack.addEventListener('click', closeSettingsPage);
+    // Like any dialog: Escape or a click on the dimmed backdrop closes it
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeSettingsPage(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) closeSettingsPage();
+    });
 
     // Tab switching
     tabBtns.forEach(btn => {
@@ -2010,7 +2040,7 @@ function initSettingsPage() {
                     <span class="log-endpoint">${escapeHtml(k.name)}</span>
                     <span class="log-time">${k.last_used_at ? 'last used ' + parseUTCDate(k.last_used_at).toLocaleString() : 'never used'}</span>
                 </div>
-                <span class="log-status">${k.request_count} request(s)</span>
+                <span class="log-status">${plural(k.request_count, 'request')}</span>
             </div>
         `).join('');
     }
@@ -2262,7 +2292,7 @@ async function loadRagDocuments() {
         }
 
         container.innerHTML = docs.map(doc => {
-            const timeStr = new Date(doc.upload_time).toLocaleDateString();
+            const timeStr = parseUTCDate(doc.upload_time).toLocaleDateString();
             return `
                 <div class="rag-doc-item">
                     <div class="rag-doc-info" title="${escapeHtml(doc.filename)} (Uploaded: ${timeStr})">
@@ -2402,58 +2432,65 @@ window.openPipelineMonitorOverlay = function(batchId, filename, startTime = Date
     }, 100);
 };
 
-// Setup and coordinates SVG paths in a branching layout
+// The pipeline's connectors, in run order; each one takes the status of the stage it leads into
+const MONITOR_CONNECTIONS = [
+    { from: 'raw', to: 'intake' },
+    { from: 'intake', to: 'transformation' },
+    { from: 'transformation', to: 'storage' },
+    { from: 'storage', to: 'report' },
+    { from: 'report', to: 'pbi' }
+];
+
 function setupMonitorSvg() {
     const svg = document.getElementById('monitor-connection-svg');
     if (!svg) return;
-    svg.innerHTML = '';
-    
-    const connections = [
-        { from: 'raw', to: 'storage' },
-        { from: 'intake', to: 'storage' },
-        { from: 'transformation', to: 'storage' },
-        { from: 'storage', to: 'report' },
-        { from: 'storage', to: 'pbi' }
-    ];
-    
-    connections.forEach(conn => {
+    // Built once: later calls only move the connectors, keeping their run status
+    if (svg.querySelector('.svg-flow-path')) { updateMonitorPaths(); return; }
+    svg.innerHTML = `<defs>${['', 'completed', 'processing'].map(status => `
+        <marker id="flow-arrow${status ? '-' + status : ''}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" class="svg-flow-arrow ${status}"></path>
+        </marker>`).join('')}</defs>`;
+    MONITOR_CONNECTIONS.forEach(conn => {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('id', `path-${conn.from}-to-${conn.to}`);
         path.setAttribute('class', 'svg-flow-path');
+        path.setAttribute('marker-end', 'url(#flow-arrow)');
         svg.appendChild(path);
     });
     updateMonitorPaths();
+    // A run loaded before the connectors existed gets its status drawn now
+    if (state.currentPipelineData) updatePipelineMonitorUI(state.currentPipelineData);
 }
 
+// SVG elements take their class through setAttribute (className is read-only on them)
+function setFlowPath(pathEl, status) {
+    if (!pathEl) return;
+    pathEl.setAttribute('class', `svg-flow-path ${status}`.trim());
+    pathEl.setAttribute('marker-end', `url(#flow-arrow${status ? '-' + status : ''})`);
+}
+
+// Edge to edge: straight within a row, a right-angled line through the gap between rows
 function updateMonitorPaths() {
     const canvas = document.querySelector('.monitor-canvas-area');
     if (!canvas) return;
-    const canvasRect = canvas.getBoundingClientRect();
-    
-    const connections = [
-        { from: 'raw', to: 'storage' },
-        { from: 'intake', to: 'storage' },
-        { from: 'transformation', to: 'storage' },
-        { from: 'storage', to: 'report' },
-        { from: 'storage', to: 'pbi' }
-    ];
-    
-    connections.forEach(conn => {
+    const c = canvas.getBoundingClientRect();
+    const GAP = 4;
+    MONITOR_CONNECTIONS.forEach(conn => {
         const el1 = document.getElementById(`mnode-${conn.from}`);
         const el2 = document.getElementById(`mnode-${conn.to}`);
         const path = document.getElementById(`path-${conn.from}-to-${conn.to}`);
         if (!el1 || !el2 || !path) return;
-        
-        const r1 = el1.getBoundingClientRect();
-        const r2 = el2.getBoundingClientRect();
-        
-        // Connect center coordinates to center coordinates
-        const x1 = (r1.left + r1.right) / 2 - canvasRect.left;
-        const y1 = (r1.top + r1.bottom) / 2 - canvasRect.top;
-        const x2 = (r2.left + r2.right) / 2 - canvasRect.left;
-        const y2 = (r2.top + r2.bottom) / 2 - canvasRect.top;
-        
-        path.setAttribute('d', `M ${x1} ${y1} L ${x2} ${y2}`);
+        const a = el1.getBoundingClientRect(), b = el2.getBoundingClientRect();
+        if (!a.width || !b.width) { path.setAttribute('d', ''); return; }
+        const ay = (a.top + a.bottom) / 2 - c.top, by = (b.top + b.bottom) / 2 - c.top;
+        if (Math.abs(ay - by) < a.height / 2 && b.left >= a.right) {
+            path.setAttribute('d', `M ${a.right - c.left + GAP} ${ay} L ${b.left - c.left - GAP} ${by}`);
+            return;
+        }
+        const ax = (a.left + a.right) / 2 - c.left, bx = (b.left + b.right) / 2 - c.left;
+        const top = a.bottom - c.top + GAP, bottom = b.top - c.top - GAP;
+        const mid = (top + bottom) / 2;
+        path.setAttribute('d', `M ${ax} ${top} L ${ax} ${mid} L ${bx} ${mid} L ${bx} ${bottom}`);
     });
 }
 
@@ -2475,12 +2512,8 @@ function updatePipelineMonitorUI(data) {
         const nodeEl = document.getElementById(`mnode-${key}`);
         const labelEl = document.getElementById(`label-step-${key}`);
         
-        let pathEl = null;
-        if (key === 'intake') pathEl = document.getElementById('path-intake-to-storage');
-        else if (key === 'transformation') pathEl = document.getElementById('path-transformation-to-storage');
-        else if (key === 'storage') pathEl = document.getElementById('path-raw-to-storage');
-        else if (key === 'report') pathEl = document.getElementById('path-storage-to-report');
-        else if (key === 'pbi') pathEl = document.getElementById('path-storage-to-pbi');
+        const incoming = MONITOR_CONNECTIONS.find(conn => conn.to === key);
+        const pathEl = incoming ? document.getElementById(`path-${incoming.from}-to-${incoming.to}`) : null;
         
         if (!nodeEl) return;
         
@@ -2513,7 +2546,7 @@ function updatePipelineMonitorUI(data) {
             }
             
             nodeEl.querySelector('.node-desc').innerHTML = `<div>${getStageDesc(key, stage)}</div>${linksHtml}`;
-            if (pathEl) pathEl.className = 'svg-flow-path completed';
+            setFlowPath(pathEl, 'completed');
             if (labelEl) labelEl.className = 'active';
             progress = Math.max(progress, (index + 1) * 20);
 
@@ -2531,21 +2564,21 @@ function updatePipelineMonitorUI(data) {
         } else if (stage.status === 'processing') {
             nodeEl.className = `monitor-node-card ${key}-squircle processing`;
             nodeEl.querySelector('.node-desc').textContent = 'Profiling...';
-            if (pathEl) pathEl.className = 'svg-flow-path processing';
+            setFlowPath(pathEl, 'processing');
             if (labelEl) labelEl.className = 'active';
             reachedActive = true;
             progress = Math.max(progress, index * 20 + 10);
         } else if (stage.status === 'failed') {
             nodeEl.className = `monitor-node-card ${key}-squircle failed`;
             nodeEl.querySelector('.node-desc').textContent = 'Failed';
-            if (pathEl) pathEl.className = 'svg-flow-path';
+            setFlowPath(pathEl, '');
             if (labelEl) labelEl.className = 'text-red';
             overallStatus = 'Failed';
             statusClass = 'monitor-stat-pill failed';
         } else {
             nodeEl.className = `monitor-node-card ${key}-squircle waiting`;
             nodeEl.querySelector('.node-desc').textContent = 'Waiting';
-            if (pathEl) pathEl.className = 'svg-flow-path';
+            setFlowPath(pathEl, '');
             if (labelEl) labelEl.className = '';
         }
     });
@@ -2560,12 +2593,7 @@ function updatePipelineMonitorUI(data) {
                 ? `<div class="node-card-links"><a href="#" onclick="downloadNodeData(${jsArg(data.raw_file_path)}); event.stopPropagation();" class="node-inline-link" title="Download Raw Input"><i class="fa-solid fa-download"></i> Raw Input</a></div>`
                 : '';
             rawNodeEl.querySelector('.node-desc').innerHTML = `<div>${escapeHtml(filename)}</div>${rawLink}`;
-            
-            const rawPath = document.getElementById('path-raw-to-storage');
-            if (rawPath) {
-                if (intakeStage.status === 'completed') rawPath.className = 'svg-flow-path completed';
-                else rawPath.className = 'svg-flow-path processing';
-            }
+
         }
     }
 
@@ -2643,8 +2671,8 @@ function getStageDesc(key, stage) {
     const output = stage.output || {};
     if (key === 'intake') return `${output.rows ?? '-'} rows profiled`;
     if (key === 'transformation') return `Quality: ${output.quality_after ?? '-'}%`;
-    if (key === 'storage') return `${output.format_selected || '-'} | ${output.rows_loaded ?? 0} loaded, ${output.rows_rejected ?? 0} rejected`;
-    if (key === 'report') return `${output.rca_alerts_count || 0} RCA finding(s)`;
+    if (key === 'storage') return `${output.rows_loaded ?? 0} loaded · ${output.rows_rejected ?? 0} rejected`;
+    if (key === 'report') return plural(output.rca_alerts_count || 0, 'RCA finding');
     if (key === 'pbi') return `${Object.keys(output.tables || {}).length} tables exported`;
     return 'Completed';
 }
@@ -2819,142 +2847,14 @@ function renderInspectorGrid(records) {
 
 
 
-// Pipeline canvas: particles flowing along active stage paths
+// The flow canvas is kept clear: stage status is shown on the nodes and connectors themselves
 let animFrameId = null;
-let canvasParticles = [];
 
 function initGamificationCanvas() {
     const canvas = document.getElementById('gamification-canvas');
-    if (!canvas) return;
-    
-    const resizeCanvas = () => {
-        canvas.width = canvas.parentElement.clientWidth || window.innerWidth;
-        canvas.height = canvas.parentElement.clientHeight || window.innerHeight;
-    };
-    
-    resizeCanvas();
-    window.removeEventListener('resize', resizeCanvas);
-    window.addEventListener('resize', resizeCanvas);
-    
-    canvasParticles = [];
-
-    if (animFrameId) cancelAnimationFrame(animFrameId);
-    animFrameId = requestAnimationFrame(canvasAnimationLoop);
+    if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 }
 
-
 function canvasAnimationLoop() {
-    const canvas = document.getElementById('gamification-canvas');
-    // Stop while the Pipeline page is not shown; activateView restarts the loop when it is
-    if (!canvas || !canvas.offsetParent) {
-        animFrameId = null;
-        canvasParticles = [];
-        return;
-    }
-    
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // 1. Spawning Flow Particles based on active/processing node paths
-    const stages = (state.currentPipelineData || {}).stages || {};
-    const flows = [
-        { from: 'mnode-raw', to: 'mnode-intake', key: 'intake', color: '#ffb703' },
-        { from: 'mnode-intake', to: 'mnode-transformation', key: 'transformation', color: '#219ebc' },
-        { from: 'mnode-transformation', to: 'mnode-storage', key: 'storage', color: '#8b5cf6' },
-        { from: 'mnode-storage', to: 'mnode-report', key: 'report', color: '#ef4444' },
-        { from: 'mnode-storage', to: 'mnode-pbi', key: 'pbi', color: '#10b981' }
-    ];
-    
-    const canvasRect = canvas.getBoundingClientRect();
-    
-    flows.forEach(flow => {
-        const stage = stages[flow.key] || {};
-        if (stage.status === 'processing' || stage.status === 'completed') {
-            const elFrom = document.getElementById(flow.from);
-            const elTo = document.getElementById(flow.to);
-            if (elFrom && elTo && elFrom.parentElement.style.display !== 'none' && elTo.parentElement.style.display !== 'none') {
-                const r1 = elFrom.getBoundingClientRect();
-                const r2 = elTo.getBoundingClientRect();
-                const fromX = r1.left + r1.width / 2 - canvasRect.left;
-                const fromY = r1.top + r1.height / 2 - canvasRect.top;
-                const toX = r2.left + r2.width / 2 - canvasRect.left;
-                const toY = r2.top + r2.height / 2 - canvasRect.top;
-                
-                // Spawn particle occasionally
-                // Higher probability if processing, lower/none if completed
-                const probability = stage.status === 'processing' ? 0.25 : 0.03;
-                if (Math.random() < probability) {
-                    canvasParticles.push({
-                        fromX: fromX,
-                        fromY: fromY,
-                        toX: toX,
-                        toY: toY,
-                        x: fromX,
-                        y: fromY,
-                        progress: 0,
-                        speed: Math.random() * 0.01 + 0.006,
-                        size: Math.random() * 3 + 2,
-                        color: flow.color,
-                        waveMultiplier: Math.random() * 2 - 1
-                    });
-                }
-            }
-        }
-    });
-    
-    // Update & Draw Flow Particles
-    canvasParticles.forEach((p, idx) => {
-        p.progress += p.speed;
-        if (p.progress >= 1) {
-            canvasParticles.splice(idx, 1);
-            return;
-        }
-        
-        // Linear path
-        p.x = p.fromX + (p.toX - p.fromX) * p.progress;
-        p.y = p.fromY + (p.toY - p.fromY) * p.progress;
-        
-        // Sine wave offset for organic look
-        const offset = Math.sin(p.progress * Math.PI) * 15 * p.waveMultiplier;
-        const normAngle = Math.atan2(p.toY - p.fromY, p.toX - p.fromX) + Math.PI / 2;
-        const drawX = p.x + Math.cos(normAngle) * offset;
-        const drawY = p.y + Math.sin(normAngle) * offset;
-        
-        ctx.beginPath();
-        ctx.arc(drawX, drawY, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 6;
-        ctx.fill();
-        ctx.shadowBlur = 0; // reset
-    });
-    
-    // 2. Update & Draw Active Glow Portal Rings around processing nodes
-    const activePortalAngle = (Date.now() / 300) % (Math.PI * 2);
-    flows.forEach(flow => {
-        const stage = stages[flow.key] || {};
-        if (stage.status === 'processing') {
-            const nodeEl = document.getElementById(flow.from); // the source of processing flow
-            if (nodeEl) {
-                const r = nodeEl.getBoundingClientRect();
-                const x = r.left + r.width / 2 - canvasRect.left;
-                const y = r.top + r.height / 2 - canvasRect.top;
-                
-                ctx.save();
-                ctx.translate(x, y);
-                ctx.rotate(activePortalAngle);
-                ctx.beginPath();
-                ctx.arc(0, 0, r.width / 2 + 10, 0, Math.PI * 2);
-                ctx.strokeStyle = flow.color;
-                ctx.lineWidth = 3;
-                ctx.setLineDash([12, 8]);
-                ctx.shadowColor = flow.color;
-                ctx.shadowBlur = 10;
-                ctx.stroke();
-                ctx.restore();
-            }
-        }
-    });
-    
-    animFrameId = requestAnimationFrame(canvasAnimationLoop);
+    animFrameId = null;
 }
