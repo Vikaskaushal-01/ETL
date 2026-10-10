@@ -395,13 +395,18 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
     Unified LLM query function with circuit breaker protection.
     Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
     """
-    global _gemini_circuit_open_until, _ollama_circuit_open_until
-
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
     if is_offline():
         return run_mock_engine(prompt, system_instruction, json_mode)
+    return _query_engines(prompt, system_instruction, json_mode)
 
+
+def _query_engines(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
+    """Asks Gemini, then Ollama, then the offline engine; records which one answered on this thread."""
+    global _gemini_circuit_open_until, _ollama_circuit_open_until
+
+    _response_source.value = "offline"
     now = time.time()
 
     # 1. Try each configured Gemini model (skipping ones cooling down after an error)
