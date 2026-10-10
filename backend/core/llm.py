@@ -8,7 +8,7 @@ import threading
 import time
 import logging
 from collections import OrderedDict
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 import httpx
 from dotenv import load_dotenv
@@ -397,6 +397,7 @@ def is_real_llm_available() -> bool:
 _answer_cache = OrderedDict()  # key -> (text, source, stored at)
 _inflight = {}  # key -> Future of (text, source) for a query being answered right now
 _answer_lock = threading.Lock()
+_prefetch_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm-prefetch")
 
 
 def is_offline() -> bool:
@@ -439,11 +440,29 @@ def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[
                 del _inflight[key]
 
 
+def prefetch_llm(prompt: str, system_instruction: str = None, json_mode: bool = False):
+    """
+    Starts answering a query in the background. A later query_llm call with the same prompt waits for
+    this answer instead of asking again, so agents can ask early and use the answer when they need it.
+    """
+    if is_offline():
+        return
+    key = _answer_key(prompt, system_instruction, json_mode)
+    if _cached_answer(key):
+        return
+    with _answer_lock:
+        if key in _inflight:
+            return
+        future = _inflight[key] = Future()
+    _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode)
+
+
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
     """
     Unified LLM query function with circuit breaker protection.
     Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
-    An identical query that is already being answered or was answered recently returns that answer.
+    An identical query that is already being answered (see prefetch_llm) or was answered recently
+    returns that answer.
     """
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
