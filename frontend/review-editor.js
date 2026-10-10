@@ -103,7 +103,7 @@ function renderEditorFilter() {
     const d = editorState.data;
     const el = document.getElementById('editor-filter');
     el.innerHTML = editorState.filter
-        ? `<span class="editor-filter-chip"><i class="fa-solid fa-filter"></i> Showing <strong>${d.matched.toLocaleString()}</strong> row(s) ${escapeHtml(d.filter_label)}</span>
+        ? `<span class="editor-filter-chip"><i class="fa-solid fa-filter"></i> Showing <strong>${d.matched.toLocaleString()}</strong> ${d.matched === 1 ? 'row' : 'rows'} ${escapeHtml(d.filter_label)}</span>
            <button class="link-btn" id="btn-editor-clear-filter">Show all rows</button>`
         : `<span class="text-secondary">All ${d.total.toLocaleString()} rows. Empty cells are highlighted.</span>`;
     document.getElementById('btn-editor-clear-filter')?.addEventListener('click', () => setEditorFilter(null));
@@ -122,8 +122,8 @@ function renderEditorGrid() {
         <th class="editor-rownum">#</th>
         ${d.columns.map(c => {
             const s = stats[c] || {};
-            const badges = (s.missing ? `<span class="editor-col-badge" title="${s.missing} empty cell(s)">${s.missing} empty</span>` : '')
-                + (s.non_numeric ? `<span class="editor-col-badge warn" title="${s.non_numeric} value(s) are not numbers">${s.non_numeric} text</span>` : '');
+            const badges = (s.missing ? `<span class="editor-col-badge" title="${plural(s.missing, 'empty cell')}">${s.missing} empty</span>` : '')
+                + (s.non_numeric ? `<span class="editor-col-badge warn" title="${plural(s.non_numeric, 'value')} ${s.non_numeric === 1 ? 'is' : 'are'} not a number">${s.non_numeric} text</span>` : '');
             return `<th class="${c === flaggedCol ? 'is-flagged' : ''}"><span class="editor-col-name">${escapeHtml(c)}</span>${badges}</th>`;
         }).join('')}
     </tr></thead>`;

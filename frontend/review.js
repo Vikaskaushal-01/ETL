@@ -37,9 +37,9 @@ function reviewCardHtml(item) {
                         <strong class="run-name">${escapeHtml(item.filename || item.batch_id)}</strong>
                     </div>
                     <div class="review-card-meta text-secondary">
-                        <span>${issues.length} crucial problem(s)${fixable ? ` &middot; ${fixable} with AI fixes` : ''}</span>
-                        <span>Flagged ${fmtDateTime(item.flagged_at)}</span>
-                        ${item.edits.length ? `<span><i class="fa-solid fa-pen-to-square"></i> Fixed ${item.edits.length} time(s)</span>` : ''}
+                        <span>${plural(issues.length, 'crucial problem')}${fixable ? ` &middot; ${fixable} with AI fixes` : ''}</span>
+                        <span title="${fmtDateTime(item.flagged_at)}">Flagged ${fmtShortDateTime(item.flagged_at)}</span>
+                        ${item.edits.length ? `<span><i class="fa-solid fa-pen-to-square"></i> Fixed ${item.edits.length === 1 ? 'once' : `${item.edits.length} times`}</span>` : ''}
                     </div>
                 </div>
                 <div class="review-card-actions">
@@ -73,7 +73,7 @@ function updateReviewBadges(counts) {
         el.hidden = !counts.open;
         el.textContent = counts.open > 99 ? '99+' : counts.open;
         el.classList.toggle('critical', counts.not_processed > 0);
-        el.title = `${counts.open} file(s) waiting for review`;
+        el.title = `${plural(counts.open, 'file')} waiting for review`;
     }
 }
 
