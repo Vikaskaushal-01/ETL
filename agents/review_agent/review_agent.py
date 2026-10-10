@@ -6,6 +6,7 @@ duplicates are dropped and bad rows are rejected. Some of those automatic choice
 data says (a column that is 60% imputed, missing values concentrated in one group, a run that
 crashed), so this agent re-reads the raw and cleaned data after a run and lists every problem a
 person should decide on, each with what happened, how it affects the dataset and what to do.
+It also watches what arrives: sensitive data (card numbers, national IDs, secrets).
 The checks are computed from the data, so they work without an LLM.
 """
 import logging
@@ -17,6 +18,7 @@ import numpy as np
 import pandas as pd
 
 from agents.transformation_agent.transformation_agent import is_date_column_name, parse_dates, standardize_column_name
+from backend.utils import pii
 from backend.utils.data_editor import describe_filter, reason_filter
 from backend.utils.file_utils import read_dataset
 
@@ -51,7 +53,8 @@ SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2}
 # Only these send a run to Human Review; medium problems are written to the process log as notes
 REVIEW_SEVERITIES = ("critical", "high")
 # Within a severity, problems that affect the whole run or bias the data come first
-CATEGORY_ORDER = ["Pipeline failure", "File", "Validation", "Bias risk", "Missing values", "Data types", "Outliers", "Duplicates"]
+CATEGORY_ORDER = ["Pipeline failure", "File", "Schema drift", "Volume", "Validation", "Sensitive data", "Bias risk",
+                  "Missing values", "Data types", "Outliers", "Duplicates"]
 NULL_TOKENS = {"", "nan", "none", "null", "n/a", "na", "-"}
 POSITIVE_NAME_TOKENS = ("price", "amount", "quantity", "qty", "total", "cost", "revenue", "age")
 
@@ -198,6 +201,10 @@ class ReviewAgent:
             dup = self._duplicates(raw)
             if dup:
                 issues.append(dup)
+            try:
+                issues.extend(self._sensitive_data(raw, columns))
+            except Exception as e:
+                logger.warning(f"Review check _sensitive_data failed: {e}")
 
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
@@ -526,3 +533,42 @@ class ReviewAgent:
             rows={"kind": "duplicate"},
             fixes=[_fix("Remove the duplicate rows from the file", {"op": "drop_duplicates"})],
         )
+
+    # ---------- what arrived ----------
+
+    def _sensitive_data(self, raw, columns) -> list:
+        issues = []
+        for col in columns:
+            for found in pii.scan_column(raw[col], col):
+                kind = found["kind"]
+                what = pii.label(kind)
+                rows = {"kind": "pii", "column": col, "pii": kind}
+                where = (f"'{col}' holds {what}" if found["whole_values"]
+                         else f"'{col}' contains {what} in {found['count']:,} value(s)")
+                examples = f" (e.g. {', '.join(found['examples'])})" if found["examples"] else ""
+                fixes = [_fix(f"Mask the {what} (keep the last 4 characters)", {"op": "mask_values", "column": col, "pii": kind}),
+                         _fix("Replace them with stable pseudonyms", {"op": "pseudonymize_values", "column": col, "pii": kind})]
+                if found["whole_values"]:
+                    fixes.append(_fix(f"Remove column '{col}'", {"op": "drop_column", "column": col}))
+                evidence = {k: found[k] for k in ("kind", "count", "whole_values")}
+                if pii.is_sensitive(kind):
+                    issues.append(_issue(
+                        "sensitive_data", "high", "Sensitive data", where,
+                        f"{where}{examples}. These identify a person or give access to an account, and the pipeline would "
+                        "copy them into the cleaned files, the staging and production tables, the reports and the Power BI export.",
+                        "Anyone who can open those outputs can read them; data-protection rules (DPDP Act, GDPR, PCI DSS) "
+                        "require such values to be masked or removed unless there is a clear need to keep them.",
+                        "Mask or pseudonymize them (pseudonyms keep rows of the same person linked), remove the column if it is "
+                        "not needed, or ask the data owner to stop exporting it.",
+                        column=col, evidence=evidence, rows=rows, fixes=fixes,
+                    ))
+                else:
+                    expected = found["whole_values"] and pii.name_suggests(kind, col)
+                    issues.append(_issue(
+                        "personal_data", "medium", "Sensitive data", where,
+                        f"{where}{examples}." + ("" if expected else " The column's name does not suggest it holds personal data."),
+                        "Personal data is copied into every output of the run and should only be kept where it is needed.",
+                        "Keep it if the data needs it; otherwise mask, pseudonymize or remove it before sharing the outputs.",
+                        column=col, evidence=evidence, rows=rows, fixes=fixes,
+                    ))
+        return issues
