@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 import os
 from agents_graph.state import PipelineState
@@ -12,6 +13,32 @@ logger = logging.getLogger("etl_nodes")
 PIPELINE_STEP_DELAY = float(os.getenv("PIPELINE_STEP_DELAY", "0.0"))
 # Short pause so the Power BI stage is visible in the UI; set to 0 for tests and batch runs
 PBI_REFRESH_DELAY = float(os.getenv("PBI_REFRESH_DELAY", "1.2"))
+
+# The intake model's recommended cleaning steps are only needed by the reports, so the run does not
+# wait for them: the intake stage asks, and the report stage (or the end of a failed run) collects them
+_pending_recommendations = {}
+_pending_lock = threading.Lock()
+
+
+def collect_recommendations(pipeline_id: str):
+    """The intake model's recommendations for this run (stored with the intake stage), or None."""
+    with _pending_lock:
+        prompt = _pending_recommendations.pop(pipeline_id, None)
+    if not prompt:
+        return None
+    from agents.intake_agent.intake_agent import recommendations_from_llm
+    from backend.api.pipeline import set_stage_metadata
+    recs = recommendations_from_llm(prompt)
+    set_stage_metadata(pipeline_id, "intake", recommended_transformations=recs)
+    return recs
+
+
+def run_deferred(pipeline_id: str):
+    try:
+        collect_recommendations(pipeline_id)
+    except Exception as e:
+        logger.warning(f"Could not collect the intake recommendations of {pipeline_id}: {e}")
+
 
 def intake_node(state: PipelineState) -> dict:
     """
@@ -63,7 +90,11 @@ def intake_node(state: PipelineState) -> dict:
     
     agent = IntakeAgent()
     try:
-        res = agent.run(dataset_path)
+        res = agent.run(dataset_path, defer_llm=True)
+        recommendations_prompt = res.pop("recommendations_prompt", None)
+        if recommendations_prompt:
+            with _pending_lock:
+                _pending_recommendations[pipeline_id] = recommendations_prompt
         
         # Write agent log to DB for Intake
         from backend.database.mysql import SessionLocal
@@ -412,6 +443,12 @@ def report_node(state: PipelineState) -> dict:
         time.sleep(PIPELINE_STEP_DELAY)
     
     try:
+        # The reports include the intake model's recommendations, asked for at the start of the run
+        recs = collect_recommendations(pipeline_id)
+        metadata = state.get("metadata") or {}
+        if recs is not None:
+            metadata = {**metadata, "recommended_transformations": recs}
+            state = {**state, "metadata": metadata}
         res = agent.run(state)
         
         # 2. Update status to completed
@@ -456,6 +493,7 @@ def report_node(state: PipelineState) -> dict:
         "business_insights": res.get("business_insights"),
         "recommendations": res.get("recommendations"),
         "generated_reports": res.get("generated_reports"),
+        "metadata": metadata,
         "execution_logs": logs
     }
 
