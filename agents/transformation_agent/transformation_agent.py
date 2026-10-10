@@ -28,6 +28,13 @@ def standardize_column_name(col) -> str:
 def parse_dates(series: pd.Series) -> pd.Series:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        # format="mixed" parses every value on its own, so text columns are parsed once per distinct
+        # value and mapped back: date columns repeat values heavily and per-value parsing is slow
+        if len(series) > 100 and pd.api.types.infer_dtype(series, skipna=True) == "string":
+            codes, uniques = pd.factorize(series)
+            if len(uniques) < len(series):
+                parsed = pd.to_datetime(pd.Series(uniques, dtype=object), errors="coerce", format="mixed")
+                return pd.Series(parsed.array.take(codes, allow_fill=True), index=series.index, name=series.name)
         return pd.to_datetime(series, errors="coerce", format="mixed")
 
 def measure_quality(df: pd.DataFrame) -> float:
