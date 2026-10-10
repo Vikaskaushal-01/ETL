@@ -320,38 +320,9 @@ class TransformationAgent:
         # Recalculate post-cleaning quality score
         quality_after = measure_quality(df)
 
-        # Call LLM to summarize/record rationale
-        prompt = f"""
-        You are a Senior ETL Engineer. You have just cleaned a dataset.
-        Original dimensions: {original_shape}
-        Cleaned dimensions: {df.shape}
-        Calculated Quality Before: {quality_before}
-        Calculated Quality After: {quality_after}
-        Transformation steps applied:
-        {json.dumps(history, indent=2, default=str)}
-        
-        Provide a concise transformation summary in JSON format:
-        1. quality_before (float, use the Calculated Quality Before value)
-        2. quality_after (float, use the Calculated Quality After value)
-        3. summary (string explaining rationale and overall cleaning execution)
-        
-        Return ONLY valid JSON.
-        """
-        
-        system_instruction = "You are the Data Transformation Agent. Provide summary and metrics on cleaning operations as structured JSON."
-        
-        try:
-            llm_response = query_llm(prompt, system_instruction, json_mode=True)
-            if "```json" in llm_response:
-                llm_response = llm_response.split("```json")[1].split("```")[0].strip()
-            elif "```" in llm_response:
-                llm_response = llm_response.split("```")[1].split("```")[0].strip()
-            summary_info = json.loads(llm_response.strip())
-            if not isinstance(summary_info, dict):
-                raise ValueError("LLM summary is not a JSON object")
-        except Exception:
-            summary_info = {}
-        summary_text = summary_info.get("summary") or "Cleaned and standardized columns. Dropped duplicates and computed missing elements."
+        # The run's results come from the measured steps above; nothing reads a model's narration of
+        # them, so no model is asked (it was the slowest part of this stage)
+        summary_text = "Cleaned and standardized columns. Dropped duplicates and computed missing elements."
 
         execution_time = time.time() - start_time
         logger.info(f"Transformation complete. Clean file stored at {clean_file_path}")
