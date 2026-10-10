@@ -113,12 +113,17 @@ After every run (including crashed and interrupted ones) the **Review Agent** re
 | Data types | Text in a mostly numeric column, or values in a date column that do not parse |
 | Outliers | Values beyond 3 IQR of the quartiles, or negative prices / quantities / amounts |
 | Duplicates | 10%+ of the rows were exact duplicates |
+| Sensitive data | Card numbers (Luhn-checked), Aadhaar (Verhoeff-checked), PAN, US SSN, IBAN (mod-97-checked) or passwords/keys/tokens anywhere in the file (high); emails, phone numbers and IP addresses (note) |
+| Schema drift | Compared with the previous upload of the same file by the same owner: a column renamed (similar name, same kind of values) or removed, or a numeric column that now holds text (high); new columns or other type changes (note) |
+| Volume | Half the rows (or fewer) of the previous upload of the same file (high), a quarter fewer or three times as many (note) |
 
 Only runs with a **critical** or **high** problem go to Human Review: **Not processed** (critical) or **Needs decision** (high). Medium problems (a few extreme values, some unreadable dates, a small share of rejected rows) are written to the process log as notes and do not involve a person. The checks are computed from the data, so they work without an LLM.
 
 The **Human Review** page lists only those crucial files. Each card shows the file, the critical and high problems that sent it there, and two actions: **Fix data** and **Process file**.
 
 **Fix data**: opens the file with the fixes the Review Agent recommends. Each problem can show the rows it refers to and offers one-click fixes (fill a column per group, replace a text value, read dates day- or month-first, delete or empty the affected rows, drop a column, remove duplicates). The original upload is kept so every fix can be undone (**Restore original**). CSV, TSV, TXT, Excel (xlsx/xlsm) and JSON files can be fixed, up to 200,000 rows.
+
+Sensitive data comes with one-click fixes: **mask** (keep the last 4 characters, `a***@example.com` for emails), **pseudonymize** (a stable `anon_...` token derived from the server's secret, so rows of the same person stay linked) or remove the column. A renamed column can be renamed back in one click. Run details list everything the Review Agent noticed about what arrived under **What arrived**, including the notes that do not need a person.
 
 **Process file**: runs the pipeline on the fixed file as the reviewer's approval (`POST /pipeline/start` with `"reviewed": true`). When the run finishes the file leaves Human Review, with any remaining notes in the process log; it only comes back if the file cannot be processed. The process log lists every fix made in Human Review and who made it. A plain re-run of a flagged file is checked again as usual.
 
