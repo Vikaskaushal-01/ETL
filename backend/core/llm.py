@@ -16,6 +16,8 @@ logger = logging.getLogger("etl_llm")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+# A model that answered "overloaded" (503) or "rate limited" (429) is skipped this long
+OVERLOAD_COOLDOWN = 90
 
 _ARITH_BINOPS = {
     ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -436,8 +438,8 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
                         # Retired / unknown model: skip it for a day
                         _model_cooldown_until[model_name] = time.time() + 86400
                     else:
-                        # Overloaded (503) or rate limited (429): short cooldown, retried once below
-                        _model_cooldown_until[model_name] = time.time() + 20
+                        # Overloaded (503) or rate limited (429): skipped for the rest of the run, retried once below
+                        _model_cooldown_until[model_name] = time.time() + OVERLOAD_COOLDOWN
                         overloaded.append((model_name, model))
                     logger.warning(f"Gemini model {model_name} failed ({err_str[:160]}); trying the next model.")
 
