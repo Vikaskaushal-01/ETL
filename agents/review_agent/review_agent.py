@@ -6,9 +6,11 @@ duplicates are dropped and bad rows are rejected. Some of those automatic choice
 data says (a column that is 60% imputed, missing values concentrated in one group, a run that
 crashed), so this agent re-reads the raw and cleaned data after a run and lists every problem a
 person should decide on, each with what happened, how it affects the dataset and what to do.
-It also watches what arrives: sensitive data (card numbers, national IDs, secrets).
+It also watches what arrives: sensitive data (card numbers, national IDs, secrets), and changes
+against the previous upload of the same file (columns removed, renamed or retyped, far fewer rows).
 The checks are computed from the data, so they work without an LLM.
 """
+import difflib
 import logging
 import os
 import time
@@ -55,6 +57,15 @@ REVIEW_SEVERITIES = ("critical", "high")
 # Within a severity, problems that affect the whole run or bias the data come first
 CATEGORY_ORDER = ["Pipeline failure", "File", "Schema drift", "Volume", "Validation", "Sensitive data", "Bias risk",
                   "Missing values", "Data types", "Outliers", "Duplicates"]
+# A column whose filled values are at least this share numbers holds numbers
+NUMBER_COLUMN_SHARE = 0.95
+# Renamed columns: names at least this similar, with the same kind of values
+RENAME_SIMILARITY = 0.6
+# Rows compared with the previous upload of the same file
+VOLUME_MIN_PREVIOUS_ROWS = 20
+VOLUME_DROP_HIGH = 0.5
+VOLUME_DROP_MEDIUM = 0.75
+VOLUME_GROWTH = 3.0
 NULL_TOKENS = {"", "nan", "none", "null", "n/a", "na", "-"}
 POSITIVE_NAME_TOKENS = ("price", "amount", "quantity", "qty", "total", "cost", "revenue", "age")
 
@@ -161,9 +172,14 @@ class ReviewAgent:
 
     def run(self, raw_path: Optional[str], clean_path: Optional[str] = None, transformation_history: list = None,
             validation_results: dict = None, pipeline_status: Optional[str] = None, error: Optional[str] = None,
-            failed_stage: Optional[str] = None) -> dict:
+            failed_stage: Optional[str] = None, previous: Optional[dict] = None) -> dict:
+        """
+        previous is the profile of the last upload of the same file ({"schema", "rows", "uploaded_at"});
+        the result's "profile" is this file's, for the next upload to be compared with.
+        """
         start = time.time()
         issues = []
+        profile = None
         raw_df = _read(raw_path)
 
         if error:
@@ -201,10 +217,12 @@ class ReviewAgent:
             dup = self._duplicates(raw)
             if dup:
                 issues.append(dup)
-            try:
-                issues.extend(self._sensitive_data(raw, columns))
-            except Exception as e:
-                logger.warning(f"Review check _sensitive_data failed: {e}")
+            for check in (self._sensitive_data, self._changes_since_last_upload):
+                try:
+                    issues.extend(check(raw, columns, previous))
+                except Exception as e:
+                    logger.warning(f"Review check {check.__name__} failed: {e}")
+            profile = {"schema": column_kinds(raw), "rows": int(len(raw_df))}
 
         issues.extend(self._validation(validation_results or {}, pipeline_status, raw_df))
         issues.sort(key=lambda i: (SEVERITY_ORDER.get(i["severity"], 9), CATEGORY_ORDER.index(i["category"])))
@@ -214,6 +232,7 @@ class ReviewAgent:
             "kind": "not_processed" if any(i["severity"] == "critical" for i in issues) else ("needs_decision" if required else "clear"),
             "severity": issues[0]["severity"] if issues else None,
             "issues": issues,
+            "profile": profile,
             "execution_time": time.time() - start,
         }
 
@@ -536,7 +555,7 @@ class ReviewAgent:
 
     # ---------- what arrived ----------
 
-    def _sensitive_data(self, raw, columns) -> list:
+    def _sensitive_data(self, raw, columns, previous) -> list:
         issues = []
         for col in columns:
             for found in pii.scan_column(raw[col], col):
@@ -572,3 +591,123 @@ class ReviewAgent:
                         column=col, evidence=evidence, rows=rows, fixes=fixes,
                     ))
         return issues
+
+    def _changes_since_last_upload(self, raw, columns, previous) -> list:
+        if not previous or not previous.get("schema"):
+            return []
+        issues = []
+        when = f" (uploaded {previous['uploaded_at']})" if previous.get("uploaded_at") else ""
+        before, now = previous["schema"], column_kinds(raw)
+        removed = [c for c in before if c not in now]
+        added = [c for c in now if c not in before]
+
+        # A removed column with a similar new one beside it was most likely renamed
+        for old in list(removed):
+            candidates = [(difflib.SequenceMatcher(None, old, new).ratio(), new) for new in added
+                          if before.get(old) in (None, now[new])]
+            score, new = max(candidates, default=(0, None))
+            if score < RENAME_SIMILARITY:
+                continue
+            removed.remove(old)
+            added.remove(new)
+            issues.append(_issue(
+                "column_renamed", "high", "Schema drift", f"Column '{old}' seems to be renamed to '{new}'",
+                f"The last upload of this file{when} had a column '{old}'; this one has no '{old}' but a new column '{new}' "
+                "with the same kind of values.",
+                f"The cleaned data, the database tables, the reports and the Power BI export now carry '{new}' instead of "
+                f"'{old}', so anything built on '{old}' (filters, measures, joins) stops getting values.",
+                f"If '{new}' is the same field, rename it back to '{old}' and process the file again; if it is a different "
+                "field, ask the data owner where the old one went.",
+                column=new, evidence={"old": old, "new": new, "similarity": round(score, 2)},
+                fixes=[_fix(f"Rename '{new}' back to '{old}'", {"op": "rename_column", "column": new, "new_name": old})],
+            ))
+        if removed:
+            names = ", ".join(f"'{c}'" for c in removed[:8]) + (" and more" if len(removed) > 8 else "")
+            issues.append(_issue(
+                "columns_removed", "high", "Schema drift", f"{len(removed)} column(s) missing since the last upload: {names}",
+                f"The last upload of this file{when} had {names}; this one does not.",
+                "Rows from this file have no values for these columns, so reports, totals and Power BI measures that use "
+                "them go empty or drop these rows.",
+                "Ask the data owner whether the columns were dropped on purpose. If not, re-export the file with them and "
+                "upload it again.",
+                evidence={"removed": removed},
+            ))
+        if added:
+            names = ", ".join(f"'{c}'" for c in added[:8]) + (" and more" if len(added) > 8 else "")
+            issues.append(_issue(
+                "columns_added", "medium", "Schema drift", f"{len(added)} new column(s) since the last upload: {names}",
+                f"This upload has {names}, which the last upload of this file{when} did not.",
+                "New columns are loaded as they are; reports and dashboards ignore them until someone uses them.",
+                "Check the new columns are expected, and that none of them replaces an existing field under a new name.",
+                evidence={"added": added},
+            ))
+        for col in columns:
+            old_kind, new_kind = before.get(col), now.get(col)
+            if not old_kind or old_kind == new_kind:
+                continue
+            if old_kind == "number" and new_kind == "text":
+                filled = raw[col].dropna().astype(str).str.strip()
+                bad = filled[(filled != "") & pd.to_numeric(filled.str.replace(",", "", regex=False), errors="coerce").isna()]
+                examples = ", ".join(repr(v) for v in list(dict.fromkeys(bad))[:5])
+                issues.append(_issue(
+                    "type_changed", "high", "Schema drift", f"'{col}' changed from numbers to text",
+                    f"'{col}' held numbers in the last upload{when}; now {len(bad):,} value(s) are not numbers"
+                    + (f", e.g. {examples}" if examples else "") + ".",
+                    f"Sums, averages and comparisons on '{col}' skip or reject these rows, and dashboards built on it "
+                    "show lower totals.",
+                    f"Fix the listed values in the source, or empty them so '{col}' is numeric again, then process the file.",
+                    column=col, evidence={"before": old_kind, "now": new_kind, "non_numeric": len(bad)},
+                    rows={"kind": "non_numeric", "column": col},
+                    fixes=[_fix("Empty the values that are not numbers",
+                                {"op": "clear_matching", "column": col, "filter": {"kind": "non_numeric", "column": col}})],
+                ))
+            else:
+                issues.append(_issue(
+                    "type_changed", "medium", "Schema drift", f"'{col}' changed from {old_kind} to {new_kind}",
+                    f"'{col}' held {old_kind} values in the last upload{when}; now it holds {new_kind} values.",
+                    f"Anything that treats '{col}' as {old_kind} may read it differently.",
+                    f"Check that the change in '{col}' is expected.",
+                    column=col, evidence={"before": old_kind, "now": new_kind},
+                ))
+
+        rows_before, rows_now = previous.get("rows"), len(raw)
+        if rows_before and rows_before >= VOLUME_MIN_PREVIOUS_ROWS:
+            ratio = rows_now / rows_before
+            if ratio < VOLUME_DROP_MEDIUM:
+                issues.append(_issue(
+                    "volume_drop", "high" if ratio < VOLUME_DROP_HIGH else "medium", "Volume",
+                    f"{rows_now:,} rows, {_pct(1 - ratio)} fewer than the last upload ({rows_before:,})",
+                    f"The last upload of this file{when} had {rows_before:,} rows; this one has {rows_now:,}.",
+                    "If the export was cut short or filtered by mistake, the missing rows silently disappear from the "
+                    "database, the reports and the dashboards.",
+                    "Check with the data owner that the smaller file is expected (e.g. a shorter period). If not, re-export "
+                    "the full file and upload it again.",
+                    evidence={"rows_before": rows_before, "rows_now": rows_now},
+                ))
+            elif ratio > VOLUME_GROWTH:
+                issues.append(_issue(
+                    "volume_growth", "medium", "Volume",
+                    f"{rows_now:,} rows, {ratio:.1f} times the last upload ({rows_before:,})",
+                    f"The last upload of this file{when} had {rows_before:,} rows; this one has {rows_now:,}.",
+                    "A sudden jump often means data was appended twice or the export period changed, which inflates totals.",
+                    "Check that the larger file is expected.",
+                    evidence={"rows_before": rows_before, "rows_now": rows_now},
+                ))
+        return issues
+
+
+def column_kinds(df: pd.DataFrame) -> dict:
+    """Each column's kind of values (number, boolean or text), as compared between uploads."""
+    kinds = {}
+    for col in df.columns:
+        series = df[col]
+        if pd.api.types.is_bool_dtype(series):
+            kinds[col] = "boolean"
+        elif pd.api.types.is_numeric_dtype(series):
+            kinds[col] = "number"
+        else:
+            filled = series.dropna().astype(str).str.strip()
+            filled = filled[filled != ""]
+            numbers = pd.to_numeric(filled.str.replace(",", "", regex=False), errors="coerce").notna().mean() if len(filled) else 0
+            kinds[col] = "number" if len(filled) and numbers >= NUMBER_COLUMN_SHARE else "text"
+    return kinds
