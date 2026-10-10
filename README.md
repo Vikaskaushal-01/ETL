@@ -226,6 +226,15 @@ graph TD
     PBI_Refresh --> END[Complete]
 ```
 
+**Speed.** The model calls are most of a run's time (often 20-60 s each), so the agents only wait for an answer they need:
+- The Intake Agent's recommended cleaning steps are asked for at the start and collected by the Report Agent, which puts them in the reports.
+- The Storage Agent loads the rows into the database while the model picks the storage format, and the Report Agent's executive summary is asked for as soon as the rows are loaded.
+- The Transformation Agent does not ask a model: its results are measured, and nothing read a narration of them.
+- An identical question that is already being answered is not asked twice, and a real model's answer to an identical question (same data, same prompt) is reused for a day (`LLM_CACHE=off` to disable). A model that answers "overloaded" is skipped for 90 s instead of being retried at every stage.
+- Each file is parsed once per run (later readers get a copy; a changed file is read again), and dates are parsed once per distinct value.
+
+The answers are the same as before: every agent sends the same prompts and uses the answers in the same places.
+
 ---
 
 ## ⚡ Real-Time Streaming Ingestion Engine
