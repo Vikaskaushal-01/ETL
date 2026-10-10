@@ -124,8 +124,12 @@ class StorageAgent:
         self.role = "Senior Database & Storage Architect"
         self.name = "Intelligent Storage Agent"
 
-    def run(self, clean_file_path: str, batch_id: str, metadata: dict = None) -> dict:
-        """Loads the cleaned file into the database while the model picks the storage format, then saves the formatted copy."""
+    def run(self, clean_file_path: str, batch_id: str, metadata: dict = None, on_loaded=None) -> dict:
+        """
+        Loads the cleaned file into the database while the model picks the storage format, then saves
+        the formatted copy. on_loaded(rows_loaded, rows_rejected, rejected_records) is called once the
+        rows are validated and loaded, so the caller can start the next stage's model query early.
+        """
         start_time = time.time()
         logger.info(f"Running Intelligent Storage Agent on {clean_file_path} for batch {batch_id}")
         
@@ -368,6 +372,12 @@ class StorageAgent:
             ]
         finally:
             db.close()
+
+        if on_loaded:
+            try:
+                on_loaded(rows_loaded, rows_rejected, rejected_records)
+            except Exception as e:
+                logger.warning(f"on_loaded callback failed: {e}")
 
         try:
             llm_response = query_llm(prompt, system_instruction, json_mode=True)
