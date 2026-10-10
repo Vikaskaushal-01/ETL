@@ -41,6 +41,12 @@ def detect_dataset_type(cols: list) -> str:
 
 
 def _is_missing(v) -> bool:
+    # Plain Python values (almost every cell) are checked directly; pd.isna handles the rest
+    t = type(v)
+    if t is str or t is int or t is bool:
+        return False
+    if t is float:
+        return v != v
     try:
         return v is None or bool(pd.isna(v))
     except (TypeError, ValueError):
