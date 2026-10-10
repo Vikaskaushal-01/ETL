@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import operator
 import os
 import json
@@ -6,6 +7,8 @@ import re
 import threading
 import time
 import logging
+from concurrent.futures import Future
+from typing import Optional
 import httpx
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -385,21 +388,54 @@ def is_real_llm_available() -> bool:
     """True when the last query_llm call on this thread was answered by Gemini or Ollama, not the offline engine."""
     return getattr(_response_source, "value", "offline") in ("gemini", "ollama")
 
+_inflight = {}  # key -> Future of (text, source) for a query being answered right now
+_answer_lock = threading.Lock()
+
+
 def is_offline() -> bool:
     """True when queries are answered by the built-in offline engine (no remote model to wait for)."""
     return LLM_PROVIDER in ["mock", "offline"]
+
+
+def _answer_key(prompt: str, system_instruction: Optional[str], json_mode: bool) -> str:
+    return hashlib.sha256(json.dumps([LLM_PROVIDER, system_instruction or "", prompt, bool(json_mode)]).encode()).hexdigest()
+
+
+def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[str], json_mode: bool):
+    """Asks the engines and completes the shared future."""
+    try:
+        text = _query_engines(prompt, system_instruction, json_mode)
+        future.set_result((text, getattr(_response_source, "value", "offline")))
+    except BaseException as e:
+        future.set_exception(e)
+    finally:
+        with _answer_lock:
+            if _inflight.get(key) is future:
+                del _inflight[key]
 
 
 def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
     """
     Unified LLM query function with circuit breaker protection.
     Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
+    An identical query that is already being answered returns that answer.
     """
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
     if is_offline():
         return run_mock_engine(prompt, system_instruction, json_mode)
-    return _query_engines(prompt, system_instruction, json_mode)
+
+    key = _answer_key(prompt, system_instruction, json_mode)
+    with _answer_lock:
+        future = _inflight.get(key)
+        owner = future is None
+        if owner:
+            future = _inflight[key] = Future()
+    if owner:
+        _answer(key, future, prompt, system_instruction, json_mode)
+    text, source = future.result()
+    _response_source.value = source
+    return text
 
 
 def _query_engines(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
