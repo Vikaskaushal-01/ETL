@@ -136,7 +136,18 @@ def run_details(batch_id: str, db: Session = Depends(get_db), x_user_email: Opti
         "root_causes": report.get("root_cause_report") or [],
         "insights": report.get("business_insights") or [],
         "recommendations": report.get("recommendations") or [],
+        "observations": _observations(batch_id),
     }
+
+
+# Review Agent findings about what arrived, shown with the run whatever their severity
+OBSERVED_CATEGORIES = ("Sensitive data", "Schema drift", "Volume")
+
+
+def _observations(batch_id: str) -> list:
+    issues = (read_pipeline_state(f"pipe_{batch_id}").get("review") or {}).get("issues") or []
+    return [{k: i.get(k) for k in ("severity", "category", "column", "title", "problem", "action")}
+            for i in issues if i.get("category") in OBSERVED_CATEGORIES]
 
 
 @router.get("/{batch_id}/rejected.csv")
