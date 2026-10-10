@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import json
 import logging
+import hashlib
 import threading
 import time
 from collections import OrderedDict
@@ -9,7 +10,8 @@ from collections import OrderedDict
 logger = logging.getLogger("etl_file_utils")
 
 # Every agent of a run reads the same raw and cleaned files; parsed copies are kept for a few minutes
-# so each file is parsed once. Keyed by size and modification time, so a changed file is read again.
+# so each file is parsed once. Keyed by a hash of the file's bytes, so a changed file is read again
+# (modification times are too coarse on some mounted volumes to tell edits apart).
 READ_CACHE_ENTRIES = int(os.getenv("READ_CACHE_ENTRIES", "4"))
 READ_CACHE_SECONDS = 300
 _read_cache = OrderedDict()
@@ -60,10 +62,13 @@ def read_dataset(file_path: str, nrows: int = None) -> pd.DataFrame:
     if READ_CACHE_ENTRIES <= 0:
         return _read_dataset(file_path, nrows)
     try:
-        st = os.stat(file_path)
+        digest = hashlib.blake2b(digest_size=16)
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                digest.update(chunk)
     except OSError:
         return _read_dataset(file_path, nrows)
-    key = (os.path.abspath(file_path), st.st_mtime_ns, st.st_size, nrows)
+    key = (os.path.abspath(file_path), digest.hexdigest(), nrows)
     now = time.time()
     with _read_cache_lock:
         for k in [k for k, (_, at) in _read_cache.items() if now - at > READ_CACHE_SECONDS]:
