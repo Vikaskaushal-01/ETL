@@ -414,8 +414,21 @@ window.openRunDetails = async function(batchId) {
             <span class="bar-track"><span class="bar-fill" style="width:${(n / maxMissing) * 100}%"></span></span>
             <span class="bar-value">${fmtNumber(n)}</span>
         </div>`).join('') : '<p class="text-secondary sheet-note">No missing values in the source file.</p>';
+    const watchIcons = { 'Sensitive data': 'fa-user-lock', 'Schema drift': 'fa-table-columns', 'Volume': 'fa-chart-column' };
+    const watch = (d.observations || []).length ? `
+        <section class="detail-watch">
+            <h4><i class="fa-solid fa-binoculars"></i> What arrived</h4>
+            <ul class="watch-list">${d.observations.map(o => `
+                <li class="watch-item sev-${escapeHtml(o.severity)}">
+                    <i class="fa-solid ${watchIcons[o.category] || 'fa-circle-info'}" title="${escapeHtml(o.category)}"></i>
+                    <div><strong>${escapeHtml(o.title)}</strong><span class="text-secondary">${escapeHtml(o.problem)}</span></div>
+                    <span class="sev-tag ${escapeHtml(o.severity)}">${escapeHtml(o.severity)}</span>
+                </li>`).join('')}
+            </ul>
+        </section>` : '';
     const overview = `
         ${d.summary ? `<p class="detail-summary">${escapeHtml(d.summary)}</p>` : ''}
+        ${watch}
         <div class="detail-grid">
             <section>
                 <h4><i class="fa-solid fa-droplet-slash"></i> Missing values in the source</h4>
