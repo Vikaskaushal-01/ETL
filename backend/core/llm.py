@@ -7,6 +7,7 @@ import re
 import threading
 import time
 import logging
+from collections import OrderedDict
 from concurrent.futures import Future
 from typing import Optional
 import httpx
@@ -19,6 +20,11 @@ logger = logging.getLogger("etl_llm")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+# Answers from Gemini / Ollama are reused for an identical prompt (same data, same question) for a day,
+# in memory only, so a re-run of unchanged data gets the same answer without waiting for the model
+LLM_CACHE = os.getenv("LLM_CACHE", "on").lower() != "off"
+LLM_CACHE_ENTRIES = 512
+LLM_CACHE_SECONDS = 86400
 # A model that answered "overloaded" (503) or "rate limited" (429) is skipped this long
 OVERLOAD_COOLDOWN = 90
 
@@ -388,6 +394,7 @@ def is_real_llm_available() -> bool:
     """True when the last query_llm call on this thread was answered by Gemini or Ollama, not the offline engine."""
     return getattr(_response_source, "value", "offline") in ("gemini", "ollama")
 
+_answer_cache = OrderedDict()  # key -> (text, source, stored at)
 _inflight = {}  # key -> Future of (text, source) for a query being answered right now
 _answer_lock = threading.Lock()
 
@@ -401,11 +408,29 @@ def _answer_key(prompt: str, system_instruction: Optional[str], json_mode: bool)
     return hashlib.sha256(json.dumps([LLM_PROVIDER, system_instruction or "", prompt, bool(json_mode)]).encode()).hexdigest()
 
 
+def _cached_answer(key: str):
+    if not LLM_CACHE:
+        return None
+    with _answer_lock:
+        hit = _answer_cache.get(key)
+        if hit and time.time() - hit[2] < LLM_CACHE_SECONDS:
+            _answer_cache.move_to_end(key)
+            return hit[0], hit[1]
+        _answer_cache.pop(key, None)
+    return None
+
+
 def _answer(key: str, future: Future, prompt: str, system_instruction: Optional[str], json_mode: bool):
-    """Asks the engines and completes the shared future."""
+    """Asks the engines, completes the shared future and keeps a real model's answer for reuse."""
     try:
         text = _query_engines(prompt, system_instruction, json_mode)
-        future.set_result((text, getattr(_response_source, "value", "offline")))
+        source = getattr(_response_source, "value", "offline")
+        if LLM_CACHE and source in ("gemini", "ollama"):
+            with _answer_lock:
+                _answer_cache[key] = (text, source, time.time())
+                while len(_answer_cache) > LLM_CACHE_ENTRIES:
+                    _answer_cache.popitem(last=False)
+        future.set_result((text, source))
     except BaseException as e:
         future.set_exception(e)
     finally:
@@ -418,7 +443,7 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
     """
     Unified LLM query function with circuit breaker protection.
     Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
-    An identical query that is already being answered returns that answer.
+    An identical query that is already being answered or was answered recently returns that answer.
     """
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
@@ -426,16 +451,20 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
         return run_mock_engine(prompt, system_instruction, json_mode)
 
     key = _answer_key(prompt, system_instruction, json_mode)
-    with _answer_lock:
-        future = _inflight.get(key)
-        owner = future is None
+    hit = _cached_answer(key)
+    if hit:
+        logger.info("Reusing the model's answer to an identical earlier query.")
+    else:
+        with _answer_lock:
+            future = _inflight.get(key)
+            owner = future is None
+            if owner:
+                future = _inflight[key] = Future()
         if owner:
-            future = _inflight[key] = Future()
-    if owner:
-        _answer(key, future, prompt, system_instruction, json_mode)
-    text, source = future.result()
-    _response_source.value = source
-    return text
+            _answer(key, future, prompt, system_instruction, json_mode)
+        hit = future.result()
+    _response_source.value = hit[1]
+    return hit[0]
 
 
 def _query_engines(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
