@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fix data** editor in Human Review: show the rows behind each problem, apply the Review Agent's suggested fixes in one click, edit cells and delete rows by hand, restore the original upload, then save and re-run. Edits are recorded with who made them and listed in the next process log (`GET/POST /review/{batch_id}/data`, `POST /review/{batch_id}/data/revert`).
 
 ### 🔧 Changed
+- **Faster runs, same results**: the agents only wait for a model answer they need. The intake recommendations are asked for at the start and collected for the reports; the storage format is decided while the rows load; the executive summary is asked for as soon as the rows are loaded; the Transformation Agent's unused narration call is gone (3 model calls per run instead of 4). With a model taking 3 s per answer, a small file runs in about 4 s instead of 13 s.
+- Identical model questions are answered once (in flight) and reused for a day (`LLM_CACHE`); an overloaded model is skipped for 90 s instead of 20 s.
+- Files are parsed once per run (`READ_CACHE_ENTRIES`) and dates once per distinct value (about 6x faster on date columns).
 - Only runs with a critical or high problem go to Human Review; medium problems are written to the process log as notes.
 - The **Human Review** page shows only the crucial files, each with its critical and high problems and two actions: **Fix data** and **Process file**. Status tabs, counters, filters, the resolve / accept dialog and the log and data buttons are gone.
 - **Fix data** offers only the Review Agent's recommended fixes on a read-only view of the rows; hand edits, row deletion and the column tools were removed from the page.
