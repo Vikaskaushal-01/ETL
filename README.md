@@ -3,6 +3,34 @@
 
 A production-ready, autonomous data engineering platform that ingests raw datasets, automatically profiles schemas, cleanses and standardizes records, validates constraints, loads data into MySQL database staging/production environments, and generates AI-driven Root Cause Analysis (RCA) executive reports.
 
+## In short
+You upload a messy data file (CSV, Excel, JSON or XML). A team of AI agents then:
+1. **Reads and profiles it**: rows, columns, missing values, duplicates.
+2. **Cleans it**: fixes headers, trims text, fills gaps, standardizes dates, removes duplicates.
+3. **Loads it** into MySQL, rejecting bad rows one by one with a reason.
+4. **Writes reports** (PDF, Word, Markdown, JSON) explaining what was wrong and why, and exports the data for Power BI.
+5. **Reviews the result**: files with problems that change what the data says (bias risk, heavy filling, sensitive data such as card numbers, a changed file layout) go to **Human Review**, where you apply the AI's suggested fixes and process the file again.
+
+Everything happens in the web app: the Dashboard shows recent runs, the Pipeline page shows each stage live, and History, Reports, Logs and Storage keep every result.
+
+## How to run (quick)
+**With Docker (recommended):** install Docker Desktop, then:
+```bash
+cp .env.example .env     # add GEMINI_API_KEY to use Gemini (optional)
+cd docker
+docker compose up -d --build
+```
+Open **http://localhost:8000** and sign in as `admin@controlai.net` with the password `admin` (or the one set as `DEFAULT_ADMIN_PASSWORD` in `.env`). To stop: `docker compose down`.
+
+**Without Docker:** install Python 3.11, then:
+```bash
+python -m venv .venv
+.venv\Scriptsctivate          # Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.main:app --port 8000
+```
+Without MySQL the app uses a local SQLite file; without a Gemini key it uses its built-in offline engine. More options are under [Quick Start & Running](#-quick-start--running).
+
 ---
 
 ## 🛠️ Complete Technology Stack
@@ -162,10 +190,8 @@ ETL-A/
 ├── reports/, logs/       # Copies of reports and process logs named after each file
 ├── dashboards/powerbi/   # Power BI modeling guide
 ├── docs/                 # Architecture, database, agents, deployment and runbook docs
-├── tests/                # pytest suite (isolated database via conftest.py)
-├── requirements.txt      # Python dependencies manifest
-├── generate_sample_data.py # Creates sample dirty datasets for verify_pipeline.py
-└── verify_pipeline.py    # Offline end-to-end integration test runner
+├── cleanup_all.py        # Workspace reset used by the assistant's "reset" command
+└── requirements.txt      # Python dependencies manifest
 ```
 
 ---
@@ -186,15 +212,7 @@ uvicorn backend.main:app --port 8000
 ```
 Open `http://localhost:8000/` and sign in as `admin@controlai.net` (password `admin` unless `DEFAULT_ADMIN_PASSWORD` is set), or create an account. Without MySQL the backend falls back to a local SQLite file (`agentic_ai_etl.db`); without a Gemini key it uses the offline reasoning engine.
 
-### 3. Tests & End-to-End Verification
-```bash
-pip install pytest
-python -m pytest            # unit + API regression suite (isolated temp database, offline LLM)
-python verify_pipeline.py   # full upload -> pipeline -> reports -> chat run in an isolated sandbox
-```
-Neither command touches your real database, uploads or reports.
-
-### 4. Launch Stack via Docker Compose
+### 3. Launch Stack via Docker Compose
 Launch MySQL and the backend (reads secrets from the project `.env`; add `--profile ollama` for a local LLM):
 ```bash
 cd docker
@@ -206,7 +224,7 @@ Access Services:
 - **FastAPI OpenAPI Interactive Specs**: `http://localhost:8000/docs`
 - **MySQL Database**: `localhost:3306`
 
-### 5. Deploy to Render
+### 4. Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Vikaskaushal-01/ETL)
 
 The button creates the service from `render.yaml` (Starter instance with a persistent disk). You are asked for
