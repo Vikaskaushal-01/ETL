@@ -48,15 +48,11 @@ docker-compose up --build
 
 ---
 
-## 3. Running Automated Tests
+## 3. Checking a Change
 
-```bash
-# Execute entire test suite
-python -m unittest discover -s tests -p "test_*.py" -v
-
-# Run verification pipeline script
-python verify_pipeline.py
-```
+Start the app (`uvicorn backend.main:app --port 8000`), open `http://localhost:8000`, upload any CSV or Excel file
+on the Pipeline page and confirm every stage completes. The API's own checks are at
+`http://localhost:8000/api/v1/health` and the interactive API docs at `http://localhost:8000/docs`.
 
 ---
 

@@ -34,18 +34,11 @@ mysql -h localhost -u etl_user -p agentic_ai_etl -e "SELECT COUNT(*) FROM raw_up
 3. Click **Trigger Dataset Refresh**.
 4. Confirm success notification and check the console logs drawer for timestamp confirmation.
 
-### SOP-02: Offline Verification & Simulation Test
+### SOP-02: Offline Verification
 When deploying to air-gapped or offline development environments:
-```bash
-# 1. Generate realistic mock datasets
-python generate_sample_data.py
-
-# 2. Run offline end-to-end integration test runner
-python verify_pipeline.py
-
-# 3. Verify clean dataset outputs in ./cleaned data/
-ls "cleaned data"
-```
+1. Set `LLM_PROVIDER=mock` in `.env` so no model is called.
+2. Start the app and upload any CSV or Excel file on the Pipeline page.
+3. Confirm every stage completes and the cleaned file appears under Storage > Cleaned Data.
 
 ---
 
@@ -57,7 +50,7 @@ ls "cleaned data"
 - **Remediation**:
   1. Inspect `MYSQL_HOST` and `MYSQL_PORT` in `.env`.
   2. If using Docker: `docker-compose restart etl_mysql`.
-  3. Run `python verify_pipeline.py` to confirm connection restoration.
+  3. Check `http://localhost:8000/api/v1/health` reports the database as Healthy, then run a sample file.
 
 ### Incident 2: Gemini API Rate Limit / Quota Exceeded (429 / 404)
 - **Symptom**: `Error calling model 'gemini'`.
