@@ -4,7 +4,7 @@ import shutil
 import logging
 import time
 from sqlalchemy import text
-from backend.core.llm import query_llm, is_real_llm_available as LLM_PROVIDER_IS_REAL
+from backend.core.llm import PIPELINE_LLM_WAIT_SECONDS, query_llm, is_real_llm_available as LLM_PROVIDER_IS_REAL
 from backend.utils.file_utils import read_dataset
 from backend.utils.data_insights import (
     build_recommendations, build_root_cause_analysis, compute_dataset_insights
