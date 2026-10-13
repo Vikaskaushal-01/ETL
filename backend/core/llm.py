@@ -489,6 +489,7 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
     if hit:
         logger.info("Reusing the model's answer to an identical earlier query.")
     else:
+        asked_at = time.time()
         with _answer_lock:
             future = _inflight.get(key)
             owner = future is None
@@ -496,6 +497,7 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
                 future = _inflight[key] = Future()
             elif hasattr(future, "prefetched_at"):
                 del _inflight[key]  # the query a prefetch was started for takes its answer
+                asked_at = future.prefetched_at
         if owner and max_wait is None:
             _answer(key, future, prompt, system_instruction, json_mode)
         elif owner:
