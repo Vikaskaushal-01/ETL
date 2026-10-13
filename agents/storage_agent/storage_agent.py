@@ -90,6 +90,9 @@ def _to_int(v, col: str):
     return int(number), None
 
 
+_ISO_DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
+
+
 def _to_datetime(v, col: str):
     if _is_missing(v) or (isinstance(v, str) and not v.strip()):
         return None, None
