@@ -18,7 +18,7 @@ SYSTEM_INSTRUCTION = "You are the Data Intake Agent. Analyze dataset parameters 
 def recommendations_from_llm(prompt: str) -> list:
     """The model's recommended cleaning steps for the profile in the prompt, or the default steps."""
     try:
-        llm_response = query_llm(prompt, SYSTEM_INSTRUCTION, json_mode=True)
+        llm_response = query_llm(prompt, SYSTEM_INSTRUCTION, json_mode=True, max_wait=PIPELINE_LLM_WAIT_SECONDS)
         # Clean response text from markdown block quotes if present
         if "```json" in llm_response:
             llm_response = llm_response.split("```json")[1].split("```")[0].strip()
