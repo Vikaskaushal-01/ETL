@@ -503,7 +503,9 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
         elif owner:
             _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode)
         try:
-            hit = future.result(timeout=max_wait)
+            # The wait counts from when the question was first asked, so early (prefetched) questions
+            # do not add their full wait again at every stage
+            hit = future.result(timeout=None if max_wait is None else max(0.0, asked_at + max_wait - time.time()))
         except FutureTimeout:
             logger.warning(f"The model did not answer within {max_wait:.0f}s; using the answer computed from the data.")
             return run_mock_engine(prompt, system_instruction, json_mode)
