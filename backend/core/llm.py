@@ -496,9 +496,15 @@ def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = Fal
                 future = _inflight[key] = Future()
             elif hasattr(future, "prefetched_at"):
                 del _inflight[key]  # the query a prefetch was started for takes its answer
-        if owner:
+        if owner and max_wait is None:
             _answer(key, future, prompt, system_instruction, json_mode)
-        hit = future.result()
+        elif owner:
+            _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode)
+        try:
+            hit = future.result(timeout=max_wait)
+        except FutureTimeout:
+            logger.warning(f"The model did not answer within {max_wait:.0f}s; using the answer computed from the data.")
+            return run_mock_engine(prompt, system_instruction, json_mode)
     _response_source.value = hit[1]
     return hit[0]
 
