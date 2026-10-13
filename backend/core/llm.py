@@ -8,7 +8,7 @@ import threading
 import time
 import logging
 from collections import OrderedDict
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Optional
 import httpx
 from dotenv import load_dotenv
