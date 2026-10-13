@@ -98,7 +98,7 @@ class ReportAgent:
         system_instruction = SUMMARY_SYSTEM_INSTRUCTION
         executive_summary = None
         try:
-            llm_ins = query_llm(prompt_insights, system_instruction, json_mode=True)
+            llm_ins = query_llm(prompt_insights, system_instruction, json_mode=True, max_wait=PIPELINE_LLM_WAIT_SECONDS)
             if "```json" in llm_ins:
                 llm_ins = llm_ins.split("```json")[1].split("```")[0].strip()
             elif "```" in llm_ins:
