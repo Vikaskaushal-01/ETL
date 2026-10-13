@@ -10,7 +10,7 @@ from sqlalchemy import text
 from docx import Document
 from backend.database.mysql import SessionLocal
 from backend.database.repository import log_agent_decision
-from backend.core.llm import prefetch_llm, query_llm
+from backend.core.llm import PIPELINE_LLM_WAIT_SECONDS, prefetch_llm, query_llm
 from backend.utils.file_utils import read_dataset
 from backend.utils.text import plural
 
