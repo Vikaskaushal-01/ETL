@@ -356,12 +356,13 @@ class StorageAgent:
                 customer_stubs = set(missing_customers_to_stub)
                 if missing_orders_to_stub:
                     customer_stubs.add("CUST_DEFAULT")
-                for mc in customer_stubs:
+                # One batched statement per table: a file can reference tens of thousands of new keys
+                if customer_stubs:
                     db.execute(text(_upsert_ignore_sql(
                         is_sqlite, "customers",
                         "(customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)",
                         "customer_id"
-                    )), {"c": mc, "u": user_email})
+                    )), [{"c": mc, "u": user_email} for mc in sorted(customer_stubs)])
                 for mo in missing_orders_to_stub:
                     db.execute(text(_upsert_ignore_sql(
                         is_sqlite, "orders",
