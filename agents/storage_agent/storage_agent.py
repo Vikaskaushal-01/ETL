@@ -109,10 +109,14 @@ def _parse_date_text(v: str):
 def _to_datetime(v, col: str):
     if _is_missing(v) or (isinstance(v, str) and not v.strip()):
         return None, None
-    parsed = pd.to_datetime(v, errors="coerce")
-    if pd.isna(parsed):
+    if isinstance(v, str):
+        parsed = _parse_date_text(v)
+    else:
+        parsed = pd.to_datetime(v, errors="coerce")
+        parsed = None if pd.isna(parsed) else parsed.to_pydatetime()
+    if parsed is None:
         return None, f"Unparseable date in '{col}': {v!r}"
-    return parsed.to_pydatetime(), None
+    return parsed, None
 
 
 def _upsert_sql(is_sqlite: bool, table: str, cols: list, pk: str) -> str:
