@@ -29,6 +29,9 @@ LLM_CACHE_SECONDS = 86400
 PREFETCH_SECONDS = 600
 # A model that answered "overloaded" (503) or "rate limited" (429) is skipped this long
 OVERLOAD_COOLDOWN = 90
+# Longest a pipeline stage waits for the model's text (summary, storage format, recommendations) before
+# using the answer computed from the data; the model's answer is still cached for the next run
+PIPELINE_LLM_WAIT_SECONDS = float(os.getenv("PIPELINE_LLM_WAIT_SECONDS", "8"))
 
 _ARITH_BINOPS = {
     ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
