@@ -93,6 +93,19 @@ def _to_int(v, col: str):
 _ISO_DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 
 
+@functools.lru_cache(maxsize=65536)
+def _parse_date_text(v: str):
+    """One date string parsed exactly as pd.to_datetime does, or None. Date columns repeat values, so
+    each distinct value is parsed once; the ISO form written by the cleaning stage skips pandas."""
+    if _ISO_DATETIME_RE.fullmatch(v):
+        try:
+            return datetime.datetime.strptime(v, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+    parsed = pd.to_datetime(v, errors="coerce")
+    return None if pd.isna(parsed) else parsed.to_pydatetime()
+
+
 def _to_datetime(v, col: str):
     if _is_missing(v) or (isinstance(v, str) and not v.strip()):
         return None, None
