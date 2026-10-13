@@ -4,6 +4,7 @@ import re
 import logging
 import time
 import datetime
+import functools
 import pandas as pd
 from sqlalchemy import text
 from docx import Document
