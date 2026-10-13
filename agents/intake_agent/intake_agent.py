@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from backend.utils.file_utils import read_dataset, detect_file_info
-from backend.core.llm import is_offline, prefetch_llm, query_llm
+from backend.core.llm import PIPELINE_LLM_WAIT_SECONDS, is_offline, prefetch_llm, query_llm
 
 logger = logging.getLogger("etl_intake_agent")
 
