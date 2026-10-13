@@ -471,12 +471,13 @@ def prefetch_llm(prompt: str, system_instruction: str = None, json_mode: bool = 
     _prefetch_pool.submit(_answer, key, future, prompt, system_instruction, json_mode, True)
 
 
-def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False) -> str:
+def query_llm(prompt: str, system_instruction: str = None, json_mode: bool = False, max_wait: Optional[float] = None) -> str:
     """
     Unified LLM query function with circuit breaker protection.
     Falls back gracefully: Gemini -> Ollama -> Dynamic Responsive Reasoning Engine.
     An identical query that is already being answered (see prefetch_llm) or was answered recently
-    returns that answer.
+    returns that answer. With max_wait, an answer that takes longer is left to finish (and be cached)
+    in the background and the offline engine answers now.
     """
     _response_source.value = "offline"
     # Fast-path: Explicit mock or offline mode
