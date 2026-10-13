@@ -11,8 +11,8 @@ from agents.report_agent.report_agent import ReportAgent
 logger = logging.getLogger("etl_nodes")
 
 PIPELINE_STEP_DELAY = float(os.getenv("PIPELINE_STEP_DELAY", "0.0"))
-# Short pause so the Power BI stage is visible in the UI; set to 0 for tests and batch runs
-PBI_REFRESH_DELAY = float(os.getenv("PBI_REFRESH_DELAY", "1.2"))
+# Optional pause so the Power BI stage stays visible in the UI; off by default so runs are not slowed
+PBI_REFRESH_DELAY = float(os.getenv("PBI_REFRESH_DELAY", "0"))
 
 # The intake model's recommended cleaning steps are only needed by the reports, so the run does not
 # wait for them: the intake stage asks, and the report stage (or the end of a failed run) collects them
