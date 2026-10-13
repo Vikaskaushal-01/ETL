@@ -363,12 +363,12 @@ class StorageAgent:
                         "(customer_id, customer_name, email, phone, region, uploaded_by) VALUES (:c, 'Auto-Provisioned Customer', 'auto@customer.internal', 'N/A', 'Global', :u)",
                         "customer_id"
                     )), [{"c": mc, "u": user_email} for mc in sorted(customer_stubs)])
-                for mo in missing_orders_to_stub:
+                if missing_orders_to_stub:
                     db.execute(text(_upsert_ignore_sql(
                         is_sqlite, "orders",
                         "(order_id, customer_id, order_date, status, total_amount, uploaded_by) VALUES (:o, 'CUST_DEFAULT', CURRENT_TIMESTAMP, 'Auto-Provisioned', 0.0, :u)",
                         "order_id"
-                    )), {"o": mo, "u": user_email})
+                    )), [{"o": mo, "u": user_email} for mo in sorted(missing_orders_to_stub)])
                 sql_logs.append(f"Auto-provisioned {plural(len(customer_stubs), 'parent customer')} and {plural(len(missing_orders_to_stub), 'parent order')} referenced by foreign keys.")
 
             if production_records:
