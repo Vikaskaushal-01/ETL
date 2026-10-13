@@ -403,7 +403,7 @@ class StorageAgent:
                 logger.warning(f"on_loaded callback failed: {e}")
 
         try:
-            llm_response = query_llm(prompt, system_instruction, json_mode=True)
+            llm_response = query_llm(prompt, system_instruction, json_mode=True, max_wait=PIPELINE_LLM_WAIT_SECONDS)
             if "```json" in llm_response:
                 llm_response = llm_response.split("```json")[1].split("```")[0].strip()
             elif "```" in llm_response:
