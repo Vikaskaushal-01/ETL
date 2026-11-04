@@ -111,6 +111,13 @@ On a fresh database the administrator `admin@controlai.net` is created with the 
 | **Schedules** | `/api/v1/schedules` | `GET`/`POST` | List / create schedules: a public dataset URL ingested and run every N minutes by the server |
 | | `/api/v1/schedules/{id}` | `PATCH`/`DELETE` | Rename, change interval, pause / resume, or delete a schedule |
 | | `/api/v1/schedules/{id}/run` | `POST` | Run a schedule now |
+| **Data Contracts** | `/api/v1/contracts` · `/contracts/{id}` | `GET`/`POST`/`PATCH`/`DELETE` | Rules a dataset must meet before it is loaded, each set to warn, drop the rows or fail the run |
+| | `/api/v1/contracts/suggest?batch_id=` · `/contracts/{id}/test?batch_id=` | `GET`/`POST` | Rules profiled from a run's cleaned data / dry-run a contract on a run |
+| | `/api/v1/contracts/results/{batch_id}` · `/contracts/rule-types` | `GET` | What the contracts decided during a run / rule types and actions |
+| **Observability** | `/api/v1/observability/datasets` | `GET` | Health of every dataset: anomalies against its learned baseline, freshness, metric history |
+| | `/api/v1/observability/runs/{batch_id}` | `GET` | A run's metrics compared with the earlier runs of its dataset |
+| **Lineage** | `/api/v1/lineage/{batch_id}` · `/lineage/{batch_id}/openlineage` | `GET` | Column-level lineage of a run / the run as OpenLineage events |
+| **REST API Ingestion** | `/api/v1/upload/api` · `/upload/api/preview` | `POST` | Pull every page of a JSON API into a table (auto record path and pagination) / preview it |
 | **Human Review** | `/api/v1/review?status=open\|resolved\|dismissed\|all` | `GET` | Runs the Review Agent flagged for a person, with every problem and counts per status, kind and severity |
 | | `/api/v1/review/{batch_id}` | `GET`/`POST` | One flagged run / resolve, dismiss (accept as it is) or reopen it with a note |
 | | `/api/v1/review/{batch_id}/data?offset=&limit=&filter=` | `GET` | Page of the uploaded file's rows, optionally only those a problem refers to |
@@ -154,6 +161,12 @@ The **Human Review** page lists only those crucial files. Each card shows the fi
 Sensitive data comes with one-click fixes: **mask** (keep the last 4 characters, `a***@example.com` for emails), **pseudonymize** (a stable `anon_...` token derived from the server's secret, so rows of the same person stay linked) or remove the column. A renamed column can be renamed back in one click. Run details list everything the Review Agent noticed about what arrived under **What arrived**, including the notes that do not need a person.
 
 **Process file**: runs the pipeline on the fixed file as the reviewer's approval (`POST /pipeline/start` with `"reviewed": true`). When the run finishes the file leaves Human Review, with any remaining notes in the process log; it only comes back if the file cannot be processed. The process log lists every fix made in Human Review and who made it. A plain re-run of a flagged file is checked again as usual.
+
+### 🛡️ Data Quality: contracts, anomalies, freshness and lineage
+- **Data contracts** are checked on the cleaned data before the Storage Agent loads it. Each rule (never empty, unique, within range, one of a set of values, matches a pattern, has a type, column present, at most N% empty, at least / at most N rows) has an action: **warn** (record it), **drop** (remove the offending rows) or **fail** (stop the run, nothing is loaded). A contract applies to every file whose name matches its pattern (`orders_*.csv`). On the **Data Quality** page, *Suggest rules* profiles a good run and *Test on run* dry-runs a saved contract.
+- **Anomalies** are found without thresholds to configure: from the 4th delivery of a dataset, each run's row and column count, missing / duplicate / rejected share, quality and runtime are compared with the earlier runs using a robust z-score (median and MAD, 3.5). Only the bad direction counts (better quality is never an anomaly).
+- **Freshness**: a dataset that usually arrives every N hours is *late* after 2 x N without a delivery.
+- **Lineage**: Run details > Lineage shows each source column, its cleaned name, what changed and the warehouse table it reached. The same run is available as OpenLineage events, and is sent to `OPENLINEAGE_URL` (e.g. Marquez) after every run when that is set.
 
 ### ✅ Validation Rules Applied During Load
 - Rows missing a primary key, duplicating a primary key within the batch, missing `customer_name` (customers), or holding non-numeric quantities/prices or unparseable dates are **rejected individually** with a reason; the rest of the batch still loads. Rejections feed the Root Cause Analysis reports.
