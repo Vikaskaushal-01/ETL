@@ -235,6 +235,20 @@ class Schedule(Base):
     run_count = Column(Integer, default=0)
 
 
+class DataContract(Base):
+    """Expectations a user's dataset must meet, checked on the cleaned data before it is loaded."""
+    __tablename__ = 'data_contracts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    dataset_pattern = Column(String(255), nullable=False)  # file-name glob, e.g. "sales_*.csv"
+    rules_json = Column(Text, nullable=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ReviewItem(Base):
     """A run the Review Agent handed to a human: the problems it found and what the reviewer decided."""
     __tablename__ = 'review_items'
