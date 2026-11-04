@@ -233,6 +233,9 @@ class Schedule(Base):
     last_status = Column(String(50), nullable=True)
     last_error = Column(Text, nullable=True)
     run_count = Column(Integer, default=0)
+    source_type = Column(String(20), nullable=True)  # "file" (default) or "api" (paginated JSON REST API)
+    connector_json = Column(Text, nullable=True)  # REST API options: records_path, pagination, max_pages
+    last_attempts = Column(Integer, nullable=True)  # download attempts of the last run (retries with backoff)
 
 
 class DataContract(Base):

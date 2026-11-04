@@ -1,6 +1,7 @@
 """Scheduled ingestion: run a public dataset URL through the pipeline on an interval."""
 from datetime import datetime, timedelta
-from typing import Optional
+import json
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -18,11 +19,19 @@ MAX_INTERVAL_MINUTES = 7 * 24 * 60
 MAX_SCHEDULES_PER_USER = 20
 
 
+class ApiOptions(BaseModel):
+    records_path: Optional[str] = Field(None, max_length=200)
+    pagination: Optional[dict] = None
+    max_pages: int = Field(20, ge=1, le=200)
+
+
 class ScheduleCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     url: str = Field(..., min_length=8, max_length=2000)
     interval_minutes: int = Field(..., ge=MIN_INTERVAL_MINUTES, le=MAX_INTERVAL_MINUTES)
     run_now: bool = True
+    source_type: Literal["file", "api"] = "file"
+    api: Optional[ApiOptions] = None  # REST API options when source_type is "api" (no credentials are stored)
 
 
 class ScheduleUpdate(BaseModel):
@@ -49,6 +58,9 @@ def _serialize(s: Schedule) -> dict:
         "last_status": s.last_status,
         "last_error": s.last_error,
         "run_count": s.run_count or 0,
+        "source_type": s.source_type or "file",
+        "api": json.loads(s.connector_json) if s.connector_json else None,
+        "last_attempts": s.last_attempts,
     }
 
 
@@ -80,6 +92,10 @@ def create_schedule(req: ScheduleCreate, db: Session = Depends(get_db), x_user_e
         raise HTTPException(status_code=400, detail="Schedules belong to a user account.")
     if db.query(Schedule).filter(Schedule.user_email == x_user_email).count() >= MAX_SCHEDULES_PER_USER:
         raise HTTPException(status_code=400, detail=f"You can have at most {MAX_SCHEDULES_PER_USER} schedules.")
+    if req.source_type == "api" and req.api and req.api.pagination:
+        from backend.utils.api_connector import PAGINATION_TYPES
+        if (req.api.pagination.get("type") or "auto") not in PAGINATION_TYPES:
+            raise HTTPException(status_code=400, detail=f"Pagination must be one of: {', '.join(PAGINATION_TYPES)}.")
     now = datetime.utcnow()
     schedule = Schedule(
         user_email=x_user_email,
@@ -89,6 +105,8 @@ def create_schedule(req: ScheduleCreate, db: Session = Depends(get_db), x_user_e
         enabled=True,
         next_run_at=now + timedelta(minutes=req.interval_minutes),
         run_count=0,
+        source_type=req.source_type,
+        connector_json=json.dumps((req.api or ApiOptions()).model_dump()) if req.source_type == "api" else None,
     )
     db.add(schedule)
     db.commit()
