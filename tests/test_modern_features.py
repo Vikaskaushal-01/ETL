@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytest
 
-from backend.utils import contracts
+from backend.utils import contracts, lineage, observability
 
 
 # ---------- data contracts ----------
@@ -94,3 +94,89 @@ def test_dataset_pattern_matching():
     assert contracts.matches_dataset("sales_*.csv", "Sales_2026.CSV")
     assert not contracts.matches_dataset("sales_*.csv", "orders.csv")
     assert not contracts.matches_dataset("", "orders.csv")
+
+
+# ---------- observability ----------
+
+@pytest.mark.parametrize("name,key", [
+    ("realtime_orders_20260916_183805_c2346c.csv", "realtime_orders.csv"),
+    ("pokemon_episodes_2026_08_01.csv", "pokemon_episodes.csv"),
+    ("Sales (2).xlsx", "sales.xlsx"),
+    ("customers.csv", "customers.csv"),
+])
+def test_dataset_key(name, key):
+    assert observability.dataset_key(name) == key
+
+
+def test_anomalies_use_robust_baseline():
+    history = [{"rows": r, "quality_after": q, "missing_pct": 1.0} for r, q in
+               [(1000, 98), (1010, 97.5), (990, 98.2), (1005, 97.9), (995, 98.1)]]
+    assert observability.detect_anomalies({"rows": 1002, "quality_after": 98.0, "missing_pct": 1.0}, history) == []
+    found = observability.detect_anomalies({"rows": 120, "quality_after": 99.9, "missing_pct": 1.0}, history)
+    assert [a["metric"] for a in found] == ["rows"]  # higher quality is never an anomaly
+    assert found[0]["direction"] == "down" and found[0]["severity"] == "high"
+    # Too little history: nothing is judged
+    assert observability.detect_anomalies({"rows": 1}, history[:2]) == []
+
+
+def test_freshness_late_detection():
+    now = datetime(2026, 11, 4, 12, 0)
+    hourly = [now - timedelta(hours=h) for h in (10, 9, 8, 7, 6)]
+    fresh = observability.freshness(hourly, now)
+    assert fresh["expected_every_s"] == 3600 and fresh["late"]
+    assert not observability.freshness(hourly + [now - timedelta(minutes=30)], now)["late"]
+
+
+def test_run_metrics_from_state():
+    state = {"status": "Success", "execution_time": 4.2, "stages": {
+        "intake": {"output": {"rows": 100, "columns": 4, "missing_values_total": 8, "duplicate_rows": 5}},
+        "transformation": {"output": {"quality_after": 97.5}},
+        "storage": {"output": {"rows_loaded": 90, "rows_rejected": 10}},
+    }}
+    m = observability.run_metrics(state)
+    assert m == {"rows": 100, "columns": 4, "missing_pct": 2.0, "duplicate_pct": 5.0, "rejected_pct": 10.0,
+                 "quality_after": 97.5, "execution_time": 4.2}
+
+
+# ---------- lineage ----------
+
+def _state():
+    return {
+        "status": "Success", "start_time": "2026-11-04T10:00:00", "end_time": "2026-11-04T10:00:05",
+        "contracts": {"summary": {"rows_dropped": 2}, "results": [
+            {"rule": "order_id is never empty", "status": "dropped", "column": "order_id"}]},
+        "stages": {
+            "transformation": {
+                "input": {"columns_to_process": ["Order ID", "Order Date", "Notes", "total_amount"]},
+                "output": {"clean_dataset_path": "/x/cleaned data/orders.csv"},
+                "metadata": {"transformation_history": [
+                    {"column_name": "Order ID", "reason": "Standardized column header naming format"},
+                    {"column_name": "order_date", "reason": "Standardized date values"},
+                    {"column_name": "notes", "reason": "Applied custom rule: drop column"},
+                    {"column_name": "all", "reason": "Removed 3 duplicate records"},
+                ]},
+            },
+            "storage": {"status": "completed", "output": {"dataset_type": "orders"}},
+            "pbi": {"status": "completed", "output": {"tables": {"FactOrders": 10}}},
+        },
+    }
+
+
+def test_column_lineage_and_openlineage_events():
+    lin = lineage.build_lineage(_state(), "orders.csv", "a@b.com")
+    cols = {c["source"]: c for c in lin["columns"]}
+    assert cols["Order ID"]["target"] == "order_id" and cols["Order ID"]["loaded_to"] == "staging_orders"
+    assert cols["Notes"]["dropped"] and cols["Notes"]["target"] is None
+    assert any(t["label"] == "dates standardized" for t in cols["Order Date"]["transformations"])
+    assert [d["id"] for d in lin["datasets"]] == ["raw", "clean", "staging", "production", "powerbi"]
+    assert len(lin["dataset_steps"]) == 2  # dedupe + contract drop
+
+    events = lineage.openlineage_events("batch_1", _state(), lin, "orders.csv")
+    assert [e["eventType"] for e in events] == ["START", "COMPLETE"]
+    assert events[0]["run"]["runId"] == events[1]["run"]["runId"]
+    clean_out = events[1]["outputs"][0]
+    fields = clean_out["facets"]["columnLineage"]["fields"]
+    assert fields["order_id"]["inputFields"][0]["field"] == "Order ID"
+    assert "notes" not in fields
+    assert clean_out["facets"]["dataQualityAssertions"]["assertions"][0]["success"] is False
+    assert events[1]["eventTime"].endswith("Z")
