@@ -44,6 +44,12 @@ def build_message(run: dict) -> str:
     message = " · ".join(parts)
     if run.get("error"):
         message += f"\nError: {run['error']}"
+    contracts = run.get("contracts") or {}
+    if contracts and not contracts.get("passed_all"):
+        message += (f"\nData contracts: {contracts.get('warned', 0)} warned, {contracts.get('dropped', 0)} dropped rows, "
+                    f"{contracts.get('failed', 0)} failed")
+    for anomaly in (run.get("anomalies") or [])[:3]:
+        message += f"\nAnomaly ({anomaly.get('severity')}): {anomaly.get('message')}"
     review = run.get("review") or {}
     if review.get("status") == "open":
         message += f"\nNeeds human review: {plural(review.get('issues'), 'issue')}, highest severity {review.get('severity')}"
@@ -74,6 +80,11 @@ def notify_run_finished(batch_id: str) -> None:
             return
         run = {k: runs[0].get(k) for k in ("batch_id", "filename", "status", "rows", "rows_loaded", "rows_rejected",
                                             "quality_before", "quality_after", "execution_time", "error", "review")}
+        from backend.api.pipeline import read_pipeline_state
+        state = read_pipeline_state(f"pipe_{batch_id}")
+        run["anomalies"] = [{k: a.get(k) for k in ("metric", "severity", "message")}
+                            for a in (state.get("observability") or {}).get("anomalies") or []]
+        run["contracts"] = (state.get("contracts") or {}).get("summary")
         if (user.notify_on or "all") == "failures" and run["status"] != "Failed":
             return
         url = user.webhook_url
