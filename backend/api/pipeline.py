@@ -197,6 +197,14 @@ def update_pipeline_overall_status(pipeline_id: str, status: str, execution_time
                     stage["status"] = "failed"
         write_pipeline_state(pipeline_id, state)
 
+def set_pipeline_field(pipeline_id: str, key: str, value):
+    """Stores a run-level value (contracts, observability, lineage) next to the stages."""
+    with _state_lock:
+        state = read_pipeline_state(pipeline_id)
+        state[key] = value
+        write_pipeline_state(pipeline_id, state)
+
+
 def set_pipeline_review(pipeline_id: str, review: dict):
     """Stores the Review Agent's findings with the run, so the process log can list them."""
     with _state_lock:

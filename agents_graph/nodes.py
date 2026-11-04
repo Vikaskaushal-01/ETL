@@ -166,6 +166,51 @@ def intake_node(state: PipelineState) -> dict:
         "execution_logs": logs
     }
 
+def _enforce_contracts(pipeline_id: str, owner, filename: str, res: dict) -> tuple:
+    """
+    Applies the owner's data contracts to the cleaned file. Returns (log lines, outcome). Rows dropped by a
+    contract are removed from the cleaned file and recorded as a transformation step; a broken 'fail' rule
+    stores the outcome and raises, so the run stops before the Storage Agent loads anything.
+    """
+    from backend.api.contracts import apply_contracts
+    from backend.api.pipeline import set_pipeline_field
+    from backend.utils.contracts import ContractViolation
+
+    clean_path = res.get("clean_dataset_path")
+    if not clean_path or not os.path.isfile(clean_path):
+        return [], None
+    try:
+        outcome = apply_contracts(owner, filename, clean_path)
+    except ContractViolation as violation:
+        set_pipeline_field(pipeline_id, "contracts", violation.outcome)
+        raise
+    if not outcome:
+        return [], None
+    set_pipeline_field(pipeline_id, "contracts", outcome)
+    s = outcome["summary"]
+    names = ", ".join(a["name"] for a in outcome["applied"])
+    logs = [f"Data contracts checked ({names}): {s['passed']} of {s['rules']} rules passed, "
+            f"{s['warned']} warned, {s['dropped']} dropped rows."]
+    for r in outcome["results"]:
+        if r["status"] in ("warned", "dropped"):
+            count = f"{r['failed_rows']:,} rows" if r["failed_rows"] else (r["detail"] or "")
+            logs.append(f"Contract {'DROP' if r['status'] == 'dropped' else 'WARN'}: {r['rule']} - {count}.")
+    if s["rows_dropped"]:
+        from agents.transformation_agent.transformation_agent import measure_quality
+        from backend.utils.file_utils import read_dataset
+        res.setdefault("transformation_steps", []).append({
+            "column_name": "all",
+            "old_value": f"{s['rows_in']} rows",
+            "new_value": f"{s['rows_out']} rows",
+            "reason": f"Data contract removed {s['rows_dropped']} rows that broke a 'drop' rule",
+        })
+        try:
+            res["quality_after"] = measure_quality(read_dataset(clean_path))
+        except Exception as e:
+            logger.warning(f"Could not re-measure quality after contract drops: {e}")
+    return logs, outcome
+
+
 def transformation_node(state: PipelineState) -> dict:
     """
     Executes the Transformation Agent (Agent 2) to clean columns, handle nulls/duplicates, and standardize formats.
@@ -227,7 +272,10 @@ def transformation_node(state: PipelineState) -> dict:
 
         user_clean_dir = os.path.dirname(get_user_path(user_email, "cleaned data/dummy.txt"))
         res = agent.run(dataset_path, {**metadata, "batch_id": batch_id}, output_dir=user_clean_dir)
-        
+
+        # Data contracts: the owner's expectations for this file, checked before anything is loaded
+        contract_logs, contract_outcome = _enforce_contracts(pipeline_id, user_email, os.path.basename(dataset_path), res)
+
         # Read clean preview
         clean_preview = []
         try:
@@ -276,18 +324,20 @@ def transformation_node(state: PipelineState) -> dict:
                 f"Removed duplicate rows. Dataset quality index improved: {res.get('quality_before')}% -> {res.get('quality_after')}%.",
                 f"Null values imputed: default quantities filled, prices imputed using median reference values.",
                 "Data cleaning completed successfully. Outputs saved."
-            ],
+            ] + contract_logs,
             metadata={
-                "transformation_history": res.get("transformation_steps", [])
+                "transformation_history": res.get("transformation_steps", []),
+                "contracts": (contract_outcome or {}).get("summary")
             }
         )
     except Exception as e:
+        from backend.utils.contracts import ContractViolation
         update_pipeline_stage(
             pipeline_id,
             "transformation",
             "failed",
             logs=[
-                f"Transformation Agent crashed: {str(e)}"
+                str(e) if isinstance(e, ContractViolation) else f"Transformation Agent crashed: {str(e)}"
             ]
         )
         raise e
