@@ -182,3 +182,130 @@ def describe_rule(rule: dict) -> str:
     if t == "row_count_max":
         return f"the file has at most {p.get('value'):,} rows"
     return t
+
+
+def _resolve(df: pd.DataFrame, column: Optional[str]) -> Optional[str]:
+    if not column:
+        return None
+    if column in df.columns:
+        return column
+    wanted = standardize_column_name(column)
+    for col in df.columns:
+        if standardize_column_name(col) == wanted:
+            return col
+    return None
+
+
+_EMPTY_TOKENS = {"", "nan", "none", "null", "nat"}
+
+
+def _is_empty(series: pd.Series) -> pd.Series:
+    return series.isna() | series.astype(str).str.strip().str.lower().isin(_EMPTY_TOKENS)
+
+
+def _failing_mask(df: pd.DataFrame, col: str, rule: dict) -> pd.Series:
+    """True for rows that break a row-level rule. Empty values only fail not_null (and are not duplicates)."""
+    series = df[col]
+    empty = _is_empty(series)
+    t, p = rule["type"], rule["params"]
+    if t == "not_null":
+        return empty
+    if t == "unique":
+        return series.duplicated(keep=False) & ~empty
+    if t == "between":
+        nums = pd.to_numeric(series, errors="coerce")
+        bad = nums.isna()  # text in a range column cannot be in range
+        if p.get("min") is not None:
+            bad |= nums < p["min"]
+        if p.get("max") is not None:
+            bad |= nums > p["max"]
+        return bad & ~empty
+    if t == "allowed_values":
+        values = series.astype(str).str.strip()
+        allowed = set(p["values"])
+        if not p.get("case_sensitive"):
+            values, allowed = values.str.lower(), {v.lower() for v in allowed}
+        return ~values.isin(allowed) & ~empty
+    if t == "regex":
+        rx = re.compile(p["pattern"])
+        matches = series.map(lambda v: bool(rx.fullmatch(str(v).strip())), na_action="ignore")
+        return ~matches.fillna(True).astype(bool) & ~empty
+    if t == "type":
+        kind = p["kind"]
+        if kind == "text":
+            return pd.Series(False, index=df.index)
+        if kind == "date":
+            return parse_dates(series.where(~empty)).isna() & ~empty
+        nums = pd.to_numeric(series, errors="coerce")
+        bad = nums.isna()
+        if kind == "integer":
+            bad |= ~nums.isna() & (nums % 1 != 0)
+        return bad & ~empty
+    raise ContractError(f"'{t}' is not a row-level rule.")
+
+
+def _samples(series: pd.Series) -> list:
+    return [None if pd.isna(v) else str(v)[:80] for v in series.head(SAMPLE_VALUES).tolist()]
+
+
+def evaluate(df: pd.DataFrame, rules: list) -> tuple:
+    """
+    Checks every rule against df. Returns (df with dropped rows removed, results, failed).
+    Rows are judged against the data as it arrived, so the order of drop rules does not change the outcome.
+    """
+    rows_in = len(df)
+    drop = pd.Series(False, index=df.index)
+    results, failed = [], False
+    for rule in rules:
+        res = {
+            "type": rule["type"], "column": rule.get("column"), "action": rule["action"],
+            "rule": describe_rule(rule), "description": rule.get("description"),
+            "failed_rows": 0, "failed_pct": 0.0, "samples": [], "status": "passed", "detail": None,
+        }
+        col = _resolve(df, rule.get("column"))
+        t = rule["type"]
+        broken = False
+        if t in ("row_count_min", "row_count_max"):
+            limit = rule["params"]["value"]
+            broken = rows_in < limit if t == "row_count_min" else rows_in > limit
+            res["detail"] = f"{rows_in:,} rows"
+        elif col is None:
+            # A rule about a missing column is broken (the schema did not honor the contract)
+            broken = True
+            res["detail"] = f"Column '{rule.get('column')}' is not in the data."
+        elif t == "column_exists":
+            res["detail"] = f"Found as '{col}'."
+        elif t == "max_null_pct":
+            pct = round(float(_is_empty(df[col]).mean() * 100), 2) if rows_in else 0.0
+            broken = pct > rule["params"]["max"]
+            res["detail"] = f"{pct:g}% empty"
+        else:
+            mask = _failing_mask(df, col, rule)
+            n = int(mask.sum())
+            if n:
+                broken = True
+                res["failed_rows"] = n
+                res["failed_pct"] = round(100 * n / rows_in, 2) if rows_in else 0.0
+                res["samples"] = _samples(df.loc[mask, col])
+                if rule["action"] == "drop":
+                    drop |= mask
+        if broken:
+            res["status"] = {"warn": "warned", "drop": "dropped", "fail": "failed"}[rule["action"]]
+            if rule["action"] == "drop" and not res["failed_rows"]:
+                res["status"] = "warned"  # nothing row-level to drop (e.g. the column is missing)
+            failed = failed or rule["action"] == "fail"
+        results.append(res)
+    out = df.loc[~drop].reset_index(drop=True) if drop.any() else df
+    return out, results, failed
+
+
+def summarize(results: list, rows_in: int, rows_out: int) -> dict:
+    counts = {s: sum(1 for r in results if r["status"] == s) for s in ("passed", "warned", "dropped", "failed")}
+    return {
+        "rules": len(results),
+        **counts,
+        "rows_in": rows_in,
+        "rows_dropped": rows_in - rows_out,
+        "rows_out": rows_out,
+        "passed_all": counts["warned"] + counts["dropped"] + counts["failed"] == 0,
+    }
