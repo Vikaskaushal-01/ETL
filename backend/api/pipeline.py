@@ -310,6 +310,15 @@ def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_b
     return "\n".join(lines) + "\n"
 
 
+def _after_run(batch_id: str):
+    """Observability baseline check and OpenLineage emission; never fails the run itself."""
+    try:
+        from backend.api.observability import after_run
+        after_run(batch_id)
+    except Exception as e:
+        logger.exception(f"Post-run checks failed for {batch_id}: {e}")
+
+
 def _run_review(batch_id: str, file_path: str, final_state: Optional[dict] = None, error: Optional[str] = None):
     """Hands the run to the Review Agent; a failing check never fails the run itself."""
     try:
@@ -397,6 +406,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         update_pipeline_overall_status(pipeline_id, status, execution_time)
 
         logger.info(f"Pipeline run finished in {execution_time:.2f}s with status {status}")
+        _after_run(batch_id)
         _run_review(batch_id, file_path, final_state)
 
         # Save pipeline execution logs to disk
@@ -430,6 +440,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         except Exception as inner_err:
             logger.error(f"Failed to log crash to DB: {inner_err}")
         update_pipeline_overall_status(pipeline_id, "Failed", execution_time, error=str(e))
+        _after_run(batch_id)
         _run_review(batch_id, file_path, error=str(e))
 
         # Save crash log (same file names as a successful run, so failures are just as easy to find)
