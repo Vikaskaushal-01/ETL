@@ -263,6 +263,20 @@ def _contract_log_lines(contracts: Optional[dict]) -> list:
     return lines + [""]
 
 
+def _observability_log_lines(obs: Optional[dict]) -> list:
+    if not obs:
+        return []
+    if obs.get("learning"):
+        return ["--- DATA OBSERVABILITY ---",
+                f"  Learning the baseline of '{obs.get('dataset_key')}' ({obs.get('baseline_runs', 0)} earlier runs; anomalies are judged from 3).", ""]
+    anomalies = obs.get("anomalies") or []
+    lines = ["--- DATA OBSERVABILITY ---",
+             f"  Compared with {obs.get('baseline_runs')} earlier runs of '{obs.get('dataset_key')}': "
+             + (f"{plural(len(anomalies), 'anomaly', 'anomalies')}." if anomalies else "every metric is within its usual range.")]
+    lines += [f"  [{a['severity'].upper()}] {a['message']}" for a in anomalies]
+    return lines + [""]
+
+
 def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_by: Optional[str], summary_logs: list = None) -> str:
     """Full human-readable process log: run header, every stage's timeline and log lines, agent summaries."""
     state = read_pipeline_state(pipeline_id)
@@ -306,6 +320,7 @@ def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_b
         lines.append(f"!!! RUNTIME ERROR: {state['error']}")
         lines.append("")
     lines.extend(_contract_log_lines(state.get("contracts")))
+    lines.extend(_observability_log_lines(state.get("observability")))
     lines.extend(_review_log_lines(state.get("review")))
     return "\n".join(lines) + "\n"
 
