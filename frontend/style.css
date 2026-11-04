@@ -2761,3 +2761,84 @@ tr.row-selected td { background: var(--color-blue-soft) !important; }
 
 .notification-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .notification-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Data Quality: dataset health, data contracts, lineage, REST API ingestion */
+.quality-counters { margin-bottom: 16px; }
+.quality-view-gap, #quality-view .dash-panel + .dash-panel { margin-top: 18px; }
+#quality-view .dash-panel-head { flex-wrap: wrap; }
+#quality-view .dash-panel-head .panel-hint { flex: 1 1 260px; }
+.btn-compact { padding: 7px 14px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.flex-spacer { flex: 1; }
+.text-right { text-align: right; }
+.cell-stack span { display: block; }
+.quality-table td { vertical-align: middle; }
+.quality-table td strong + .detail-small { display: block; margin-top: 2px; }
+.quality-table .badge i { margin-right: 3px; }
+.quality-finding { max-width: 340px; font-size: 12px; line-height: 1.45; }
+.sparkline { display: block; overflow: visible; }
+.spark-line { fill: none; stroke: var(--color-blue); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.spark-last { fill: var(--color-blue); }
+.spark-bad { fill: var(--color-red); }
+
+.contracts-list { display: flex; flex-direction: column; gap: 10px; }
+.contract-rule-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11.5px; align-items: center; }
+.rule-pill {
+    display: inline-block; padding: 2px 8px; margin: 1px 4px 1px 0; border-radius: 999px; font-size: 11px; line-height: 1.6;
+    background: var(--surface-sunken); color: var(--text-secondary); border: 1px solid var(--border-color); max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+.rule-pill.action-drop { border-color: var(--color-orange-border); background: var(--color-orange-soft); color: var(--color-orange); }
+.rule-pill.action-fail { border-color: var(--color-red-border); background: var(--color-red-soft); color: var(--color-red); }
+.rule-status { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm); font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+.rule-status.status-passed { background: var(--color-green-soft); color: var(--color-green); }
+.rule-status.status-warned, .rule-status.status-dropped { background: var(--color-orange-soft); color: var(--color-orange); }
+.rule-status.status-failed { background: var(--color-red-soft); color: var(--color-red); }
+.data-table td .detail-small.text-secondary { display: block; }
+
+.contract-editor { display: flex; flex-direction: column; gap: 14px; }
+.contract-head-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.contract-suggest {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12.5px;
+    border-radius: var(--radius-md); background: var(--color-blue-soft); color: var(--text-primary);
+}
+.contract-suggest > i { color: var(--color-blue); }
+.contract-suggest .page-select { flex: 1 1 220px; min-width: 0; height: 34px; }
+.contract-rules td { vertical-align: middle; }
+.contract-rules .page-input, .contract-rules .page-select { height: 32px; width: 100%; min-width: 110px; font-size: 12px; }
+.contract-rules .ce-param { min-width: 180px; font-family: var(--font-mono); font-size: 11.5px; }
+.contract-rules .ce-action.action-drop { color: var(--color-orange); font-weight: 700; }
+.contract-rules .ce-action.action-fail { color: var(--color-red); font-weight: 700; }
+.contract-editor .detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.api-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.api-field span { font-size: 10.5px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
+.api-field .page-input, .api-field .page-select { width: 100%; box-sizing: border-box; }
+.api-ingest-panel { gap: 10px; }
+.api-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.api-preview-btn { align-self: flex-start; }
+.api-preview-result { font-size: 12px; line-height: 1.6; padding: 10px 12px; border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border-color); overflow-wrap: anywhere; }
+.api-preview-result[hidden] { display: none; }
+.api-columns { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.api-columns code, .lineage-pane code { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--surface-sunken); }
+
+.lineage-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.lineage-node {
+    display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: var(--radius-md); font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border-color); background: var(--surface); max-width: 100%; overflow-wrap: anywhere;
+}
+.lineage-node i { color: var(--color-blue); }
+.lineage-node.kind-table i { color: var(--color-green); }
+.lineage-node.kind-export i { color: var(--color-orange); }
+.lineage-arrow { color: var(--text-muted); font-size: 11px; }
+.lineage-pane .stat-chips { margin-bottom: 10px; }
+.lineage-pane tr.is-dropped td { opacity: 0.7; }
+
+.schedule-form { grid-template-columns: 1.1fr 0.9fr 2fr 0.9fr auto auto; }
+@media (max-width: 1100px) { .schedule-form { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) {
+    .schedule-form, .contract-head-grid, .api-grid { grid-template-columns: 1fr; }
+    .quality-finding { max-width: none; min-width: 220px; }
+}
+/* Four ingest modes: a 2 x 2 grid that fits the intake column */
+.mode-switcher-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.mode-switcher-tabs .mode-tab-btn { white-space: nowrap; }
