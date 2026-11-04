@@ -233,6 +233,23 @@ class Schedule(Base):
     last_status = Column(String(50), nullable=True)
     last_error = Column(Text, nullable=True)
     run_count = Column(Integer, default=0)
+    source_type = Column(String(20), nullable=True)  # "file" (default) or "api" (paginated JSON REST API)
+    connector_json = Column(Text, nullable=True)  # REST API options: records_path, pagination, max_pages
+    last_attempts = Column(Integer, nullable=True)  # download attempts of the last run (retries with backoff)
+
+
+class DataContract(Base):
+    """Expectations a user's dataset must meet, checked on the cleaned data before it is loaded."""
+    __tablename__ = 'data_contracts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    dataset_pattern = Column(String(255), nullable=False)  # file-name glob, e.g. "sales_*.csv"
+    rules_json = Column(Text, nullable=False)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class ReviewItem(Base):

@@ -1,0 +1,372 @@
+"""
+Data contracts: declarative expectations a dataset must meet, checked on the cleaned data before it is loaded.
+
+Modeled on Databricks Lakeflow expectations, Great Expectations / Soda checks and dbt model contracts.
+Every rule has an action:
+  warn - the run continues and the violation is recorded (default)
+  drop - rows that break a row-level rule are removed before loading and counted
+  fail - the run stops before anything is loaded
+
+Rules never run code supplied by the user: each rule type is a fixed check with typed parameters.
+"""
+import fnmatch
+import re
+from typing import Optional
+
+import pandas as pd
+
+from agents.transformation_agent.transformation_agent import parse_dates, standardize_column_name
+
+ACTIONS = ("warn", "drop", "fail")
+# Rules checked value by value (can drop the offending rows)
+ROW_RULES = ("not_null", "unique", "between", "allowed_values", "regex", "type")
+# Rules about the dataset as a whole (warn or fail only)
+DATASET_RULES = ("column_exists", "max_null_pct", "row_count_min", "row_count_max")
+RULE_TYPES = ROW_RULES + DATASET_RULES
+TYPE_KINDS = ("numeric", "integer", "date", "text")
+MAX_RULES = 200
+MAX_REGEX_LENGTH = 300
+MAX_ALLOWED_VALUES = 500
+SAMPLE_VALUES = 5
+
+RULE_LABELS = {
+    "not_null": "Never empty",
+    "unique": "Unique values",
+    "between": "Within range",
+    "allowed_values": "One of a set of values",
+    "regex": "Matches a pattern",
+    "type": "Has a data type",
+    "column_exists": "Column is present",
+    "max_null_pct": "At most N% empty",
+    "row_count_min": "At least N rows",
+    "row_count_max": "At most N rows",
+}
+
+
+class ContractError(ValueError):
+    """A rule definition is invalid."""
+
+
+class ContractViolation(RuntimeError):
+    """A rule with action 'fail' was broken; the run must stop before loading."""
+
+    def __init__(self, message: str, outcome: dict):
+        super().__init__(message)
+        self.outcome = outcome
+
+
+def _number(value, field: str) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ContractError(f"'{field}' must be a number.")
+
+
+def validate_rule(rule: dict) -> dict:
+    """Normalizes one rule definition or raises ContractError."""
+    if not isinstance(rule, dict):
+        raise ContractError("Each rule must be an object.")
+    rtype = str(rule.get("type") or "").strip()
+    if rtype not in RULE_TYPES:
+        raise ContractError(f"Unknown rule type '{rtype}'. Use one of: {', '.join(RULE_TYPES)}.")
+    action = str(rule.get("action") or "warn").strip().lower()
+    if action not in ACTIONS:
+        raise ContractError(f"Unknown action '{action}'. Use warn, drop or fail.")
+    if action == "drop" and rtype in DATASET_RULES:
+        raise ContractError(f"'{rtype}' checks the whole dataset, so its action can only be warn or fail.")
+    column = str(rule.get("column") or "").strip()
+    if rtype not in ("row_count_min", "row_count_max") and not column:
+        raise ContractError(f"Rule '{rtype}' needs a column.")
+    params = rule.get("params") or {}
+    if not isinstance(params, dict):
+        raise ContractError("'params' must be an object.")
+
+    clean = {}
+    if rtype == "between":
+        lo, hi = _number(params.get("min"), "min"), _number(params.get("max"), "max")
+        if lo is None and hi is None:
+            raise ContractError("A range rule needs a min, a max, or both.")
+        if lo is not None and hi is not None and lo > hi:
+            raise ContractError("min must not be greater than max.")
+        clean = {"min": lo, "max": hi}
+    elif rtype == "allowed_values":
+        values = params.get("values")
+        if isinstance(values, str):
+            values = [v.strip() for v in values.split(",")]
+        if not isinstance(values, list) or not [v for v in values if str(v).strip()]:
+            raise ContractError("An allowed-values rule needs at least one value.")
+        if len(values) > MAX_ALLOWED_VALUES:
+            raise ContractError(f"At most {MAX_ALLOWED_VALUES} allowed values.")
+        clean = {"values": [str(v).strip() for v in values if str(v).strip()],
+                 "case_sensitive": bool(params.get("case_sensitive", False))}
+    elif rtype == "regex":
+        pattern = str(params.get("pattern") or "")
+        if not pattern or len(pattern) > MAX_REGEX_LENGTH:
+            raise ContractError(f"A pattern rule needs a regular expression of 1-{MAX_REGEX_LENGTH} characters.")
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise ContractError(f"Invalid regular expression: {e}")
+        clean = {"pattern": pattern}
+    elif rtype == "type":
+        kind = str(params.get("kind") or "").lower()
+        if kind not in TYPE_KINDS:
+            raise ContractError(f"A type rule needs a kind: {', '.join(TYPE_KINDS)}.")
+        clean = {"kind": kind}
+    elif rtype == "max_null_pct":
+        pct = _number(params.get("max"), "max")
+        if pct is None or not 0 <= pct <= 100:
+            raise ContractError("max_null_pct needs 'max' between 0 and 100.")
+        clean = {"max": pct}
+    elif rtype in ("row_count_min", "row_count_max"):
+        n = _number(params.get("value"), "value")
+        if n is None or n < 0:
+            raise ContractError(f"{rtype} needs a non-negative 'value'.")
+        clean = {"value": int(n)}
+
+    return {
+        "type": rtype,
+        "column": column or None,
+        "params": clean,
+        "action": action,
+        "description": str(rule.get("description") or "").strip()[:300] or None,
+    }
+
+
+def validate_rules(rules) -> list:
+    if not isinstance(rules, list) or not rules:
+        raise ContractError("A contract needs at least one rule.")
+    if len(rules) > MAX_RULES:
+        raise ContractError(f"A contract can have at most {MAX_RULES} rules.")
+    out = []
+    for n, rule in enumerate(rules, 1):
+        try:
+            out.append(validate_rule(rule))
+        except ContractError as e:
+            raise ContractError(f"Rule {n}: {e}")
+    return out
+
+
+def matches_dataset(pattern: str, filename: str) -> bool:
+    """Case-insensitive glob on the file name ('sales_*.csv', '*orders*', or an exact name)."""
+    pattern = (pattern or "").strip().lower()
+    return bool(pattern) and fnmatch.fnmatchcase((filename or "").lower(), pattern)
+
+
+def describe_rule(rule: dict) -> str:
+    p, col = rule.get("params") or {}, rule.get("column")
+    t = rule["type"]
+    if t == "not_null":
+        return f"{col} is never empty"
+    if t == "unique":
+        return f"{col} has no repeated values"
+    if t == "between":
+        if p.get("min") is not None and p.get("max") is not None:
+            return f"{col} is between {p['min']:g} and {p['max']:g}"
+        return f"{col} is at least {p['min']:g}" if p.get("min") is not None else f"{col} is at most {p['max']:g}"
+    if t == "allowed_values":
+        shown = ", ".join(p.get("values", [])[:6]) + (" ..." if len(p.get("values", [])) > 6 else "")
+        return f"{col} is one of: {shown}"
+    if t == "regex":
+        return f"{col} matches /{p.get('pattern')}/"
+    if t == "type":
+        return f"{col} is {p.get('kind')}"
+    if t == "column_exists":
+        return f"column {col} is present"
+    if t == "max_null_pct":
+        return f"{col} is at most {p.get('max'):g}% empty"
+    if t == "row_count_min":
+        return f"the file has at least {p.get('value'):,} rows"
+    if t == "row_count_max":
+        return f"the file has at most {p.get('value'):,} rows"
+    return t
+
+
+def _resolve(df: pd.DataFrame, column: Optional[str]) -> Optional[str]:
+    if not column:
+        return None
+    if column in df.columns:
+        return column
+    wanted = standardize_column_name(column)
+    for col in df.columns:
+        if standardize_column_name(col) == wanted:
+            return col
+    return None
+
+
+_EMPTY_TOKENS = {"", "nan", "none", "null", "nat"}
+
+
+def _is_empty(series: pd.Series) -> pd.Series:
+    return series.isna() | series.astype(str).str.strip().str.lower().isin(_EMPTY_TOKENS)
+
+
+def _failing_mask(df: pd.DataFrame, col: str, rule: dict) -> pd.Series:
+    """True for rows that break a row-level rule. Empty values only fail not_null (and are not duplicates)."""
+    series = df[col]
+    empty = _is_empty(series)
+    t, p = rule["type"], rule["params"]
+    if t == "not_null":
+        return empty
+    if t == "unique":
+        return series.duplicated(keep=False) & ~empty
+    if t == "between":
+        nums = pd.to_numeric(series, errors="coerce")
+        bad = nums.isna()  # text in a range column cannot be in range
+        if p.get("min") is not None:
+            bad |= nums < p["min"]
+        if p.get("max") is not None:
+            bad |= nums > p["max"]
+        return bad & ~empty
+    if t == "allowed_values":
+        values = series.astype(str).str.strip()
+        allowed = set(p["values"])
+        if not p.get("case_sensitive"):
+            values, allowed = values.str.lower(), {v.lower() for v in allowed}
+        return ~values.isin(allowed) & ~empty
+    if t == "regex":
+        rx = re.compile(p["pattern"])
+        matches = series.map(lambda v: bool(rx.fullmatch(str(v).strip())), na_action="ignore")
+        return ~matches.fillna(True).astype(bool) & ~empty
+    if t == "type":
+        kind = p["kind"]
+        if kind == "text":
+            return pd.Series(False, index=df.index)
+        if kind == "date":
+            return parse_dates(series.where(~empty)).isna() & ~empty
+        nums = pd.to_numeric(series, errors="coerce")
+        bad = nums.isna()
+        if kind == "integer":
+            bad |= ~nums.isna() & (nums % 1 != 0)
+        return bad & ~empty
+    raise ContractError(f"'{t}' is not a row-level rule.")
+
+
+def _samples(series: pd.Series) -> list:
+    return [None if pd.isna(v) else str(v)[:80] for v in series.head(SAMPLE_VALUES).tolist()]
+
+
+def evaluate(df: pd.DataFrame, rules: list) -> tuple:
+    """
+    Checks every rule against df. Returns (df with dropped rows removed, results, failed).
+    Rows are judged against the data as it arrived, so the order of drop rules does not change the outcome.
+    """
+    rows_in = len(df)
+    drop = pd.Series(False, index=df.index)
+    results, failed = [], False
+    for rule in rules:
+        res = {
+            "type": rule["type"], "column": rule.get("column"), "action": rule["action"],
+            "rule": describe_rule(rule), "description": rule.get("description"),
+            "failed_rows": 0, "failed_pct": 0.0, "samples": [], "status": "passed", "detail": None,
+        }
+        col = _resolve(df, rule.get("column"))
+        t = rule["type"]
+        broken = False
+        if t in ("row_count_min", "row_count_max"):
+            limit = rule["params"]["value"]
+            broken = rows_in < limit if t == "row_count_min" else rows_in > limit
+            res["detail"] = f"{rows_in:,} rows"
+        elif col is None:
+            # A rule about a missing column is broken (the schema did not honor the contract)
+            broken = True
+            res["detail"] = f"Column '{rule.get('column')}' is not in the data."
+        elif t == "column_exists":
+            res["detail"] = f"Found as '{col}'."
+        elif t == "max_null_pct":
+            pct = round(float(_is_empty(df[col]).mean() * 100), 2) if rows_in else 0.0
+            broken = pct > rule["params"]["max"]
+            res["detail"] = f"{pct:g}% empty"
+        else:
+            mask = _failing_mask(df, col, rule)
+            n = int(mask.sum())
+            if n:
+                broken = True
+                res["failed_rows"] = n
+                res["failed_pct"] = round(100 * n / rows_in, 2) if rows_in else 0.0
+                res["samples"] = _samples(df.loc[mask, col])
+                if rule["action"] == "drop":
+                    drop |= mask
+        if broken:
+            res["status"] = {"warn": "warned", "drop": "dropped", "fail": "failed"}[rule["action"]]
+            if rule["action"] == "drop" and not res["failed_rows"]:
+                res["status"] = "warned"  # nothing row-level to drop (e.g. the column is missing)
+            failed = failed or rule["action"] == "fail"
+        results.append(res)
+    out = df.loc[~drop].reset_index(drop=True) if drop.any() else df
+    return out, results, failed
+
+
+def summarize(results: list, rows_in: int, rows_out: int) -> dict:
+    counts = {s: sum(1 for r in results if r["status"] == s) for s in ("passed", "warned", "dropped", "failed")}
+    return {
+        "rules": len(results),
+        **counts,
+        "rows_in": rows_in,
+        "rows_dropped": rows_in - rows_out,
+        "rows_out": rows_out,
+        "passed_all": counts["warned"] + counts["dropped"] + counts["failed"] == 0,
+    }
+
+
+# ---------- suggestions ----------
+
+_ID_RE = re.compile(r"(^|_)(id|key|code|uuid|sku)$")
+_EMAIL_RE = r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}"
+
+
+def suggest_rules(df: pd.DataFrame, max_categories: int = 12) -> list:
+    """
+    Proposes a contract from a known-good dataset, like Soda / GX profilers: required columns, keys, ranges,
+    categories and types. Every suggestion is a 'warn' rule; the user decides what should drop or fail.
+    """
+    rules = []
+    n = len(df)
+    if n:
+        rules.append({"type": "row_count_min", "column": None, "params": {"value": max(1, n // 2)}, "action": "warn",
+                      "description": "Alert when a delivery has less than half the rows of this one."})
+    for col in df.columns:
+        series = df[col]
+        empty = _is_empty(series)
+        non_empty = series[~empty]
+        name = str(col)
+        rules.append({"type": "column_exists", "column": name, "params": {}, "action": "fail",
+                      "description": "The column is part of the agreed schema."})
+        if not len(non_empty):
+            continue
+        null_pct = float(empty.mean() * 100)
+        if null_pct == 0:
+            rules.append({"type": "not_null", "column": name, "params": {}, "action": "warn"})
+        else:
+            rules.append({"type": "max_null_pct", "column": name, "params": {"max": round(min(100.0, null_pct * 2 + 5), 1)},
+                          "action": "warn"})
+        if _ID_RE.search(standardize_column_name(name)) and non_empty.is_unique and len(non_empty) == n:
+            rules.append({"type": "unique", "column": name, "params": {}, "action": "warn"})
+        nums = pd.to_numeric(non_empty, errors="coerce")
+        if nums.notna().all():
+            is_int = bool((nums % 1 == 0).all())
+            rules.append({"type": "type", "column": name, "params": {"kind": "integer" if is_int else "numeric"}, "action": "warn"})
+            lo, hi = float(nums.min()), float(nums.max())
+            span = (hi - lo) or abs(hi) or 1.0
+            if lo >= 0:
+                rules.append({"type": "between", "column": name, "params": {"min": 0, "max": round(hi + span, 4)}, "action": "warn",
+                              "description": "Never negative; upper bound is twice the observed spread."})
+            else:
+                rules.append({"type": "between", "column": name, "params": {"min": round(lo - span, 4), "max": round(hi + span, 4)},
+                              "action": "warn"})
+            continue
+        texts = non_empty.astype(str).str.strip()
+        if texts.str.fullmatch(_EMAIL_RE).mean() > 0.95:
+            rules.append({"type": "regex", "column": name, "params": {"pattern": _EMAIL_RE}, "action": "warn",
+                          "description": "Looks like an e-mail address."})
+            continue
+        distinct = texts.nunique()
+        is_identifier = bool(_ID_RE.search(standardize_column_name(name)))
+        if 1 < distinct <= max_categories and n >= distinct * 3 and not is_identifier:
+            rules.append({"type": "allowed_values", "column": name, "params": {"values": sorted(texts.unique().tolist())},
+                          "action": "warn"})
+        elif len(texts) >= 5 and parse_dates(texts).notna().mean() > 0.95:
+            rules.append({"type": "type", "column": name, "params": {"kind": "date"}, "action": "warn"})
+    return validate_rules(rules) if rules else []

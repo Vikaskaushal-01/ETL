@@ -15,6 +15,8 @@ function paletteCommands() {
         { group: 'Pages', icon: 'fa-gauge-high', label: 'Dashboard', hint: 'Overview & recent activity', run: go('dashboard-view') },
         { group: 'Pages', icon: 'fa-diagram-project', label: 'Pipeline', hint: 'Live data flow monitor', run: go('pipeline-monitor-page') },
         { group: 'Pages', icon: 'fa-calendar-check', label: 'Schedules', hint: 'Ingest a URL on an interval', run: go('schedules-view') },
+        { group: 'Pages', icon: 'fa-shield-halved', label: 'Data Quality', hint: 'Anomalies, freshness and data contracts', run: go('quality-view') },
+        { group: 'Actions', icon: 'fa-file-signature', label: 'New data contract', hint: 'Rules checked before loading', run: () => { go('quality-view')(); window.openContractEditor && window.openContractEditor(); } },
         { group: 'Pages', icon: 'fa-user-shield', label: 'Human Review', hint: 'Files that need a human decision', run: go('review-view') },
         { group: 'Pages', icon: 'fa-clock-rotate-left', label: 'History', hint: 'Every run and its results', run: go('history-view') },
         { group: 'Pages', icon: 'fa-file-lines', label: 'Reports', hint: 'PDF, Word, Markdown & JSON', run: go('reports-view') },
@@ -225,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
         if (document.getElementById('main-app-container')?.classList.contains('app-hidden')) return;
         const key = e.key.toLowerCase();
-        const goTargets = { d: 'dashboard-view', p: 'pipeline-monitor-page', h: 'history-view', s: 'schedules-view', r: 'review-view' };
+        const goTargets = { d: 'dashboard-view', p: 'pipeline-monitor-page', h: 'history-view', s: 'schedules-view', r: 'review-view', q: 'quality-view' };
         if (Date.now() - pendingGo < 1200 && goTargets[key]) {
             pendingGo = 0;
             window.closeSheet && window.closeSheet();

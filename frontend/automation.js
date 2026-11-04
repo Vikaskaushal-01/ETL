@@ -70,6 +70,8 @@ function renderSchedules() {
                         <span class="schedule-dot ${s.enabled ? (running ? 'running' : 'on') : 'off'}"></span>
                         <strong>${escapeHtml(s.name)}</strong>
                         <span class="schedule-chip"><i class="fa-solid fa-rotate"></i> every ${fmtInterval(s.interval_minutes)}</span>
+                        ${s.source_type === 'api' ? '<span class="schedule-chip"><i class="fa-solid fa-plug"></i> REST API</span>' : ''}
+                        ${s.last_attempts > 1 ? `<span class="schedule-chip muted" title="The last download needed retries (exponential backoff)">${s.last_attempts} attempts</span>` : ''}
                         ${s.enabled ? '' : '<span class="schedule-chip muted">Paused</span>'}
                     </div>
                     <div class="schedule-url" title="${escapeHtml(s.url)}"><i class="fa-solid fa-link"></i> ${escapeHtml(s.url)}</div>
@@ -120,7 +122,8 @@ async function createSchedule(event) {
         name: document.getElementById('schedule-name').value.trim(),
         url: document.getElementById('schedule-url').value.trim(),
         interval_minutes: parseInt(document.getElementById('schedule-interval').value, 10),
-        run_now: document.getElementById('schedule-run-now').checked
+        run_now: document.getElementById('schedule-run-now').checked,
+        source_type: document.getElementById('schedule-source')?.value || 'file'
     };
     btn.disabled = true;
     try {
@@ -130,6 +133,8 @@ async function createSchedule(event) {
         showToast('success', body.run_now ? `"${body.name}" created and running now.` : `"${body.name}" created. First run ${fmtRelative(new Date(Date.now() + body.interval_minutes * 60000).toISOString())}.`);
         event.target.reset();
         document.getElementById('schedule-interval').value = '60';
+        const source = document.getElementById('schedule-source');
+        if (source) source.value = 'file';
         window.loadSchedulesView();
     } catch (e) {
         showToast('error', e.message);

@@ -71,21 +71,30 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 class DatasetFetchError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, retryable: bool = False):
         super().__init__(message)
         self.status_code = status_code
+        # Network errors, rate limits (429) and server errors (5xx) may succeed on a later attempt
+        self.retryable = retryable
+
+
+def _is_retryable_status(code: int) -> bool:
+    return code == 429 or code == 408 or code >= 500
 
 
 MAX_REDIRECTS = 5
 
 
-def _get_public(url: str):
+def _get_public(url: str, headers: Optional[dict] = None):
     """GET that re-validates every redirect target, so a public URL cannot bounce the server to an internal one."""
     import httpx
-    from urllib.parse import urljoin
+    from urllib.parse import urljoin, urlparse
+    origin = urlparse(url).netloc
     for _ in range(MAX_REDIRECTS + 1):
         validate_public_url(url)
-        response = httpx.get(url, follow_redirects=False, timeout=20.0)
+        # Credentials are only sent to the host they were given for, never to a redirect target elsewhere
+        send_headers = headers if headers and urlparse(url).netloc == origin else None
+        response = httpx.get(url, follow_redirects=False, timeout=20.0, headers=send_headers)
         if not response.is_redirect:
             return response
         url = urljoin(url, response.headers.get("location", ""))
@@ -106,9 +115,10 @@ def download_dataset(url: str, default_stem: str = "downloaded_data") -> tuple:
     except ValueError as ve:
         raise DatasetFetchError(str(ve))
     except Exception as e:
-        raise DatasetFetchError(f"Failed to fetch URL: {str(e)}")
+        raise DatasetFetchError(f"Failed to fetch URL: {str(e)}", retryable=True)
     if response.status_code != 200:
-        raise DatasetFetchError(f"Failed to fetch URL. Status code: {response.status_code}")
+        raise DatasetFetchError(f"Failed to fetch URL. Status code: {response.status_code}",
+                                retryable=_is_retryable_status(response.status_code))
     if len(response.content) > MAX_UPLOAD_BYTES:
         raise DatasetFetchError("The downloaded file exceeds the upload size limit.", 413)
     content_type = response.headers.get("content-type", "").lower()
@@ -153,6 +163,65 @@ async def upload_file_from_url(
     content, filename = await fetch_dataset_from_url(url)
     return _store_upload(db, content, filename, "URL_Upload", x_user_email, f"batch_{uuid.uuid4().hex[:8]}")
 
+
+
+class ApiSourceRequest(BaseModel):
+    url: str
+    name: Optional[str] = None
+    records_path: Optional[str] = None
+    pagination: Optional[dict] = None   # {"type": "auto|none|page|offset|cursor|link", "page_size": 100, ...}
+    max_pages: Optional[int] = 20
+    headers: Optional[dict] = None      # e.g. {"Authorization": "Bearer ..."}; used for this request only, never stored
+
+
+def pull_api_source(url: str, records_path: Optional[str] = None, pagination: Optional[dict] = None,
+                    max_pages: int = 20, headers: Optional[dict] = None):
+    """Downloads a paginated JSON API into a DataFrame. Raises DatasetFetchError. Blocking."""
+    from backend.utils.api_connector import ApiConnectorError, fetch_records, to_frame
+    try:
+        validate_public_url(url)
+        result = fetch_records(url, records_path, pagination, max_pages, headers)
+    except ApiConnectorError as e:
+        raise DatasetFetchError(str(e), retryable=e.retryable)
+    except ValueError as e:
+        raise DatasetFetchError(str(e))
+    df = to_frame(result["records"])
+    if df.empty:
+        raise DatasetFetchError("The API returned no records.")
+    return df, result
+
+
+async def _pull_api(req: ApiSourceRequest):
+    from starlette.concurrency import run_in_threadpool
+    try:
+        return await run_in_threadpool(pull_api_source, req.url.strip(), req.records_path, req.pagination,
+                                       req.max_pages or 20, req.headers)
+    except DatasetFetchError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+def _api_summary(df, result: dict) -> dict:
+    return {"pages": result["pages"], "records": len(df), "columns": [str(c) for c in df.columns],
+            "records_path": result["records_path"], "pagination": result["pagination"], "truncated": result["truncated"]}
+
+
+@router.post("/api/preview")
+async def preview_api_source(req: ApiSourceRequest):
+    """Fetches up to 2 pages and shows what would be ingested: detected records path, columns, first rows."""
+    import pandas as pd
+    df, result = await _pull_api(req.model_copy(update={"max_pages": min(req.max_pages or 2, 2)}))
+    head = df.head(20).astype(object).where(pd.notnull(df.head(20)), None)
+    return {**_api_summary(df, result), "preview": head.to_dict(orient="records")}
+
+
+@router.post("/api")
+async def upload_from_api(req: ApiSourceRequest, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Pulls every page of a JSON REST API, flattens it to a CSV upload and registers it for the pipeline."""
+    from backend.utils.api_connector import file_name_for, to_csv_bytes
+    df, result = await _pull_api(req)
+    filename = _validate_upload_name(file_name_for(req.url, req.name))
+    stored = _store_upload(db, to_csv_bytes(df), filename, "REST_API", x_user_email, f"batch_{uuid.uuid4().hex[:8]}")
+    return {**stored, **_api_summary(df, result)}
 
 
 class RealtimeUploadRequest(BaseModel):

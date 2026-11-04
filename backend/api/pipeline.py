@@ -197,6 +197,14 @@ def update_pipeline_overall_status(pipeline_id: str, status: str, execution_time
                     stage["status"] = "failed"
         write_pipeline_state(pipeline_id, state)
 
+def set_pipeline_field(pipeline_id: str, key: str, value):
+    """Stores a run-level value (contracts, observability, lineage) next to the stages."""
+    with _state_lock:
+        state = read_pipeline_state(pipeline_id)
+        state[key] = value
+        write_pipeline_state(pipeline_id, state)
+
+
 def set_pipeline_review(pipeline_id: str, review: dict):
     """Stores the Review Agent's findings with the run, so the process log can list them."""
     with _state_lock:
@@ -236,6 +244,37 @@ def _review_log_lines(review: Optional[dict]) -> list:
             "",
         ]
     return lines
+
+
+def _contract_log_lines(contracts: Optional[dict]) -> list:
+    if not contracts or not contracts.get("results"):
+        return []
+    s = contracts.get("summary") or {}
+    names = ", ".join(a.get("name", "") for a in contracts.get("applied") or [])
+    lines = [f"--- DATA CONTRACTS ({names}) ---",
+             f"  {s.get('passed', 0)} passed, {s.get('warned', 0)} warned, {s.get('dropped', 0)} dropped rows, "
+             f"{s.get('failed', 0)} failed | rows {s.get('rows_in', 0)} -> {s.get('rows_out', 0)}"]
+    for r in contracts["results"]:
+        if r.get("status") == "passed":
+            continue
+        count = f"{r['failed_rows']:,} rows ({r['failed_pct']}%)" if r.get("failed_rows") else (r.get("detail") or "")
+        sample = f" e.g. {', '.join(str(v) for v in r['samples'][:3])}" if r.get("samples") else ""
+        lines.append(f"  [{r['status'].upper()}] {r['rule']}: {count}{sample}")
+    return lines + [""]
+
+
+def _observability_log_lines(obs: Optional[dict]) -> list:
+    if not obs:
+        return []
+    if obs.get("learning"):
+        return ["--- DATA OBSERVABILITY ---",
+                f"  Learning the baseline of '{obs.get('dataset_key')}' ({obs.get('baseline_runs', 0)} earlier runs; anomalies are judged from 3).", ""]
+    anomalies = obs.get("anomalies") or []
+    lines = ["--- DATA OBSERVABILITY ---",
+             f"  Compared with {obs.get('baseline_runs')} earlier runs of '{obs.get('dataset_key')}': "
+             + (f"{plural(len(anomalies), 'anomaly', 'anomalies')}." if anomalies else "every metric is within its usual range.")]
+    lines += [f"  [{a['severity'].upper()}] {a['message']}" for a in anomalies]
+    return lines + [""]
 
 
 def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_by: Optional[str], summary_logs: list = None) -> str:
@@ -280,8 +319,19 @@ def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_b
     if state.get("error"):
         lines.append(f"!!! RUNTIME ERROR: {state['error']}")
         lines.append("")
+    lines.extend(_contract_log_lines(state.get("contracts")))
+    lines.extend(_observability_log_lines(state.get("observability")))
     lines.extend(_review_log_lines(state.get("review")))
     return "\n".join(lines) + "\n"
+
+
+def _after_run(batch_id: str):
+    """Observability baseline check and OpenLineage emission; never fails the run itself."""
+    try:
+        from backend.api.observability import after_run
+        after_run(batch_id)
+    except Exception as e:
+        logger.exception(f"Post-run checks failed for {batch_id}: {e}")
 
 
 def _run_review(batch_id: str, file_path: str, final_state: Optional[dict] = None, error: Optional[str] = None):
@@ -371,6 +421,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         update_pipeline_overall_status(pipeline_id, status, execution_time)
 
         logger.info(f"Pipeline run finished in {execution_time:.2f}s with status {status}")
+        _after_run(batch_id)
         _run_review(batch_id, file_path, final_state)
 
         # Save pipeline execution logs to disk
@@ -404,6 +455,7 @@ def run_langgraph_pipeline(file_path: str, batch_id: str, pipeline_id: str):
         except Exception as inner_err:
             logger.error(f"Failed to log crash to DB: {inner_err}")
         update_pipeline_overall_status(pipeline_id, "Failed", execution_time, error=str(e))
+        _after_run(batch_id)
         _run_review(batch_id, file_path, error=str(e))
 
         # Save crash log (same file names as a successful run, so failures are just as easy to find)

@@ -22,7 +22,7 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="style.css?v=3.3">
+    <link rel="stylesheet" href="style.css?v=3.4">
 </head>
 <body>
 
@@ -207,6 +207,7 @@
                     <button class="app-nav-item" id="nav-ingestion"><i class="fa-solid fa-cloud-arrow-up"></i><span class="app-nav-label">Data Ingestion</span></button>
                     <button class="app-nav-item" id="nav-tasks" title="Task Center"><i class="fa-solid fa-layer-group"></i><span class="app-nav-label">Task Center</span></button>
                     <button class="app-nav-item" id="nav-schedules" data-view="schedules-view"><i class="fa-solid fa-calendar-check"></i><span class="app-nav-label">Schedules</span></button>
+                    <button class="app-nav-item" id="nav-quality" data-view="quality-view" title="Data contracts, anomalies and freshness"><i class="fa-solid fa-shield-halved"></i><span class="app-nav-label">Data Quality</span><span class="nav-count" id="nav-quality-count" hidden></span></button>
                     <button class="app-nav-item" id="nav-review" data-view="review-view" title="Files that need a human decision"><i class="fa-solid fa-user-shield"></i><span class="app-nav-label">Human Review</span><span class="nav-count" id="nav-review-count" hidden></span></button>
                     <span class="app-sidebar-section-label">Insights</span>
                     <button class="app-nav-item" id="nav-history" data-view="history-view"><i class="fa-solid fa-clock-rotate-left"></i><span class="app-nav-label">History</span></button>
@@ -383,6 +384,13 @@
                                     <span>Name</span>
                                     <input type="text" id="schedule-name" class="page-input" maxlength="120" placeholder="Nightly sales export" required>
                                 </label>
+                                <label class="field">
+                                    <span>Source</span>
+                                    <select id="schedule-source" class="page-select">
+                                        <option value="file" selected>File URL</option>
+                                        <option value="api">JSON REST API</option>
+                                    </select>
+                                </label>
                                 <label class="field field-wide">
                                     <span>Dataset URL</span>
                                     <input type="url" id="schedule-url" class="page-input" placeholder="https://example.com/exports/sales.csv" required>
@@ -408,6 +416,27 @@
                                 <button class="btn-refresh-table" id="btn-refresh-schedules"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
                             </div>
                             <div id="schedules-list" class="schedules-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Data Quality View: dataset health (anomalies, freshness) and data contracts -->
+                    <div id="quality-view" class="app-view page-view">
+                        <div class="quality-counters" id="quality-counters"></div>
+                        <div class="dash-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-heart-pulse"></i> Dataset health</h3>
+                                <span class="text-secondary panel-hint">Each delivery is compared with the earlier runs of the same dataset; nothing to configure.</span>
+                                <button class="btn-refresh-table" id="btn-refresh-quality"><i class="fa-solid fa-rotate-right"></i> Refresh</button>
+                            </div>
+                            <div id="quality-datasets" class="quality-datasets"></div>
+                        </div>
+                        <div class="dash-panel">
+                            <div class="dash-panel-head">
+                                <h3><i class="fa-solid fa-file-signature"></i> Data contracts</h3>
+                                <span class="text-secondary panel-hint">Rules checked on the cleaned data before anything is loaded: warn, drop the rows, or stop the run.</span>
+                                <button class="btn-primary-glow btn-compact" id="btn-new-contract"><i class="fa-solid fa-plus"></i> New contract</button>
+                            </div>
+                            <div id="contracts-list" class="contracts-list"></div>
                         </div>
                     </div>
 
@@ -676,12 +705,15 @@
                             <h3><i class="fa-solid fa-cloud-arrow-up text-blue"></i> Raw Dataset Intake</h3>
                             
                             <!-- Mode Switcher Tabs -->
-                            <div class="mode-switcher-tabs" style="display: flex; gap: 8px; margin-bottom: 14px;">
+                            <div class="mode-switcher-tabs">
                                 <button class="mode-tab-btn active" id="tab-mode-batch" onclick="switchIngestMode('batch')">
                                     <i class="fa-solid fa-file-arrow-up"></i> Batch Upload
                                 </button>
                                 <button class="mode-tab-btn" id="tab-mode-url" onclick="switchIngestMode('url')">
                                     <i class="fa-solid fa-link"></i> From URL
+                                </button>
+                                <button class="mode-tab-btn" id="tab-mode-api" onclick="switchIngestMode('api')">
+                                    <i class="fa-solid fa-plug"></i> REST API
                                 </button>
                                 <button class="mode-tab-btn" id="tab-mode-realtime" onclick="switchIngestMode('realtime')">
                                     <i class="fa-solid fa-satellite-dish"></i> Real-Time
@@ -694,6 +726,30 @@
                                 <textarea id="ingest-url-input" class="page-input url-textarea" rows="3" spellcheck="false" placeholder="https://example.com/data/sales.csv&#10;https://example.com/data/orders.json"></textarea>
                             </div>
                             
+                            <!-- REST API Ingestion Panel: paginated JSON APIs flattened into a table -->
+                            <div class="url-ingest-panel api-ingest-panel" id="api-ingest-panel" style="display: none;">
+                                <label for="api-url-input" class="stream-config-label"><span>API endpoint (JSON)</span><span class="text-blue">Auto pagination</span></label>
+                                <input type="url" id="api-url-input" class="page-input" placeholder="https://api.example.com/v1/customers" spellcheck="false">
+                                <div class="api-grid">
+                                    <label class="api-field"><span>Records path</span><input type="text" id="api-records-path" class="page-input" placeholder="auto (e.g. data.items)" spellcheck="false"></label>
+                                    <label class="api-field"><span>Pagination</span>
+                                        <select id="api-pagination" class="page-select">
+                                            <option value="auto" selected>Auto-detect</option>
+                                            <option value="link">Link header</option>
+                                            <option value="cursor">Next URL / cursor</option>
+                                            <option value="page">Page number</option>
+                                            <option value="offset">Offset / limit</option>
+                                            <option value="none">Single request</option>
+                                        </select>
+                                    </label>
+                                    <label class="api-field"><span>Max pages</span><input type="number" id="api-max-pages" class="page-input" min="1" max="200" value="20"></label>
+                                    <label class="api-field"><span>Page size</span><input type="number" id="api-page-size" class="page-input" min="1" max="10000" placeholder="API default"></label>
+                                </div>
+                                <label class="api-field"><span>Authorization header (optional, never stored)</span><input type="password" id="api-auth" class="page-input" placeholder="Bearer eyJhbGciOi..." autocomplete="off"></label>
+                                <button type="button" class="btn-refresh-table api-preview-btn" id="btn-api-preview"><i class="fa-solid fa-eye"></i> Preview records</button>
+                                <div id="api-preview-result" class="api-preview-result" hidden></div>
+                            </div>
+
                             <!-- Batch Upload Dropzone -->
                             <div class="sidebar-upload-card" id="file-drop-zone">
                                 <div class="upload-drop-content">
@@ -1324,13 +1380,14 @@
     <!-- UI Notification System -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="app.js?v=3.2"></script>
+    <script src="app.js?v=3.3"></script>
     <script src="views.js?v=3.3"></script>
-    <script src="jobs.js?v=3.2"></script>
-    <script src="ui.js?v=3.2"></script>
-    <script src="insights.js?v=3.2"></script>
-    <script src="automation.js?v=3.2"></script>
+    <script src="jobs.js?v=3.3"></script>
+    <script src="ui.js?v=3.3"></script>
+    <script src="insights.js?v=3.3"></script>
+    <script src="automation.js?v=3.3"></script>
     <script src="review.js?v=3.2"></script>
     <script src="review-editor.js?v=3.2"></script>
+    <script src="quality.js?v=1.0"></script>
 </body>
 </html>

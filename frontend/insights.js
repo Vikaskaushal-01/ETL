@@ -400,8 +400,11 @@ window.openRunDetails = async function(batchId) {
         const why = run.status === 'Running'
             ? 'The run is still in progress; details appear when its report is written.'
             : 'This run did not reach the reporting stage, so there are no details beyond the status above.';
+        // A run stopped by a data contract still shows which rules it broke
+        const contractBlock = d.contracts && d.contracts.results && d.contracts.results.length
+            ? `<section class="detail-watch"><h4><i class="fa-solid fa-file-signature"></i> Data contract</h4>${contractResultsHtml(d.contracts)}</section>` : '';
         setSheetBody(`${chips}${run.error ? `<p class="sheet-error detail-error"><i class="fa-solid fa-circle-exclamation"></i> ${escapeHtml(run.error)}</p>` : ''}
-            <div class="sheet-empty"><i class="fa-solid fa-hourglass-half"></i><p>${why}</p></div>${actions}`);
+            ${contractBlock || `<div class="sheet-empty"><i class="fa-solid fa-hourglass-half"></i><p>${why}</p></div>`}${actions}`);
         return;
     }
 
@@ -428,6 +431,7 @@ window.openRunDetails = async function(batchId) {
         </section>` : '';
     const overview = `
         ${d.summary ? `<p class="detail-summary">${escapeHtml(d.summary)}</p>` : ''}
+        ${anomaliesHtml(d.observability)}
         ${watch}
         <div class="detail-grid">
             <section>
@@ -487,18 +491,22 @@ window.openRunDetails = async function(batchId) {
             </dl>
         </div>`).join('') : '<div class="sheet-empty"><i class="fa-solid fa-circle-check"></i><p>No issues needed a root-cause analysis.</p></div>';
 
+    const cs = (d.contracts && d.contracts.summary) || {};
+    const contractIssues = (cs.warned || 0) + (cs.dropped || 0) + (cs.failed || 0);
     const tab = (name, label, count) =>
         `<button class="segmented-btn ${name === 'overview' ? 'active' : ''}" data-sheet-tab="${name}" role="tab">${label}${count ? ` <span class="tab-count">${count}</span>` : ''}</button>`;
     setSheetBody(`
         ${chips}
         ${actions}
         <div class="segmented sheet-tabs" role="tablist">
-            ${tab('overview', 'Overview')}${tab('changes', 'Changes', d.transformations.length)}${tab('rejected', 'Rejected rows', d.rejected.count)}${tab('causes', 'Root causes', d.root_causes.length)}
+            ${tab('overview', 'Overview')}${tab('changes', 'Changes', d.transformations.length)}${tab('rejected', 'Rejected rows', d.rejected.count)}${tab('causes', 'Root causes', d.root_causes.length)}${tab('contracts', 'Contracts', contractIssues)}${tab('lineage', 'Lineage')}
         </div>
         <div data-sheet-pane="overview">${overview}</div>
         <div data-sheet-pane="changes" hidden>${changes}</div>
         <div data-sheet-pane="rejected" hidden>${rejected}</div>
-        <div data-sheet-pane="causes" hidden>${causes}</div>`);
+        <div data-sheet-pane="causes" hidden>${causes}</div>
+        <div data-sheet-pane="contracts" hidden>${contractResultsHtml(d.contracts)}</div>
+        <div data-sheet-pane="lineage" class="lineage-pane" data-batch="${escapeHtml(batchId)}" hidden></div>`);
 };
 
 window.downloadRejectedRows = function(batchId) {
@@ -521,6 +529,8 @@ window.openShortcuts = function() {
         ['G', 'H', 'Go to History'],
         ['G', 'S', 'Go to Schedules'],
         ['G', 'R', 'Go to Human Review'],
+        ['G', 'Q', 'Go to Data Quality'],
+        ['G', 'Q', 'Go to Data Quality'],
         ['N', null, 'New pipeline run (pick files)'],
         ['T', null, 'Toggle light / dark theme'],
         ['Esc', null, 'Close dialogs and panels']
@@ -545,6 +555,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const name = tab.getAttribute('data-sheet-tab');
         tab.parentElement.querySelectorAll('[data-sheet-tab]').forEach(t => t.classList.toggle('active', t === tab));
         document.querySelectorAll('#sheet-body [data-sheet-pane]').forEach(p => { p.hidden = p.getAttribute('data-sheet-pane') !== name; });
+        if (name === 'lineage') {
+            const pane = document.querySelector('#sheet-body [data-sheet-pane="lineage"]');
+            if (pane && window.loadLineagePane) window.loadLineagePane(pane.dataset.batch, pane);
+        }
     });
 
     document.querySelectorAll('[data-chart-range]').forEach(btn => {
