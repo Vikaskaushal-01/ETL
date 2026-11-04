@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import pytest
 
-from backend.utils import contracts, lineage, observability
+from backend.utils import api_connector, contracts, lineage, observability
 
 
 # ---------- data contracts ----------
@@ -136,6 +136,76 @@ def test_run_metrics_from_state():
     m = observability.run_metrics(state)
     assert m == {"rows": 100, "columns": 4, "missing_pct": 2.0, "duplicate_pct": 5.0, "rejected_pct": 10.0,
                  "quality_after": 97.5, "execution_time": 4.2}
+
+
+# ---------- REST API connector ----------
+
+class FakeResponse:
+    def __init__(self, body, status=200, headers=None):
+        self._body, self.status_code, self.headers = body, status, headers or {}
+
+    def json(self):
+        return self._body
+
+
+def test_find_records_auto_detects_paths():
+    assert api_connector.find_records([{"a": 1}])[1] == ""
+    assert api_connector.find_records({"data": {"items": [{"a": 1}]}})[1] == "data.items"
+    assert api_connector.find_records({"meta": {}, "products": [{"a": 1}, {"a": 2}]})[1] == "products"
+    with pytest.raises(api_connector.ApiConnectorError):
+        api_connector.find_records({"x": 1}, "data.items")
+
+
+def test_follows_next_links_and_cursors():
+    pages = {
+        "https://api.test/v1/items": FakeResponse({"results": [{"id": 1}], "next": "https://api.test/v1/items?page=2"}),
+        "https://api.test/v1/items?page=2": FakeResponse({"results": [{"id": 2}], "meta": {"next_cursor": "abc"}}),
+        "https://api.test/v1/items?cursor=abc": FakeResponse({"results": [{"id": 3}]}),
+    }
+    calls = []
+
+    def get(url, headers):
+        calls.append(headers)
+        return pages[url]
+
+    out = api_connector.fetch_records("https://api.test/v1/items", get=get, headers={"Authorization": "Bearer t"})
+    assert [r["id"] for r in out["records"]] == [1, 2, 3]
+    assert out["pages"] == 3 and out["records_path"] == "results" and not out["truncated"]
+    assert all(h["Authorization"] == "Bearer t" for h in calls)
+
+
+def test_page_pagination_stops_on_short_page_and_link_header():
+    def get(url, headers):
+        page = int(url.split("page=")[1].split("&")[0])
+        return FakeResponse([{"n": page}] * (2 if page < 3 else 1))
+
+    out = api_connector.fetch_records("https://api.test/x", pagination={"type": "page", "page_size": 2,
+                                                                         "size_param": "per_page"}, get=get)
+    assert out["pages"] == 3 and len(out["records"]) == 5
+
+    link_pages = {
+        "https://api.test/l": FakeResponse([{"a": 1}], headers={"link": '<https://api.test/l?p=2>; rel="next"'}),
+        "https://api.test/l?p=2": FakeResponse([{"a": 2}]),
+    }
+    out = api_connector.fetch_records("https://api.test/l", get=lambda u, h: link_pages[u])
+    assert out["pagination"] == "link" and len(out["records"]) == 2
+
+
+def test_connector_errors_and_header_allowlist():
+    with pytest.raises(api_connector.ApiConnectorError) as e:
+        api_connector.fetch_records("https://api.test/x", get=lambda u, h: FakeResponse({}, status=503))
+    assert e.value.retryable
+    with pytest.raises(api_connector.ApiConnectorError) as e:
+        api_connector.fetch_records("https://api.test/x", get=lambda u, h: FakeResponse({}, status=401))
+    assert not e.value.retryable and "Authorization" in str(e.value)
+    with pytest.raises(api_connector.ApiConnectorError):
+        api_connector.clean_headers({"Host": "internal"})
+
+
+def test_flatten_nested_records():
+    df = api_connector.to_frame([{"id": 1, "address": {"city": "Pune"}, "tags": ["a", "b"]}])
+    assert list(df.columns) == ["id", "tags", "address.city"] or set(df.columns) == {"id", "tags", "address.city"}
+    assert json.loads(df.loc[0, "tags"]) == ["a", "b"] and df.loc[0, "address.city"] == "Pune"
 
 
 # ---------- lineage ----------
