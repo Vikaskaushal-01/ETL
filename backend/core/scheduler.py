@@ -3,8 +3,10 @@ Scheduled ingestion: every due schedule downloads its URL, registers the file as
 schedule's owner and runs the full pipeline. A schedule is claimed with a conditional UPDATE on its
 next_run_at, so several server processes never run the same occurrence twice.
 """
+import json
 import logging
 import os
+import random
 import re
 import threading
 import uuid
@@ -22,6 +24,10 @@ TICK_SECONDS = int(os.getenv("SCHEDULER_TICK_SECONDS", "30"))
 MAX_PARALLEL_RUNS = int(os.getenv("SCHEDULER_WORKERS", "2"))
 # A run still marked Running after this long is assumed lost (e.g. the server restarted mid-run)
 RUN_STALE_AFTER = timedelta(hours=2)
+# Transient download failures are retried with exponential backoff and jitter
+MAX_RETRIES = int(os.getenv("SCHEDULER_RETRIES", "3"))
+RETRY_BASE_SECONDS = float(os.getenv("SCHEDULER_RETRY_BASE_SECONDS", "10"))
+RETRY_MAX_SECONDS = float(os.getenv("SCHEDULER_RETRY_MAX_SECONDS", "300"))
 
 _executor = ThreadPoolExecutor(max_workers=MAX_PARALLEL_RUNS, thread_name_prefix="schedule")
 _stop = threading.Event()
@@ -43,6 +49,42 @@ def claim(db, schedule: Schedule, now: datetime) -> bool:
     return result.rowcount == 1
 
 
+def _download(schedule: Schedule) -> tuple:
+    """(content bytes, filename) of one occurrence: a file URL, or every page of a JSON REST API as CSV."""
+    from backend.api.upload import _validate_upload_name, download_dataset, pull_api_source
+    if (schedule.source_type or "file") == "api":
+        from backend.utils.api_connector import to_csv_bytes
+        options = json.loads(schedule.connector_json or "{}")
+        df, _ = pull_api_source(schedule.source_url, options.get("records_path"), options.get("pagination"),
+                                options.get("max_pages") or 20)
+        return to_csv_bytes(df), _validate_upload_name(f"{_file_stem(schedule.name)}.csv")
+    return download_dataset(schedule.source_url, default_stem=_file_stem(schedule.name))
+
+
+def backoff_delay(attempt: int) -> float:
+    """Exponential backoff with full jitter (0.5x-1.5x), so many schedules retrying at once spread out."""
+    return min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * (2 ** (attempt - 1))) * random.uniform(0.5, 1.5)
+
+
+def with_retries(fetch, schedule_id: int):
+    """(fetch() result, attempts). Retries transient failures (network, 408/429, 5xx); others fail at once."""
+    from backend.api.upload import DatasetFetchError
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return fetch(), attempt
+        except DatasetFetchError as e:
+            if not e.retryable or attempt > MAX_RETRIES or _stop.is_set():
+                e.attempts = attempt
+                raise
+            delay = backoff_delay(attempt)
+            logger.info(f"Schedule {schedule_id}: attempt {attempt} failed ({e}); retrying in {delay:.0f}s")
+            if _stop.wait(delay):
+                e.attempts = attempt
+                raise
+
+
 def run_schedule(schedule_id: int) -> None:
     """Downloads, registers and runs one occurrence of a schedule (blocking)."""
     from backend.api.pipeline import _new_pipeline_state, _state_lock, run_langgraph_pipeline, write_pipeline_state
@@ -60,12 +102,17 @@ def run_schedule(schedule_id: int) -> None:
         schedule.last_batch_id = batch_id
         schedule.run_count = (schedule.run_count or 0) + 1
         db.commit()
+        attempts = 0
         try:
-            content, filename = download_dataset(schedule.source_url, default_stem=_file_stem(schedule.name))
+            (content, filename), attempts = with_retries(lambda: _download(schedule), schedule_id)
+            schedule.last_attempts = attempts
             upload = _store_upload(db, content, filename, "Scheduled", schedule.user_email, batch_id)
         except (DatasetFetchError, HTTPException) as e:
             schedule.last_status = "Failed"
-            schedule.last_error = getattr(e, "detail", None) or str(e)
+            schedule.last_attempts = getattr(e, "attempts", None) or attempts or 1
+            detail = getattr(e, "detail", None) or str(e)
+            tries = schedule.last_attempts
+            schedule.last_error = f"{detail} (after {tries} attempts)" if tries > 1 else detail
             schedule.last_batch_id = None
             db.commit()
             logger.warning(f"Schedule {schedule_id} ({schedule.name}) could not download its source: {schedule.last_error}")
