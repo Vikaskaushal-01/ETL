@@ -246,6 +246,23 @@ def _review_log_lines(review: Optional[dict]) -> list:
     return lines
 
 
+def _contract_log_lines(contracts: Optional[dict]) -> list:
+    if not contracts or not contracts.get("results"):
+        return []
+    s = contracts.get("summary") or {}
+    names = ", ".join(a.get("name", "") for a in contracts.get("applied") or [])
+    lines = [f"--- DATA CONTRACTS ({names}) ---",
+             f"  {s.get('passed', 0)} passed, {s.get('warned', 0)} warned, {s.get('dropped', 0)} dropped rows, "
+             f"{s.get('failed', 0)} failed | rows {s.get('rows_in', 0)} -> {s.get('rows_out', 0)}"]
+    for r in contracts["results"]:
+        if r.get("status") == "passed":
+            continue
+        count = f"{r['failed_rows']:,} rows ({r['failed_pct']}%)" if r.get("failed_rows") else (r.get("detail") or "")
+        sample = f" e.g. {', '.join(str(v) for v in r['samples'][:3])}" if r.get("samples") else ""
+        lines.append(f"  [{r['status'].upper()}] {r['rule']}: {count}{sample}")
+    return lines + [""]
+
+
 def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_by: Optional[str], summary_logs: list = None) -> str:
     """Full human-readable process log: run header, every stage's timeline and log lines, agent summaries."""
     state = read_pipeline_state(pipeline_id)
@@ -288,6 +305,7 @@ def build_process_log(pipeline_id: str, batch_id: str, filename: str, uploaded_b
     if state.get("error"):
         lines.append(f"!!! RUNTIME ERROR: {state['error']}")
         lines.append("")
+    lines.extend(_contract_log_lines(state.get("contracts")))
     lines.extend(_review_log_lines(state.get("review")))
     return "\n".join(lines) + "\n"
 
