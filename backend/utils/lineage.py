@@ -143,3 +143,100 @@ def build_lineage(state: dict, filename: str, owner: Optional[str]) -> dict:
             "loaded": sum(1 for c in columns if c["loaded_to"]),
         },
     }
+
+
+def _owner_namespace(owner: Optional[str]) -> str:
+    return f"{NAMESPACE}://{(owner or 'shared').replace('@', '_at_')}"
+
+
+def _facet(schema_url: str, **body) -> dict:
+    return {"_producer": PRODUCER, "_schemaURL": schema_url, **body}
+
+
+def _ol_transformations(steps: list) -> list:
+    return [{k: s[k] for k in ("type", "subtype", "description", "masking")} for s in steps] or \
+           [{"type": "DIRECT", "subtype": "IDENTITY", "description": "", "masking": False}]
+
+
+def openlineage_events(batch_id: str, state: dict, lineage: dict, filename: str) -> list:
+    """START and COMPLETE/FAIL RunEvents for the run, with schema, column lineage and quality facets."""
+    ns = _owner_namespace(lineage.get("owner"))
+    run_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{NAMESPACE}/{batch_id}"))
+    job = {
+        "namespace": NAMESPACE,
+        "name": f"agentic_etl.{os.path.splitext(filename or 'dataset')[0]}",
+        "facets": {"jobType": _facet(JOB_TYPE_SCHEMA, processingType="BATCH", integration="AGENTIC_ETL", jobType="JOB")},
+    }
+    by_id = {d["id"]: d for d in lineage["datasets"]}
+    raw = by_id["raw"]
+    inputs = [{
+        "namespace": ns, "name": raw["name"],
+        "facets": {"schema": _facet(SCHEMA_FACET_SCHEMA, fields=[{"name": c["source"]} for c in lineage["columns"]])},
+    }]
+
+    def column_facet(source_ds: dict, only_loaded: bool) -> dict:
+        fields = {}
+        for c in lineage["columns"]:
+            if not c["target"] or (only_loaded and not c["loaded_to"]):
+                continue
+            fields[c["target"]] = {"inputFields": [{
+                "namespace": ns, "name": source_ds["name"], "field": c["source"],
+                "transformations": _ol_transformations(c["transformations"]),
+            }]}
+        body = {"fields": fields}
+        if lineage["dataset_steps"]:
+            body["dataset"] = [{"namespace": ns, "name": source_ds["name"], "field": c["source"],
+                                "transformations": [{**s, "masking": False} for s in lineage["dataset_steps"]]}
+                               for c in lineage["columns"] if c["target"]][:50]
+        return _facet(COLUMN_LINEAGE_SCHEMA, **body)
+
+    outputs = []
+    target_fields = [{"name": c["target"]} for c in lineage["columns"] if c["target"]]
+    if "clean" in by_id:
+        facets = {"schema": _facet(SCHEMA_FACET_SCHEMA, fields=target_fields), "columnLineage": column_facet(raw, False)}
+        contract_results = (state.get("contracts") or {}).get("results") or []
+        if contract_results:
+            facets["dataQualityAssertions"] = _facet(DQ_ASSERTIONS_SCHEMA, assertions=[
+                {"assertion": r["rule"], "success": r["status"] == "passed", **({"column": r["column"]} if r.get("column") else {})}
+                for r in contract_results])
+        outputs.append({"namespace": ns, "name": by_id["clean"]["name"], "facets": facets})
+    for table_id in ("staging", "production"):
+        if table_id in by_id:
+            outputs.append({"namespace": f"{NAMESPACE}://warehouse", "name": by_id[table_id]["name"],
+                            "facets": {"columnLineage": column_facet(raw, True)}})
+
+    status = state.get("status")
+    start = state.get("start_time") or datetime.utcnow().isoformat()
+    end = state.get("end_time") or datetime.utcnow().isoformat()
+    base = {"producer": PRODUCER, "schemaURL": RUN_EVENT_SCHEMA, "run": {"runId": run_id}, "job": job}
+    events = [{**base, "eventType": "START", "eventTime": _z(start), "inputs": inputs, "outputs": []}]
+    if status and status != "Running":
+        events.append({**base, "eventType": "FAIL" if status == "Failed" else "COMPLETE", "eventTime": _z(end),
+                       "inputs": inputs, "outputs": outputs})
+    return events
+
+
+def _z(iso: str) -> str:
+    return iso if iso.endswith("Z") or "+" in iso[10:] else f"{iso}Z"
+
+
+def emit_openlineage(events: list) -> None:
+    """POSTs events to OPENLINEAGE_URL (e.g. Marquez: http://marquez:5000) in the background, if configured."""
+    if not OPENLINEAGE_URL or not events:
+        return
+
+    def send():
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if OPENLINEAGE_API_KEY:
+            headers["Authorization"] = f"Bearer {OPENLINEAGE_API_KEY}"
+        for event in events:
+            try:
+                r = httpx.post(f"{OPENLINEAGE_URL}/api/v1/lineage", content=json.dumps(event), headers=headers, timeout=10)
+                if r.status_code >= 300:
+                    logger.warning(f"OpenLineage endpoint answered HTTP {r.status_code} for {event['eventType']}")
+            except Exception as e:
+                logger.warning(f"Could not send OpenLineage event: {e}")
+                return
+
+    threading.Thread(target=send, name="openlineage", daemon=True).start()
