@@ -427,6 +427,7 @@ def storage_node(state: PipelineState) -> dict:
                 "formatted_file_path": res.get("formatted_file_path"),
                 "rows_loaded": val_res.get("rows_loaded"),
                 "rows_rejected": val_res.get("rows_rejected"),
+                "dataset_type": val_res.get("dataset_type"),
                 "sql_preview": sql_preview
             },
             logs=[
