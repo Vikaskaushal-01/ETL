@@ -112,8 +112,11 @@ def run_details(batch_id: str, db: Session = Depends(get_db), x_user_email: Opti
     metadata = report.get("metadata") or {}
     validation = report.get("validation_results") or {}
     rejected = validation.get("rejected_records") or []
+    state = read_pipeline_state(f"pipe_{batch_id}")
     return {
         "run": run,
+        "contracts": state.get("contracts"),
+        "observability": state.get("observability"),
         "has_report": bool(report),
         "summary": report.get("business_summary"),
         "quality_score": report.get("quality_score", run.get("quality_after")),
