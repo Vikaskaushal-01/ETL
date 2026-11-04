@@ -173,3 +173,64 @@ def run_results(batch_id: str, db: Session = Depends(get_db), x_user_email: Opti
     from backend.api.pipeline import _require_batch_access, read_pipeline_state
     _require_batch_access(db, batch_id, x_user_email)
     return read_pipeline_state(f"pipe_{batch_id}").get("contracts") or {"applied": [], "results": [], "summary": None}
+
+
+# ---------- enforcement during a run ----------
+
+def _write_like(df: pd.DataFrame, path: str) -> None:
+    """Rewrites a cleaned file in its own format (same writers as the Transformation Agent)."""
+    from backend.utils.file_utils import detect_file_info
+    ext = os.path.splitext(path.lower())[1]
+    tmp = f"{path}.contract.tmp"
+    if ext in (".json", ".ipynb"):
+        df.to_json(tmp, orient="records", indent=2)
+    elif ext in (".xlsx", ".xls"):
+        df.to_excel(tmp, index=False, engine="openpyxl")
+    elif ext == ".tsv":
+        df.to_csv(tmp, sep="\t", index=False)
+    elif ext == ".xml":
+        df.to_xml(tmp, index=False, parser="etree")
+    else:
+        sep = detect_file_info(path).get("delimiter") or ","
+        df.to_csv(tmp, sep=sep, index=False)
+    os.replace(tmp, path)
+
+
+def contracts_for(owner: Optional[str], filename: str) -> list:
+    db = SessionLocal()
+    try:
+        rows = db.query(DataContract).filter(DataContract.user_email == owner, DataContract.enabled == True).all()  # noqa: E712
+        return [c for c in rows if engine.matches_dataset(c.dataset_pattern, filename)]
+    finally:
+        db.close()
+
+
+def apply_contracts(owner: Optional[str], filename: str, clean_path: str) -> Optional[dict]:
+    """
+    Checks every enabled contract of the owner that matches the file, drops rows for 'drop' rules (rewriting
+    the cleaned file) and raises ContractViolation when a 'fail' rule is broken. Returns the outcome, or None
+    when no contract applies.
+    """
+    matching = contracts_for(owner, filename)
+    if not matching:
+        return None
+    df = read_dataset(clean_path)
+    rows_in = len(df)
+    rules, applied = [], []
+    for c in matching:
+        contract_rules = json.loads(c.rules_json or "[]")
+        applied.append({"id": c.id, "name": c.name, "dataset_pattern": c.dataset_pattern, "rules": len(contract_rules)})
+        rules.extend({**r, "contract": c.name} for r in contract_rules)
+    out, results, failed = engine.evaluate(df, rules)
+    for res, rule in zip(results, rules):
+        res["contract"] = rule["contract"]
+    outcome = {"applied": applied, "results": results, "summary": engine.summarize(results, rows_in, len(out))}
+    if failed:
+        broken = [r for r in results if r["status"] == "failed"]
+        detail = "; ".join(f"{r['rule']}" + (f" ({r['failed_rows']:,} rows)" if r["failed_rows"] else f" ({r['detail']})" if r["detail"] else "")
+                           for r in broken[:5])
+        raise engine.ContractViolation(
+            f"Data contract violated, nothing was loaded: {detail}{' ...' if len(broken) > 5 else ''}", outcome)
+    if len(out) != rows_in:
+        _write_like(out, clean_path)
+    return outcome
