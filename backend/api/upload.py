@@ -71,21 +71,30 @@ async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db
 
 
 class DatasetFetchError(Exception):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(self, message: str, status_code: int = 400, retryable: bool = False):
         super().__init__(message)
         self.status_code = status_code
+        # Network errors, rate limits (429) and server errors (5xx) may succeed on a later attempt
+        self.retryable = retryable
+
+
+def _is_retryable_status(code: int) -> bool:
+    return code == 429 or code == 408 or code >= 500
 
 
 MAX_REDIRECTS = 5
 
 
-def _get_public(url: str):
+def _get_public(url: str, headers: Optional[dict] = None):
     """GET that re-validates every redirect target, so a public URL cannot bounce the server to an internal one."""
     import httpx
-    from urllib.parse import urljoin
+    from urllib.parse import urljoin, urlparse
+    origin = urlparse(url).netloc
     for _ in range(MAX_REDIRECTS + 1):
         validate_public_url(url)
-        response = httpx.get(url, follow_redirects=False, timeout=20.0)
+        # Credentials are only sent to the host they were given for, never to a redirect target elsewhere
+        send_headers = headers if headers and urlparse(url).netloc == origin else None
+        response = httpx.get(url, follow_redirects=False, timeout=20.0, headers=send_headers)
         if not response.is_redirect:
             return response
         url = urljoin(url, response.headers.get("location", ""))
@@ -106,9 +115,10 @@ def download_dataset(url: str, default_stem: str = "downloaded_data") -> tuple:
     except ValueError as ve:
         raise DatasetFetchError(str(ve))
     except Exception as e:
-        raise DatasetFetchError(f"Failed to fetch URL: {str(e)}")
+        raise DatasetFetchError(f"Failed to fetch URL: {str(e)}", retryable=True)
     if response.status_code != 200:
-        raise DatasetFetchError(f"Failed to fetch URL. Status code: {response.status_code}")
+        raise DatasetFetchError(f"Failed to fetch URL. Status code: {response.status_code}",
+                                retryable=_is_retryable_status(response.status_code))
     if len(response.content) > MAX_UPLOAD_BYTES:
         raise DatasetFetchError("The downloaded file exceeds the upload size limit.", 413)
     content_type = response.headers.get("content-type", "").lower()
