@@ -165,6 +165,65 @@ async def upload_file_from_url(
 
 
 
+class ApiSourceRequest(BaseModel):
+    url: str
+    name: Optional[str] = None
+    records_path: Optional[str] = None
+    pagination: Optional[dict] = None   # {"type": "auto|none|page|offset|cursor|link", "page_size": 100, ...}
+    max_pages: Optional[int] = 20
+    headers: Optional[dict] = None      # e.g. {"Authorization": "Bearer ..."}; used for this request only, never stored
+
+
+def pull_api_source(url: str, records_path: Optional[str] = None, pagination: Optional[dict] = None,
+                    max_pages: int = 20, headers: Optional[dict] = None):
+    """Downloads a paginated JSON API into a DataFrame. Raises DatasetFetchError. Blocking."""
+    from backend.utils.api_connector import ApiConnectorError, fetch_records, to_frame
+    try:
+        validate_public_url(url)
+        result = fetch_records(url, records_path, pagination, max_pages, headers)
+    except ApiConnectorError as e:
+        raise DatasetFetchError(str(e), retryable=e.retryable)
+    except ValueError as e:
+        raise DatasetFetchError(str(e))
+    df = to_frame(result["records"])
+    if df.empty:
+        raise DatasetFetchError("The API returned no records.")
+    return df, result
+
+
+async def _pull_api(req: ApiSourceRequest):
+    from starlette.concurrency import run_in_threadpool
+    try:
+        return await run_in_threadpool(pull_api_source, req.url.strip(), req.records_path, req.pagination,
+                                       req.max_pages or 20, req.headers)
+    except DatasetFetchError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+
+
+def _api_summary(df, result: dict) -> dict:
+    return {"pages": result["pages"], "records": len(df), "columns": [str(c) for c in df.columns],
+            "records_path": result["records_path"], "pagination": result["pagination"], "truncated": result["truncated"]}
+
+
+@router.post("/api/preview")
+async def preview_api_source(req: ApiSourceRequest):
+    """Fetches up to 2 pages and shows what would be ingested: detected records path, columns, first rows."""
+    import pandas as pd
+    df, result = await _pull_api(req.model_copy(update={"max_pages": min(req.max_pages or 2, 2)}))
+    head = df.head(20).astype(object).where(pd.notnull(df.head(20)), None)
+    return {**_api_summary(df, result), "preview": head.to_dict(orient="records")}
+
+
+@router.post("/api")
+async def upload_from_api(req: ApiSourceRequest, db: Session = Depends(get_db), x_user_email: Optional[str] = Header(None)):
+    """Pulls every page of a JSON REST API, flattens it to a CSV upload and registers it for the pipeline."""
+    from backend.utils.api_connector import file_name_for, to_csv_bytes
+    df, result = await _pull_api(req)
+    filename = _validate_upload_name(file_name_for(req.url, req.name))
+    stored = _store_upload(db, to_csv_bytes(df), filename, "REST_API", x_user_email, f"batch_{uuid.uuid4().hex[:8]}")
+    return {**stored, **_api_summary(df, result)}
+
+
 class RealtimeUploadRequest(BaseModel):
     stream_type: Optional[str] = "transactions" # transactions | iot_sensors | ecommerce_orders | custom
     stream_url: Optional[str] = None
