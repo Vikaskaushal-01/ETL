@@ -72,6 +72,13 @@ async function uploadForJob(job) {
             body: JSON.stringify({ url: job.url })
         });
     }
+    if (job.kind === 'api') {
+        return fetchJson('/api/v1/upload/api', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(job.apiRequest)
+        });
+    }
     if (job.kind === 'stream') return uploadRealtimeStream(job.streamType, job.recordCount, job.cycle, job.streamUrl);
     if (job.kind === 'rerun') return { file_path: job.rawFile, batch_id: job.batchId };
     return null;
@@ -88,6 +95,7 @@ async function runJob(job) {
     } catch (e) {
         job.error = e.message;
     }
+    if (job.apiRequest) job.apiRequest = { ...job.apiRequest, headers: null }; // credentials are used once
     if (job.status === 'cancelled') return;
     if (!upload) return finishJob(job, 'failed', job.error || 'Upload failed.');
 

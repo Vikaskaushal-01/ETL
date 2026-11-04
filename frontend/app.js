@@ -118,6 +118,7 @@ function initAppShell() {
         'storage-view': { title: 'Storage', crumb: 'Raw uploads, cleaned data, reports, logs & exports' },
         'powerbi-view': { title: 'Power BI', crumb: 'Star-schema dataset exports & DAX measures' },
         'schedules-view': { title: 'Schedules', crumb: 'Ingest a URL automatically on an interval' },
+        'quality-view': { title: 'Data Quality', crumb: 'Anomalies, freshness and data contracts for every dataset' },
         'review-view': { title: 'Human Review', crumb: 'Files the AI could not process or that need a human decision' },
         'review-editor-view': { title: 'Fix data', crumb: 'Correct the file, then run it through the pipeline again' }
     };
@@ -128,6 +129,7 @@ function initAppShell() {
         'storage-view': () => loadExplorerFiles(),
         'powerbi-view': () => window.loadPowerBIView && window.loadPowerBIView(),
         'schedules-view': () => window.loadSchedulesView && window.loadSchedulesView(),
+        'quality-view': () => window.loadQualityView && window.loadQualityView(),
         'review-view': () => window.loadReviewView && window.loadReviewView()
     };
 
@@ -229,12 +231,15 @@ window.switchIngestMode = function(mode) {
     const tabUrl = document.getElementById('tab-mode-url');
     const dropZone = document.getElementById('file-drop-zone');
     const urlPanel = document.getElementById('url-ingest-panel');
+    const apiPanel = document.getElementById('api-ingest-panel');
     const streamPanel = document.getElementById('realtime-stream-panel');
     const realtimePill = document.getElementById('realtime-header-pill');
 
     if (mode !== 'realtime' && state.isStreaming) window.stopRealtimeStreamRunner();
     if (tabBatch) tabBatch.classList.toggle('active', mode === 'batch');
     if (tabUrl) tabUrl.classList.toggle('active', mode === 'url');
+    document.getElementById('tab-mode-api')?.classList.toggle('active', mode === 'api');
+    if (apiPanel) apiPanel.style.display = mode === 'api' ? 'flex' : 'none';
     if (tabRealtime) tabRealtime.classList.toggle('active', mode === 'realtime');
     if (dropZone) dropZone.style.display = mode === 'batch' ? 'block' : 'none';
     if (urlPanel) urlPanel.style.display = mode === 'url' ? 'flex' : 'none';
@@ -253,6 +258,8 @@ function updateRunButtonLabel() {
             : '<i class="fa-solid fa-satellite-dish"></i> Start Streaming';
     } else if (state.ingestMode === 'url') {
         runBtn.innerHTML = '<i class="fa-solid fa-link"></i> Fetch URLs & Run Data Flow';
+    } else if (state.ingestMode === 'api') {
+        runBtn.innerHTML = '<i class="fa-solid fa-plug"></i> Pull API & Run Data Flow';
     } else {
         const n = (state.selectedFiles || []).length;
         runBtn.innerHTML = n > 1
@@ -927,6 +934,14 @@ function runIngestionCycle() {
         urls.forEach(url => enqueueJob({ kind: 'url', url, label: osBasename(url.split('?')[0]) || url }));
         queued = urls.length;
         if (urlEl) urlEl.value = '';
+    } else if (state.ingestMode === 'api') {
+        const apiRequest = window.apiSourceRequest();
+        if (!apiRequest.url) {
+            showToast('error', 'Enter the API endpoint URL.');
+            return;
+        }
+        enqueueJob({ kind: 'api', apiRequest, label: `API ${osBasename(apiRequest.url.split('?')[0]) || apiRequest.url}` });
+        queued = 1;
     } else {
         if (!state.selectedFiles.length) {
             showToast('error', 'Choose at least one file to ingest.');
