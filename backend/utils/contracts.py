@@ -309,3 +309,64 @@ def summarize(results: list, rows_in: int, rows_out: int) -> dict:
         "rows_out": rows_out,
         "passed_all": counts["warned"] + counts["dropped"] + counts["failed"] == 0,
     }
+
+
+# ---------- suggestions ----------
+
+_ID_RE = re.compile(r"(^|_)(id|key|code|uuid|sku)$")
+_EMAIL_RE = r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}"
+
+
+def suggest_rules(df: pd.DataFrame, max_categories: int = 12) -> list:
+    """
+    Proposes a contract from a known-good dataset, like Soda / GX profilers: required columns, keys, ranges,
+    categories and types. Every suggestion is a 'warn' rule; the user decides what should drop or fail.
+    """
+    rules = []
+    n = len(df)
+    if n:
+        rules.append({"type": "row_count_min", "column": None, "params": {"value": max(1, n // 2)}, "action": "warn",
+                      "description": "Alert when a delivery has less than half the rows of this one."})
+    for col in df.columns:
+        series = df[col]
+        empty = _is_empty(series)
+        non_empty = series[~empty]
+        name = str(col)
+        rules.append({"type": "column_exists", "column": name, "params": {}, "action": "fail",
+                      "description": "The column is part of the agreed schema."})
+        if not len(non_empty):
+            continue
+        null_pct = float(empty.mean() * 100)
+        if null_pct == 0:
+            rules.append({"type": "not_null", "column": name, "params": {}, "action": "warn"})
+        else:
+            rules.append({"type": "max_null_pct", "column": name, "params": {"max": round(min(100.0, null_pct * 2 + 5), 1)},
+                          "action": "warn"})
+        if _ID_RE.search(standardize_column_name(name)) and non_empty.is_unique and len(non_empty) == n:
+            rules.append({"type": "unique", "column": name, "params": {}, "action": "warn"})
+        nums = pd.to_numeric(non_empty, errors="coerce")
+        if nums.notna().all():
+            is_int = bool((nums % 1 == 0).all())
+            rules.append({"type": "type", "column": name, "params": {"kind": "integer" if is_int else "numeric"}, "action": "warn"})
+            lo, hi = float(nums.min()), float(nums.max())
+            span = (hi - lo) or abs(hi) or 1.0
+            if lo >= 0:
+                rules.append({"type": "between", "column": name, "params": {"min": 0, "max": round(hi + span, 4)}, "action": "warn",
+                              "description": "Never negative; upper bound is twice the observed spread."})
+            else:
+                rules.append({"type": "between", "column": name, "params": {"min": round(lo - span, 4), "max": round(hi + span, 4)},
+                              "action": "warn"})
+            continue
+        texts = non_empty.astype(str).str.strip()
+        if texts.str.fullmatch(_EMAIL_RE).mean() > 0.95:
+            rules.append({"type": "regex", "column": name, "params": {"pattern": _EMAIL_RE}, "action": "warn",
+                          "description": "Looks like an e-mail address."})
+            continue
+        distinct = texts.nunique()
+        is_identifier = bool(_ID_RE.search(standardize_column_name(name)))
+        if 1 < distinct <= max_categories and n >= distinct * 3 and not is_identifier:
+            rules.append({"type": "allowed_values", "column": name, "params": {"values": sorted(texts.unique().tolist())},
+                          "action": "warn"})
+        elif len(texts) >= 5 and parse_dates(texts).notna().mean() > 0.95:
+            rules.append({"type": "type", "column": name, "params": {"kind": "date"}, "action": "warn"})
+    return validate_rules(rules) if rules else []
